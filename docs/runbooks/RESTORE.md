@@ -44,6 +44,15 @@ Follow `docs/phases/phase-00/subphase-00-01-case-feasibility.md`, then the lates
 
 Run `npm run check`, then confirm the paper-intake tests cover a text-readable PDF, invalid input, an oversized upload, and a PDF without extractable text. Paper bytes must be hashed before parsing, and extracted text must retain page numbers for later evidence citations.
 
-## 7. Resume development
+## 7. Verify repository acquisition
+
+```bash
+npm run build
+npm run verify:curated --workspace @dejaml/repository-intake
+```
+
+The receipt must report commit `49ece7ff4cc43fd4cb258678d44854f1cb2a417d` and `cleanedUp: true`. A commit mismatch means the curated case or acquisition policy must be reviewed before continuing.
+
+## 8. Resume development
 
 Resume only from the first `PENDING`, `IN PROGRESS`, or `REGRESSED` sub-phase in `ROADMAP.md`. When it passes, create or update its phase note before moving on.

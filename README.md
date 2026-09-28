@@ -16,6 +16,7 @@ The project is being built as one reliable vertical slice around the Urban Land 
 - [Restoration runbook](docs/runbooks/RESTORE.md)
 - [Curated case](cases/urban-land-cover/README.md)
 - [Paper intake](packages/paper-intake/README.md)
+- [Repository intake](packages/repository-intake/README.md)
 - [Real-time run store](packages/run-store/README.md)
 
 ## Product roles
@@ -44,4 +45,4 @@ Do not infer readiness from directory presence. The authoritative implementation
 
 ## Backend progress
 
-The backend foundation now includes validated shared contracts, bounded PDF validation and page-level text extraction, immutable source hashing, a deterministic curated experiment, an append-only SQLite run/event store, live in-process subscriptions, refresh-safe event replay, and a full parallel-research event fixture.
+The backend foundation now includes validated shared contracts, bounded PDF validation and page-level text extraction, immutable source hashing, page-anchored GitHub discovery, guarded public-repository acquisition with commit pinning, a deterministic curated experiment, an append-only SQLite run/event store, live in-process subscriptions, refresh-safe event replay, and a full parallel-research event fixture.

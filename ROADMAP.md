@@ -51,11 +51,11 @@ Implement append-only run/event persistence and create a deterministic full-run 
 
 Validate uploads, hash the PDF, extract page-anchored text, and store extraction evidence.
 
-### 2.2 Repository discovery and acquisition — `IN PROGRESS`
+### 2.2 Repository discovery and acquisition — `DONE`
 
 Extract candidate GitHub URLs, validate targets, shallow-clone the selected repository, and pin its commit.
 
-### 2.3 Parallel analysts — `PENDING`
+### 2.3 Parallel analysts — `IN PROGRESS`
 
 Implement Paper Analyst and Code Analyst as independent structured sessions with narrow capabilities.
 

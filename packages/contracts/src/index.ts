@@ -8,6 +8,16 @@ export const CommitShaSchema = z
   .string()
   .regex(/^[a-f0-9]{40}$/, "expected a full lowercase Git commit SHA");
 
+export const GithubRepositoryUrlSchema = z
+  .url()
+  .regex(
+    /^https:\/\/github\.com\/[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?\/[A-Za-z0-9._-]{1,100}$/,
+    "expected a canonical HTTPS GitHub repository URL",
+  )
+  .refine((value) => !value.endsWith("/.") && !value.endsWith("/.."), {
+    message: "repository name cannot be a dot path",
+  });
+
 export const RunStatusSchema = z.enum([
   "queued",
   "ingesting",
@@ -44,6 +54,30 @@ export const PaperDocumentSchema = z.object({
   warnings: z.array(z.string()),
 });
 
+export const RepositoryCandidateSchema = z.object({
+  repositoryUrl: GithubRepositoryUrlSchema,
+  owner: z.string().min(1),
+  name: z.string().min(1),
+  occurrences: z
+    .array(
+      z.object({
+        pageNumber: z.number().int().positive(),
+        rawUrl: z.string().min(1),
+      }),
+    )
+    .min(1),
+});
+
+export const RepositoryAcquisitionSchema = z.object({
+  schemaVersion: z.literal(1),
+  repositoryUrl: GithubRepositoryUrlSchema,
+  commitSha: CommitShaSchema,
+  defaultBranch: z.string().min(1),
+  repositorySizeKb: z.number().int().nonnegative(),
+  destination: z.string().min(1),
+  acquiredAt: z.iso.datetime({ offset: true }),
+});
+
 export const EvidencePointerSchema = z.object({
   kind: z.enum(["paper_page", "repository_file", "log_line", "artifact"]),
   reference: z.string().min(1),
@@ -77,9 +111,7 @@ export const ArgvCommandSchema = z.object({
 });
 
 export const CodeMappingSchema = z.object({
-  repositoryUrl: z.url().refine((value) => value.startsWith("https://github.com/"), {
-    message: "only HTTPS GitHub repository URLs are supported",
-  }),
+  repositoryUrl: GithubRepositoryUrlSchema,
   commitSha: CommitShaSchema,
   entrypoint: z.string().min(1),
   relevantFiles: z
@@ -144,7 +176,7 @@ export const MetricExtractionSchema = z
 export const ExperimentPlanSchema = z.object({
   caseId: z.string().min(1),
   repository: z.object({
-    url: z.url().refine((value) => value.startsWith("https://github.com/")),
+    url: GithubRepositoryUrlSchema,
     commitSha: CommitShaSchema,
   }),
   claim: ClaimSchema,
@@ -231,6 +263,8 @@ export const AssessmentSchema = z.object({
 export type RunStatus = z.infer<typeof RunStatusSchema>;
 export type PaperPage = z.infer<typeof PaperPageSchema>;
 export type PaperDocument = z.infer<typeof PaperDocumentSchema>;
+export type RepositoryCandidate = z.infer<typeof RepositoryCandidateSchema>;
+export type RepositoryAcquisition = z.infer<typeof RepositoryAcquisitionSchema>;
 export type Claim = z.infer<typeof ClaimSchema>;
 export type CodeMapping = z.infer<typeof CodeMappingSchema>;
 export type ExperimentPlan = z.infer<typeof ExperimentPlanSchema>;

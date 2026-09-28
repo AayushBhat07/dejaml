@@ -244,14 +244,18 @@ Repository acquisition is performed by a trusted backend service rather than by 
 
 Initial policy:
 
-- HTTPS GitHub URLs only;
-- public repositories only;
-- shallow clone;
+- canonical `https://github.com/{owner}/{repository}` URLs only;
+- fixed-origin GitHub API metadata check with redirects disabled;
+- public repositories no larger than 100,000 KiB;
+- shallow, single-branch, blob-filtered clone with no tags;
 - no submodules;
-- bounded clone time and size;
+- Git runs without a shell, credential prompts, or local-file transport;
+- bounded clone time, command output, checked-out files, and checked-out bytes;
 - pin and record the resolved commit SHA;
+- verify the cloned origin still matches the approved repository;
 - reject local, loopback, private-network, SSH, and `file://` targets;
-- keep the acquired repository read-only for analysis.
+- keep the acquired repository read-only for analysis;
+- remove only internally named checkout directories beneath the configured acquisition root.
 
 ### 6.5 Research orchestrator
 
