@@ -8,8 +8,15 @@
     "type": "run_created",
     "status": "completed",
     "summary": "Study created and paper fingerprint recorded",
-    "evidence": [{ "kind": "artifact", "reference": "paper.pdf#sha256" }],
-    "publicPayload": { "status": "queued" }
+    "evidence": [
+      {
+        "kind": "artifact",
+        "reference": "paper.pdf#sha256"
+      }
+    ],
+    "publicPayload": {
+      "status": "queued"
+    }
   },
   {
     "id": "evt_002",
@@ -21,7 +28,9 @@
     "status": "started",
     "summary": "Reading the paper and locating testable claims",
     "evidence": [],
-    "publicPayload": { "lane": "paper" }
+    "publicPayload": {
+      "lane": "paper"
+    }
   },
   {
     "id": "evt_003",
@@ -32,8 +41,15 @@
     "type": "analysis_started",
     "status": "started",
     "summary": "Inspecting the pinned repository revision",
-    "evidence": [{ "kind": "repository_file", "reference": "commit:49ece7ff" }],
-    "publicPayload": { "lane": "code" }
+    "evidence": [
+      {
+        "kind": "repository_file",
+        "reference": "commit:49ece7ff"
+      }
+    ],
+    "publicPayload": {
+      "lane": "code"
+    }
   },
   {
     "id": "evt_004",
@@ -44,8 +60,16 @@
     "type": "repository_found",
     "status": "progress",
     "summary": "Found the implementation repository linked by the paper",
-    "evidence": [{ "kind": "paper_page", "reference": "page 1", "excerpt": "See code: github.com/mtesha/tdl-vs-ml-urbanlandcover" }],
-    "publicPayload": { "host": "github.com" }
+    "evidence": [
+      {
+        "kind": "paper_page",
+        "reference": "page 1",
+        "excerpt": "See code: github.com/mtesha/tdl-vs-ml-urbanlandcover"
+      }
+    ],
+    "publicPayload": {
+      "host": "github.com"
+    }
   },
   {
     "id": "evt_005",
@@ -56,8 +80,15 @@
     "type": "entrypoint_found",
     "status": "progress",
     "summary": "Located the Random Forest implementation in the experiment notebook",
-    "evidence": [{ "kind": "repository_file", "reference": "Urban Land Cover Classification.ipynb" }],
-    "publicPayload": { "model": "RandomForestClassifier" }
+    "evidence": [
+      {
+        "kind": "repository_file",
+        "reference": "Urban Land Cover Classification.ipynb"
+      }
+    ],
+    "publicPayload": {
+      "model": "RandomForestClassifier"
+    }
   },
   {
     "id": "evt_006",
@@ -68,8 +99,18 @@
     "type": "claim_found",
     "status": "completed",
     "summary": "Extracted Random Forest test accuracy of 81.66%",
-    "evidence": [{ "kind": "paper_page", "reference": "page 4, Table 2", "excerpt": "Random Forest — Test Acc. 81.66" }],
-    "publicPayload": { "metric": "accuracy", "value": 81.66, "unit": "percent" }
+    "evidence": [
+      {
+        "kind": "paper_page",
+        "reference": "page 4, Table 2",
+        "excerpt": "Random Forest — Test Acc. 81.66"
+      }
+    ],
+    "publicPayload": {
+      "metric": "accuracy",
+      "value": 81.66,
+      "unit": "percent"
+    }
   },
   {
     "id": "evt_007",
@@ -80,8 +121,15 @@
     "type": "reproducibility_warning",
     "status": "warning",
     "summary": "The validation split seed is not fixed in the repository notebook",
-    "evidence": [{ "kind": "repository_file", "reference": "Urban Land Cover Classification.ipynb#train_test_split" }],
-    "publicPayload": { "missingField": "validationSplitSeed" }
+    "evidence": [
+      {
+        "kind": "repository_file",
+        "reference": "Urban Land Cover Classification.ipynb#train_test_split"
+      }
+    ],
+    "publicPayload": {
+      "missingField": "validationSplitSeed"
+    }
   },
   {
     "id": "evt_008",
@@ -92,8 +140,15 @@
     "type": "mapping_completed",
     "status": "completed",
     "summary": "Mapped the paper claim to a CPU-compatible Random Forest run",
-    "evidence": [{ "kind": "repository_file", "reference": "Urban Land Cover Classification.ipynb" }],
-    "publicPayload": { "cpuCompatible": true }
+    "evidence": [
+      {
+        "kind": "repository_file",
+        "reference": "Urban Land Cover Classification.ipynb"
+      }
+    ],
+    "publicPayload": {
+      "cpuCompatible": true
+    }
   },
   {
     "id": "evt_009",
@@ -105,7 +160,9 @@
     "status": "started",
     "summary": "Comparing the paper claim with repository evidence",
     "evidence": [],
-    "publicPayload": { "waitingFor": [] }
+    "publicPayload": {
+      "waitingFor": []
+    }
   },
   {
     "id": "evt_010",
@@ -116,8 +173,16 @@
     "type": "plan_approved",
     "status": "completed",
     "summary": "Approved one deterministic CPU experiment with seed 42",
-    "evidence": [{ "kind": "artifact", "reference": "experiment-plan.json" }],
-    "publicPayload": { "caseId": "urban-land-cover-random-forest", "seed": 42 }
+    "evidence": [
+      {
+        "kind": "artifact",
+        "reference": "experiment-plan.json"
+      }
+    ],
+    "publicPayload": {
+      "caseId": "urban-land-cover-random-forest",
+      "seed": 42
+    }
   },
   {
     "id": "evt_011",
@@ -125,59 +190,398 @@
     "sequence": 11,
     "timestamp": "2026-09-28T18:00:05.000Z",
     "actor": "lab_engineer",
-    "type": "lab_started",
+    "type": "lab_create",
     "status": "started",
     "summary": "Preparing a disposable CPU research lab",
-    "evidence": [{ "kind": "artifact", "reference": "lab-spec.json" }],
-    "publicPayload": { "cpus": 2, "memoryMb": 2048, "networkDuringRun": false }
+    "evidence": [],
+    "publicPayload": {
+      "labId": "lab_demo",
+      "image": "dejaml/python-cpu:0.1.0"
+    }
   },
   {
     "id": "evt_012",
     "runId": "run_demo_ulc",
     "sequence": 12,
-    "timestamp": "2026-09-28T18:00:06.000Z",
+    "timestamp": "2026-09-28T18:00:05.200Z",
     "actor": "lab_engineer",
-    "type": "experiment_completed",
+    "type": "lab_create",
     "status": "completed",
-    "summary": "Random Forest experiment finished successfully",
-    "evidence": [{ "kind": "artifact", "reference": "artifacts/result.json" }],
-    "publicPayload": { "exitCode": 0, "durationSeconds": 0.135 }
+    "summary": "Disposable CPU lab is ready",
+    "evidence": [],
+    "publicPayload": {
+      "labId": "lab_demo",
+      "image": "dejaml/python-cpu:0.1.0",
+      "imageId": "sha256:630cac03bfdbd7207c225148a3a0e26a92b0ed3af1063a76e5a1794a373e9920",
+      "network": "none",
+      "readOnlyRoot": true,
+      "resources": {
+        "cpus": 2,
+        "memoryMb": 2048,
+        "pids": 128,
+        "timeoutSeconds": 120,
+        "networkDuringRun": false
+      }
+    }
   },
   {
     "id": "evt_013",
     "runId": "run_demo_ulc",
     "sequence": 13,
-    "timestamp": "2026-09-28T18:00:06.200Z",
-    "actor": "result_verifier",
-    "type": "comparison_started",
+    "timestamp": "2026-09-28T18:00:05.400Z",
+    "actor": "lab_engineer",
+    "type": "attempt",
     "status": "started",
-    "summary": "Checking metric, dataset, split, and units before comparison",
+    "summary": "Running baseline attempt 1",
     "evidence": [],
-    "publicPayload": {}
+    "publicPayload": {
+      "labId": "lab_demo",
+      "attemptId": "run_demo_ulc:attempt-1",
+      "executable": "python",
+      "args": [
+        "runner.py",
+        "--training",
+        "data/training.csv",
+        "--testing",
+        "data/testing.csv",
+        "--output",
+        "artifacts/result.json"
+      ],
+      "cwd": "/workspace/case",
+      "timeoutSeconds": 120
+    }
   },
   {
     "id": "evt_014",
     "runId": "run_demo_ulc",
     "sequence": 14,
-    "timestamp": "2026-09-28T18:00:06.600Z",
-    "actor": "result_verifier",
-    "type": "comparison_completed",
-    "status": "completed",
-    "summary": "Observed 79.88%, which is 1.78 percentage points below the paper",
-    "evidence": [{ "kind": "artifact", "reference": "artifacts/result.json" }, { "kind": "paper_page", "reference": "page 4, Table 2" }],
-    "publicPayload": { "paperValue": 81.66, "observedValue": 79.88, "signedDifference": -1.78, "verdict": "different_result" }
+    "timestamp": "2026-09-28T18:00:05.600Z",
+    "actor": "lab_engineer",
+    "type": "lab_telemetry",
+    "status": "progress",
+    "summary": "Resource usage sampled",
+    "evidence": [],
+    "publicPayload": {
+      "labId": "lab_demo",
+      "attemptId": "run_demo_ulc:attempt-1",
+      "elapsedMs": 1500,
+      "cpuPercent": 164.2,
+      "memoryBytes": 111883059,
+      "memoryLimitBytes": 2147483648,
+      "memoryPercent": 5.21,
+      "pids": 9,
+      "limits": {
+        "cpus": 2,
+        "memoryMb": 2048,
+        "pids": 128
+      }
+    }
   },
   {
     "id": "evt_015",
     "runId": "run_demo_ulc",
     "sequence": 15,
-    "timestamp": "2026-09-28T18:00:07.000Z",
-    "actor": "system",
-    "type": "cleanup_completed",
+    "timestamp": "2026-09-28T18:00:05.800Z",
+    "actor": "lab_engineer",
+    "type": "lab_telemetry",
+    "status": "progress",
+    "summary": "Resource usage sampled",
+    "evidence": [],
+    "publicPayload": {
+      "labId": "lab_demo",
+      "attemptId": "run_demo_ulc:attempt-1",
+      "elapsedMs": 2750,
+      "cpuPercent": 97.1,
+      "memoryBytes": 129289421,
+      "memoryLimitBytes": 2147483648,
+      "memoryPercent": 6.02,
+      "pids": 9,
+      "limits": {
+        "cpus": 2,
+        "memoryMb": 2048,
+        "pids": 128
+      }
+    }
+  },
+  {
+    "id": "evt_016",
+    "runId": "run_demo_ulc",
+    "sequence": 16,
+    "timestamp": "2026-09-28T18:00:06.000Z",
+    "actor": "lab_engineer",
+    "type": "artifact_changed",
+    "status": "progress",
+    "summary": "Created artifacts/result.json",
+    "evidence": [
+      {
+        "kind": "artifact",
+        "reference": "artifacts/result.json"
+      }
+    ],
+    "publicPayload": {
+      "labId": "lab_demo",
+      "attemptId": "run_demo_ulc:attempt-1",
+      "path": "artifacts/result.json",
+      "bytes": 134,
+      "change": "created"
+    }
+  },
+  {
+    "id": "evt_017",
+    "runId": "run_demo_ulc",
+    "sequence": 17,
+    "timestamp": "2026-09-28T18:00:06.200Z",
+    "actor": "lab_engineer",
+    "type": "lab_output",
+    "status": "progress",
+    "summary": "2 new stdout lines",
+    "evidence": [
+      {
+        "kind": "log_line",
+        "reference": "run_demo_ulc:attempt-1/stdout"
+      }
+    ],
+    "publicPayload": {
+      "labId": "lab_demo",
+      "attemptId": "run_demo_ulc:attempt-1",
+      "stream": "stdout",
+      "lines": [
+        "DEJAML_RESULT={\"accuracyPercent\":79.88}",
+        "DEJAML_ARTIFACT=/workspace/case/artifacts/result.json"
+      ],
+      "truncatedLines": 0
+    }
+  },
+  {
+    "id": "evt_018",
+    "runId": "run_demo_ulc",
+    "sequence": 18,
+    "timestamp": "2026-09-28T18:00:06.400Z",
+    "actor": "lab_engineer",
+    "type": "attempt",
     "status": "completed",
-    "summary": "Disposable lab removed and evidence report preserved",
-    "evidence": [{ "kind": "artifact", "reference": "cleanup-receipt.json" }],
-    "publicPayload": { "labRemoved": true }
+    "summary": "Experiment finished successfully",
+    "evidence": [
+      {
+        "kind": "artifact",
+        "reference": "artifacts/result.json#sha256=138fe183a1886a1a1129d986e0dff7a8f9fe7017dc950ee6f44d0193e8968d00"
+      }
+    ],
+    "publicPayload": {
+      "labId": "lab_demo",
+      "attemptId": "run_demo_ulc:attempt-1",
+      "exitCode": 0,
+      "timedOut": false,
+      "cancelled": false,
+      "durationMs": 4000,
+      "stdoutBytes": 94,
+      "stderrBytes": 0,
+      "logsTruncated": false,
+      "artifacts": [
+        {
+          "path": "artifacts/result.json",
+          "bytes": 134,
+          "sha256": "138fe183a1886a1a1129d986e0dff7a8f9fe7017dc950ee6f44d0193e8968d00"
+        }
+      ]
+    }
+  },
+  {
+    "id": "evt_019",
+    "runId": "run_demo_ulc",
+    "sequence": 19,
+    "timestamp": "2026-09-28T18:00:06.600Z",
+    "actor": "lab_engineer",
+    "type": "artifact_read",
+    "status": "completed",
+    "summary": "Exported artifacts/result.json",
+    "evidence": [
+      {
+        "kind": "artifact",
+        "reference": "artifacts/result.json#sha256=138fe183a1886a1a1129d986e0dff7a8f9fe7017dc950ee6f44d0193e8968d00"
+      }
+    ],
+    "publicPayload": {
+      "labId": "lab_demo",
+      "path": "artifacts/result.json",
+      "bytes": 134,
+      "sha256": "138fe183a1886a1a1129d986e0dff7a8f9fe7017dc950ee6f44d0193e8968d00"
+    }
+  },
+  {
+    "id": "evt_020",
+    "runId": "run_demo_ulc",
+    "sequence": 20,
+    "timestamp": "2026-09-28T18:00:06.800Z",
+    "actor": "result_verifier",
+    "type": "comparison_started",
+    "status": "started",
+    "summary": "Checking metric, dataset, split, and units before comparison",
+    "evidence": [],
+    "publicPayload": {
+      "attemptId": "run_demo_ulc:attempt-1"
+    }
+  },
+  {
+    "id": "evt_021",
+    "runId": "run_demo_ulc",
+    "sequence": 21,
+    "timestamp": "2026-09-28T18:00:07.000Z",
+    "actor": "result_verifier",
+    "type": "metric_extracted",
+    "status": "progress",
+    "summary": "Read accuracy = 79.88 from the attempt",
+    "evidence": [
+      {
+        "kind": "artifact",
+        "reference": "artifacts/result.json#sha256=138fe183a1886a1a1129d986e0dff7a8f9fe7017dc950ee6f44d0193e8968d00",
+        "excerpt": "metrics.accuracyPercent = 79.88"
+      }
+    ],
+    "publicPayload": {
+      "metric": {
+        "name": "accuracy",
+        "value": 79.88,
+        "unit": "percent",
+        "split": "official test set",
+        "attemptId": "run_demo_ulc:attempt-1",
+        "extractionRule": "json artifacts/result.json → metrics.accuracyPercent",
+        "evidence": {
+          "kind": "artifact",
+          "reference": "artifacts/result.json#sha256=138fe183a1886a1a1129d986e0dff7a8f9fe7017dc950ee6f44d0193e8968d00",
+          "excerpt": "metrics.accuracyPercent = 79.88"
+        }
+      }
+    }
+  },
+  {
+    "id": "evt_022",
+    "runId": "run_demo_ulc",
+    "sequence": 22,
+    "timestamp": "2026-09-28T18:00:07.200Z",
+    "actor": "result_verifier",
+    "type": "comparison_completed",
+    "status": "completed",
+    "summary": "Observed 79.88%, which is 1.78 percentage points below the paper",
+    "evidence": [
+      {
+        "kind": "paper_page",
+        "reference": "page 4, Table 2",
+        "excerpt": "Random Forest — Test Acc. 81.66"
+      },
+      {
+        "kind": "artifact",
+        "reference": "artifacts/result.json#sha256=138fe183a1886a1a1129d986e0dff7a8f9fe7017dc950ee6f44d0193e8968d00",
+        "excerpt": "metrics.accuracyPercent = 79.88"
+      }
+    ],
+    "publicPayload": {
+      "verdict": "different_result",
+      "paperValue": 81.66,
+      "observedValue": 79.88,
+      "signedDifference": -1.78,
+      "tolerance": 1,
+      "unit": "percent",
+      "failedChecks": [
+        "seed"
+      ],
+      "assessment": {
+        "comparable": true,
+        "checks": [
+          {
+            "name": "attempt_completed",
+            "passed": true,
+            "explanation": "The attempt exited with code 0 within its limits."
+          },
+          {
+            "name": "baseline_attempt",
+            "passed": true,
+            "explanation": "The compared value comes from the unmodified baseline attempt."
+          },
+          {
+            "name": "metric_extracted",
+            "passed": true,
+            "explanation": "Read 79.88 using json artifacts/result.json → metrics.accuracyPercent."
+          },
+          {
+            "name": "metric_definition",
+            "passed": true,
+            "explanation": "The paper reports accuracy; the attempt measured accuracy."
+          },
+          {
+            "name": "unit",
+            "passed": true,
+            "explanation": "Both values are in percent."
+          },
+          {
+            "name": "dataset",
+            "passed": true,
+            "explanation": "The run used UCI Urban Land Cover; the claim is on UCI Urban Land Cover."
+          },
+          {
+            "name": "split",
+            "passed": true,
+            "explanation": "Both values are on the official test set."
+          },
+          {
+            "name": "seed",
+            "passed": false,
+            "explanation": "The paper result does not identify the seed; this attempt used the case's documented seed."
+          }
+        ],
+        "paperValue": 81.66,
+        "observedValue": 79.88,
+        "signedDifference": -1.78,
+        "absoluteDifference": 1.78,
+        "tolerance": 1,
+        "verdict": "different_result",
+        "discrepancyHypotheses": [
+          "Hypothesis: The paper's unstated random seed may produce a different split or forest than the seed used here.",
+          "Hypothesis: The paper states fixed seeds, but the repository notebook leaves train_test_split random_state unset.",
+          "Hypothesis: The paper says the validation split is stratified, but the repository notebook does not pass stratify.",
+          "Hypothesis: The paper says test features reuse training statistics, but the repository notebook z-scores the test set independently.",
+          "Hypothesis: The notebook expects urbantraining.csv and urbantesting.csv while the official archive provides training.csv and testing.csv."
+        ],
+        "evidence": [
+          {
+            "kind": "paper_page",
+            "reference": "page 4, Table 2",
+            "excerpt": "Random Forest — Test Acc. 81.66"
+          },
+          {
+            "kind": "artifact",
+            "reference": "artifacts/result.json#sha256=138fe183a1886a1a1129d986e0dff7a8f9fe7017dc950ee6f44d0193e8968d00",
+            "excerpt": "metrics.accuracyPercent = 79.88"
+          }
+        ],
+        "limitations": [
+          "The 1 percentage point tolerance is a product threshold, not a test of statistical equivalence.",
+          "One attempt was compared; run-to-run variance was not measured.",
+          "The paper's seed is unknown, so an exact match is not expected."
+        ]
+      }
+    }
+  },
+  {
+    "id": "evt_023",
+    "runId": "run_demo_ulc",
+    "sequence": 23,
+    "timestamp": "2026-09-28T18:00:07.400Z",
+    "actor": "lab_engineer",
+    "type": "lab_cleanup",
+    "status": "completed",
+    "summary": "Disposable lab removed",
+    "evidence": [],
+    "publicPayload": {
+      "labId": "lab_demo",
+      "runId": "run_demo_ulc",
+      "containerName": "dejaml-lab-demo",
+      "reason": "lab idle",
+      "containerRemoved": true,
+      "artifactDirectoryRemoved": true,
+      "verifiedAbsent": true,
+      "destroyedAt": "2026-09-28T18:00:09.550Z",
+      "errors": []
+    }
   }
 ]
-

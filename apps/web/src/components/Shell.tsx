@@ -27,7 +27,7 @@ export function Shell({
       </header>
       {replay ? (
         <div className="banner" role="note">
-          Recorded replay: the backend is not connected, so studies replay a stored run of the curated paper.
+          Example replay: no backend is connected, so studies replay a prepared run of the curated paper built from the verified Phase 3 results.
           Nothing is executed.
         </div>
       ) : null}

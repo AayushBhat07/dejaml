@@ -263,7 +263,9 @@ export function verifyResult(input: {
       observedValue: assessment.observedValue,
       signedDifference: assessment.signedDifference,
       tolerance: assessment.tolerance,
+      unit: input.plan.claim.metric.unit,
       failedChecks: assessment.checks.filter((item) => !item.passed).map((item) => item.name),
+      assessment,
     },
   });
   return { metric, assessment };

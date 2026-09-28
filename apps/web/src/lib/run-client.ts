@@ -15,6 +15,8 @@ export interface RunClient {
   /** Replays events after `afterSequence`, then streams new ones. Returns an unsubscribe function. */
   subscribe(runId: string, afterSequence: number, subscription: RunSubscription): () => void;
   cancel(runId: string): Promise<void>;
+  /** Server-generated report URL, or null when the report is built in the browser. */
+  reportUrl(runId: string): string | null;
 }
 
 /** Talks to the Run API described in ARCHITECTURE.md section 6.2. */
@@ -55,6 +57,10 @@ export class HttpRunClient implements RunClient {
   async cancel(runId: string): Promise<void> {
     await fetch(`${this.#base}/runs/${encodeURIComponent(runId)}/cancel`, { method: "POST" });
   }
+
+  reportUrl(runId: string): string {
+    return `${this.#base}/runs/${encodeURIComponent(runId)}/report`;
+  }
 }
 
 /**
@@ -66,6 +72,7 @@ export class ReplayRunClient implements RunClient {
   readonly #events: RunEvent[];
   readonly #intervalMs: number;
   readonly #cancelled = new Set<string>();
+  readonly #onCancel = new Map<string, () => void>();
 
   constructor(intervalMs = 900, events: unknown = recordedRun) {
     this.#events = RunEventSchema.array().parse(events);
@@ -79,6 +86,11 @@ export class ReplayRunClient implements RunClient {
   subscribe(runId: string, afterSequence: number, subscription: RunSubscription): () => void {
     const pending = this.#events.filter((event) => event.sequence > afterSequence);
     let index = 0;
+    let lastSequence = afterSequence;
+    const emit = (event: RunEvent) => {
+      lastSequence = event.sequence;
+      subscription.onEvent({ ...event, runId, timestamp: new Date().toISOString() });
+    };
     const timer = setInterval(() => {
       const next = pending[index];
       if (!next || this.#cancelled.has(runId)) {
@@ -86,13 +98,52 @@ export class ReplayRunClient implements RunClient {
         return;
       }
       index += 1;
-      subscription.onEvent({ ...next, runId, timestamp: new Date().toISOString() });
+      emit(next);
     }, this.#intervalMs);
-    return () => clearInterval(timer);
+    this.#onCancel.set(runId, () => {
+      clearInterval(timer);
+      const template = pending[0] ?? this.#events[0]!;
+      const labStarted = pending.slice(0, index).some((event) => event.actor === "lab_engineer");
+      // Mirrors what the Lab Manager emits when a running attempt is cancelled.
+      const tail: Array<Pick<RunEvent, "type" | "status" | "summary" | "publicPayload">> = [
+        { type: "lab_cancel", status: "progress", summary: "Cancellation requested", publicPayload: {} },
+        ...(labStarted
+          ? [
+              {
+                type: "attempt",
+                status: "failed" as const,
+                summary: "Attempt cancelled; the lab process tree was terminated",
+                publicPayload: { cancelled: true, timedOut: false, exitCode: null },
+              },
+              { type: "lab_cleanup", status: "completed" as const, summary: "Disposable lab removed", publicPayload: {} },
+            ]
+          : []),
+      ];
+      for (const item of tail) {
+        emit({
+          ...template,
+          ...item,
+          id: `replay_cancel_${lastSequence + 1}`,
+          sequence: lastSequence + 1,
+          actor: "lab_engineer",
+          evidence: [],
+        });
+      }
+    });
+    return () => {
+      clearInterval(timer);
+      this.#onCancel.delete(runId);
+    };
   }
 
   async cancel(runId: string): Promise<void> {
+    if (this.#cancelled.has(runId)) return;
     this.#cancelled.add(runId);
+    this.#onCancel.get(runId)?.();
+  }
+
+  reportUrl(): null {
+    return null;
   }
 }
 

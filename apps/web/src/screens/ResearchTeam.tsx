@@ -3,7 +3,7 @@ import type { RunEvent } from "@dejaml/contracts";
 import { Badge, type Tone } from "../components/Badge";
 import { EvidenceList } from "../components/Evidence";
 import { analystsOverlapped, laneFor, type Lane, type LaneStatus } from "../lib/lanes";
-import { ROLE_LABELS, STATUS_TONES } from "./RunActivity";
+import { ROLE_LABELS, STATUS_TONES } from "../lib/roles";
 
 const ROLE_BRIEFS: Partial<Record<RunEvent["actor"], string>> = {
   paper_analyst: "Reads the paper, finds the repository link, and picks one numeric claim.",

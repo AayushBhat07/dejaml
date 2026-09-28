@@ -12,7 +12,7 @@ describe("App shell", () => {
   it("labels replay mode and starts a study from a valid PDF", async () => {
     render(<App client={new ReplayRunClient(5)} />);
 
-    expect(screen.getByRole("note").textContent).toContain("Recorded replay");
+    expect(screen.getByRole("note").textContent).toContain("Example replay");
     expect(screen.getByText("New Study").closest("button")?.getAttribute("aria-current")).toBe("step");
     const start = screen.getByRole("button", { name: "Start study" });
     expect((start as HTMLButtonElement).disabled).toBe(true);
@@ -30,8 +30,8 @@ describe("App shell", () => {
       fireEvent.click(start);
     });
     await screen.findByText("Research Team", { selector: "h2" });
-    await waitFor(() => expect(screen.getByText(/Disposable lab removed/u)).toBeTruthy());
-    expect(screen.getByText("Findings").closest("button")?.getAttribute("aria-current")).toBe("step");
+    await waitFor(() => expect(screen.getByText("Different result")).toBeTruthy());
+    expect(screen.getByRole("button", { name: "Findings" }).getAttribute("aria-current")).toBe("step");
 
     // Completed stages can be revisited from the stepper.
     fireEvent.click(screen.getByRole("button", { name: /Research Team/u }));
