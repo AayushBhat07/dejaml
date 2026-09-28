@@ -65,11 +65,11 @@ Reconcile both analyses, produce one `ExperimentPlan`, and reject unsupported or
 
 ## Phase 3 — Disposable lab
 
-### 3.1 Python CPU image — `IN PROGRESS`
+### 3.1 Python CPU image — `DONE`
 
 Build and pin a minimal image for the curated experiment.
 
-### 3.2 Lab Manager — `PENDING`
+### 3.2 Lab Manager — `IN PROGRESS`
 
 Implement create, prepare, execute, cancel, artifact-read, and destroy operations with resource limits and cleanup receipts.
 

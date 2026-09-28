@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "image": "dejaml/python-cpu:0.1.0",
+  "verifiedPlatform": "linux/arm64",
+  "verifiedImageId": "sha256:630cac03bfdbd7207c225148a3a0e26a92b0ed3af1063a76e5a1794a373e9920",
+  "verifiedSizeBytes": 143145458,
+  "baseImage": "python:3.13.15-slim-trixie@sha256:7c61056e61ac89e852de05f3dc6fa51a6dd2181797bceed46aa725dd7cb2cd3b",
+  "dockerfileFrontend": "docker/dockerfile:1.7@sha256:a57df69d0ea827fb7266491f2813635de6f17269be881f696fbfdf2d83dda33e",
+  "dockerfileSha256": "5e658de3e365c32a2fd25bf0918f9be2609529192110964e0b28b65a3dfd1ba8",
+  "requirementsSha256": "9209b7d00dc487bb5a58c245512716882482585bc7c9f9bba4a377392d58ddfb"
+}

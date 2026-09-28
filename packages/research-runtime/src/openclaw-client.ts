@@ -69,6 +69,16 @@ function mergeRestrictedConfig(config: Record<string, unknown> | undefined): Rec
   };
 }
 
+function validatedBinaryPath(value: string): string {
+  const binaryPath = value.trim();
+  if (!binaryPath) {
+    throw new Error(
+      "OpenClaw executable path is empty; set OPENCLAW_BIN to the pinned OpenClaw binary",
+    );
+  }
+  return binaryPath;
+}
+
 async function runProcess(input: {
   binaryPath: string;
   args: string[];
@@ -154,6 +164,7 @@ export class OpenClawStructuredClient implements StructuredModelClient {
   constructor(options: OpenClawClientOptions) {
     this.#options = {
       ...options,
+      binaryPath: validatedBinaryPath(options.binaryPath),
       timeoutSeconds: options.timeoutSeconds ?? 120,
       thinking: options.thinking ?? "low",
     };
@@ -249,6 +260,7 @@ export class OpenClawGatewayStructuredClient implements StructuredModelClient {
   constructor(options: OpenClawGatewayClientOptions) {
     this.#options = {
       ...options,
+      binaryPath: validatedBinaryPath(options.binaryPath),
       timeoutSeconds: options.timeoutSeconds ?? 120,
       thinking: options.thinking ?? "low",
     };

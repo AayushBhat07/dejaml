@@ -11,6 +11,22 @@ import {
 } from "./openclaw-client.js";
 
 describe("OpenClaw structured client", () => {
+  it("fails fast when the configured executable path is empty", () => {
+    expect(
+      () => new OpenClawStructuredClient({ binaryPath: "   ", model: "fake/model" }),
+    ).toThrow(/OPENCLAW_BIN/u);
+    expect(
+      () =>
+        new OpenClawGatewayStructuredClient({
+          binaryPath: "",
+          analystAgents: {
+            paper_analyst: "dejaml-paper",
+            code_analyst: "dejaml-code",
+          },
+        }),
+    ).toThrow(/OPENCLAW_BIN/u);
+  });
+
   it("uses agent exec with a forced minimal tool policy and parses the JSON envelope", async () => {
     const root = await mkdtemp(join(tmpdir(), "dejaml-openclaw-client-test-"));
     const binary = join(root, "fake-openclaw.mjs");

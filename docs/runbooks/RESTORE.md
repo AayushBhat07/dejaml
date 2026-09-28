@@ -87,6 +87,23 @@ OPENCLAW_BIN=/absolute/path/to/openclaw \
 
 Require all three role statuses to be `ready`, `policyApproved: true`, no failed policy checks, a SHA-256 plan digest, final state `preparing_lab`, and eight ordered public events. Confirm the temporary repository checkout was removed.
 
-## 10. Resume development
+## 10. Restore the Python CPU lab image
+
+1. Start Docker and confirm its Linux engine is healthy.
+2. Fetch the already approved dataset if it is absent:
+
+```bash
+python3 cases/urban-land-cover/fetch_data.py
+```
+
+3. Build and execute the image proof:
+
+```bash
+npm run verify:lab-image
+```
+
+Require UID/GID `10001:10001`, workdir `/workspace/case`, exact locked dependency versions, network disabled during execution, observed accuracy `79.88`, and no remaining stopped containers.
+
+## 11. Resume development
 
 Resume only from the first `PENDING`, `IN PROGRESS`, or `REGRESSED` sub-phase in `ROADMAP.md`. When it passes, create or update its phase note before moving on.

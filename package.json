@@ -11,6 +11,7 @@
   "scripts": {
     "build": "npm run build --workspaces --if-present",
     "check": "npm run build && npm run typecheck && npm test",
+    "verify:lab-image": "node lab-images/python-cpu/verify.mjs",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "test": "npm run test --workspaces --if-present"
   },
