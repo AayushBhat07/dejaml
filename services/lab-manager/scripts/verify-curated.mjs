@@ -5,6 +5,7 @@ import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 
 import { ExperimentPolicySchema } from "@dejaml/contracts";
+import { verifyResult } from "@dejaml/result-verifier";
 import { RunStore } from "@dejaml/run-store";
 
 import { LabManager, labSpecFromPlan } from "../dist/index.js";
@@ -12,6 +13,9 @@ import { LabManager, labSpecFromPlan } from "../dist/index.js";
 const projectRoot = fileURLToPath(new URL("../../../", import.meta.url));
 const policy = ExperimentPolicySchema.parse(
   JSON.parse(await readFile(new URL("cases/urban-land-cover/policy.json", `file://${projectRoot}`), "utf8")),
+);
+const caseManifest = JSON.parse(
+  await readFile(new URL("cases/urban-land-cover/case.json", `file://${projectRoot}`), "utf8"),
 );
 const imageLock = JSON.parse(
   await readFile(new URL("lab-images/python-cpu/image-lock.json", `file://${projectRoot}`), "utf8"),
@@ -67,11 +71,23 @@ try {
       throw new Error(`attempt failed: ${outcome.stderr.text.slice(-2000)}`);
     }
     const artifact = await manager.readArtifact(lab.labId, plan.metricExtraction.path);
-    return { outcome, result: JSON.parse(artifact.content.toString("utf8")), sha256: artifact.sha256 };
+    return { outcome, artifact, result: JSON.parse(artifact.content.toString("utf8")), sha256: artifact.sha256 };
   });
 
   if (value.result.metrics?.accuracyPercent !== 79.88) {
     throw new Error(`unexpected accuracy: ${String(value.result.metrics?.accuracyPercent)}`);
+  }
+  const { assessment } = verifyResult({
+    runId: run.id,
+    plan,
+    attempt: value.outcome.attempt,
+    artifact: value.artifact,
+    tolerance: caseManifest.comparison.tolerance,
+    knownDiscrepancies: caseManifest.knownDiscrepancies,
+    events: (event) => store.appendEvent(event),
+  });
+  if (assessment.verdict !== "different_result" || assessment.signedDifference !== -1.78) {
+    throw new Error(`unexpected assessment: ${JSON.stringify(assessment)}`);
   }
   if (!receipt.verifiedAbsent || !receipt.artifactDirectoryRemoved) {
     throw new Error(`cleanup not verified: ${JSON.stringify(receipt)}`);
@@ -85,6 +101,8 @@ try {
         exitCode: value.outcome.attempt.exitCode,
         durationMs: value.outcome.durationMs,
         artifactDigests: value.outcome.attempt.artifactDigests,
+        verdict: assessment.verdict,
+        signedDifference: assessment.signedDifference,
         receipt,
         events: store.listEvents(run.id).map((event) => `${event.sequence} ${event.type} ${event.status}`),
       },
