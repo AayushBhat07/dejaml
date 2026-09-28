@@ -52,6 +52,15 @@ if mode == "probe":
 elif mode == "sleep":
     print("started", flush=True)
     time.sleep(600)
+elif mode == "stream":
+    for step in range(1, 7):
+        print(f"\x1b[32mepoch {step}/6\x1b[0m", flush=True)
+        if step == 3:
+            with open("artifacts/progress.json", "w") as handle:
+                json.dump({"epoch": step}, handle)
+        total = sum(i * i for i in range(400_000))
+        time.sleep(0.5)
+    print("done", flush=True)
 elif mode == "memory":
     blocks = []
     while True:
@@ -139,7 +148,43 @@ try {
   assert(memory.value.attempt.exitCode !== 0, "memory hog is stopped by the memory limit");
   report.memory = { exitCode: memory.value.attempt.exitCode, receipt: memory.receipt };
 
-  // 5. Orphan recovery: a crashed manager leaves a running lab behind.
+  // 5. Live observation: output, telemetry, and artifact changes during a run.
+  const firstObserved = store.listEvents(run.id).length;
+  const observed = await manager.withLab(spec(60), async (lab) =>
+    manager.executeAttempt(lab.labId, {
+      number: 1,
+      label: "baseline",
+      command: command("stream"),
+      observe: { flushIntervalMs: 200, telemetryIntervalMs: 500, artifactIntervalMs: 250 },
+    }),
+  );
+  const live = store.listEvents(run.id, firstObserved);
+  const liveLines = live.filter((event) => event.type === "lab_output").flatMap((event) => event.publicPayload.lines);
+  const telemetry = live.filter((event) => event.type === "lab_telemetry");
+  const changes = live.filter((event) => event.type === "artifact_changed");
+  const attemptDone = live.findIndex((event) => event.type === "attempt" && event.status === "completed");
+  const firstLine = live.findIndex((event) => event.type === "lab_output");
+  assert(observed.value.attempt.exitCode === 0, "observed attempt exits 0");
+  assert(JSON.stringify(liveLines) === JSON.stringify([1, 2, 3, 4, 5, 6].map((n) => `epoch ${n}/6`).concat("done")), "live lines are complete and sanitized");
+  assert(firstLine >= 0 && firstLine < attemptDone, "output streamed before the attempt finished");
+  assert(telemetry.length >= 2, "telemetry sampled repeatedly");
+  assert(telemetry.every((event) => event.publicPayload.memoryBytes > 0 && event.publicPayload.memoryLimitBytes <= 512 * 1024 * 1024), "telemetry reports memory under the limit");
+  assert(changes.some((event) => event.publicPayload.path === "artifacts/progress.json"), "artifact change observed");
+  report.observed = {
+    durationMs: observed.value.durationMs,
+    outputEvents: live.filter((event) => event.type === "lab_output").length,
+    liveLines,
+    telemetrySamples: telemetry.map((event) => ({
+      elapsedMs: event.publicPayload.elapsedMs,
+      cpuPercent: event.publicPayload.cpuPercent,
+      memoryMiB: Math.round(event.publicPayload.memoryBytes / 1024 / 1024),
+      pids: event.publicPayload.pids,
+    })),
+    artifactChanges: changes.map((event) => event.summary),
+    firstOutputBeforeCompletion: firstLine < attemptDone,
+  };
+
+  // 6. Orphan recovery: a crashed manager leaves a running lab behind.
   const crashed = new LabManager({ labRoot });
   const orphan = await crashed.createLab(spec(60));
   const recovered = await new LabManager({ labRoot }).cleanupOrphans();

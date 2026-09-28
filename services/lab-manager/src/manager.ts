@@ -20,6 +20,13 @@ import {
   type RuntimeCommandResult,
   DockerCliRuntime,
 } from "./runtime.js";
+import {
+  ArtifactWatcher,
+  DEFAULT_OBSERVE_OPTIONS,
+  OutputBatcher,
+  parseDockerStats,
+  type ObserveOptions,
+} from "./observer.js";
 import { LabSpecSchema, WorkspaceRelativePathSchema, type LabSpec } from "./spec.js";
 
 export const LAB_LABEL = "dejaml.lab";
@@ -62,6 +69,8 @@ export type AttemptRequest = {
   command: z.input<typeof ArgvCommandSchema>;
   changes?: string[];
   onOutput?: (stream: OutputStream, chunk: string) => void;
+  /** Publish live output, telemetry, and artifact-change events while the attempt runs. */
+  observe?: boolean | ObserveOptions;
 };
 
 export type AttemptOutcome = {
@@ -315,15 +324,26 @@ export class LabManager {
       timeoutSeconds: lab.spec.resources.timeoutSeconds,
     });
 
+    const observation = request.observe
+      ? this.#startObservation(
+          lab,
+          attemptId,
+          startedAt,
+          request.observe === true ? {} : request.observe,
+          request.onOutput,
+        )
+      : null;
     let result: RuntimeCommandResult;
     try {
       result = await this.#execInLab(
         lab,
         command,
         lab.spec.resources.timeoutSeconds,
-        request.onOutput,
+        observation?.onOutput ?? request.onOutput,
       );
+      await observation?.stop();
     } catch (error) {
+      await observation?.stop();
       lab.state = "failed";
       this.#emit(lab.handle.runId, "attempt", "failed", "The attempt could not be started", {
         labId,
@@ -652,6 +672,123 @@ export class LabManager {
       clearTimeout(timer);
       lab.activeAbort = null;
     }
+  }
+
+  #startObservation(
+    lab: LabRecord,
+    attemptId: string,
+    startedAt: Date,
+    overrides: ObserveOptions,
+    forward: ((stream: OutputStream, chunk: string) => void) | undefined,
+  ): { onOutput: (stream: OutputStream, chunk: string) => void; stop: () => Promise<void> } {
+    const options = { ...DEFAULT_OBSERVE_OPTIONS, ...overrides };
+    const runId = lab.handle.runId;
+    const labId = lab.handle.labId;
+    const batcher = new OutputBatcher(options);
+    const watcher = new ArtifactWatcher(
+      lab.hostArtifactsDir,
+      lab.spec.artifactsDir,
+      lab.spec.limits.maxArtifactFiles,
+    );
+
+    const publishOutput = (final: boolean): void => {
+      for (const batch of batcher.drain(final)) {
+        this.#emit(
+          runId,
+          "lab_output",
+          "progress",
+          `${batch.lines.length} new ${batch.stream} line${batch.lines.length === 1 ? "" : "s"}`,
+          { labId, attemptId, stream: batch.stream, lines: batch.lines, truncatedLines: batch.truncatedLines },
+          [{ kind: "log_line", reference: `${attemptId}/${batch.stream}` }],
+        );
+      }
+    };
+
+    // One streaming `docker stats` process per attempt; `--no-stream` needs a
+    // full second per sample and would miss most of a short run.
+    const statsAbort = new AbortController();
+    let statsBuffer = "";
+    let lastTelemetryAt = 0;
+    const onStats = (stream: OutputStream, chunk: string): void => {
+      if (stream !== "stdout") return;
+      statsBuffer += chunk;
+      const lines = statsBuffer.split("\n");
+      statsBuffer = (lines.pop() ?? "").slice(-16 * 1024);
+      for (const line of lines) {
+        const telemetry = parseDockerStats(line);
+        const now = this.#now().getTime();
+        if (!telemetry || !lab.activeAbort || now - lastTelemetryAt < options.telemetryIntervalMs) continue;
+        lastTelemetryAt = now;
+        this.#emit(runId, "lab_telemetry", "progress", "Resource usage sampled", {
+          labId,
+          attemptId,
+          elapsedMs: now - startedAt.getTime(),
+          ...telemetry,
+          limits: {
+            cpus: lab.spec.resources.cpus,
+            memoryMb: lab.spec.resources.memoryMb,
+            pids: lab.spec.resources.pids,
+          },
+        });
+      }
+    };
+    const statsDone = this.#runtime
+      .docker(["stats", "--format", "{{json .}}", lab.handle.containerName], {
+        maxOutputBytes: 1024,
+        signal: statsAbort.signal,
+        onOutput: onStats,
+      })
+      .catch(() => null);
+
+    let sampling: Promise<void> | null = null;
+    const sampleArtifacts = async (): Promise<void> => {
+      for (const change of await watcher.sample()) {
+        this.#emit(
+          runId,
+          "artifact_changed",
+          "progress",
+          `${change.change === "created" ? "Created" : "Updated"} ${change.path}`,
+          { labId, attemptId, ...change },
+          [{ kind: "artifact", reference: change.path }],
+        );
+      }
+    };
+
+    const flushTimer = setInterval(() => publishOutput(false), options.flushIntervalMs);
+    const artifactTimer = setInterval(() => {
+      if (sampling) return;
+      sampling = sampleArtifacts()
+        .catch(() => undefined)
+        .finally(() => {
+          sampling = null;
+        });
+    }, options.artifactIntervalMs);
+
+    let stopped = false;
+    return {
+      onOutput: (stream, chunk) => {
+        forward?.(stream, chunk);
+        batcher.push(stream, chunk);
+      },
+      stop: async () => {
+        if (stopped) return;
+        stopped = true;
+        clearInterval(flushTimer);
+        clearInterval(artifactTimer);
+        statsAbort.abort();
+        await Promise.all([sampling, statsDone]);
+        publishOutput(true);
+        if (batcher.limitReached) {
+          this.#emit(
+            runId,
+            "lab_output",
+            "warning",
+            "Live output limit reached; remaining lines are kept only in the bounded attempt log",
+            { labId, attemptId, droppedLines: batcher.droppedLines },
+          );
+        }
+      },
+    };
   }
 
   /** Terminates the whole lab process tree by killing the container. */
