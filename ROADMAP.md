@@ -41,13 +41,13 @@ Add the Urban Land Cover case manifest, dataset acquisition metadata, determinis
 
 Implement validated schemas for `Claim`, `CodeMapping`, `ExperimentPlan`, `RunEvent`, `Attempt`, `Metric`, and `Assessment`.
 
-### 1.3 Run store and event fixture — `IN PROGRESS`
+### 1.3 Run store and event fixture — `DONE`
 
 Implement append-only run/event persistence and create a deterministic full-run fixture for the frontend.
 
 ## Phase 2 — Intake and research analysis
 
-### 2.1 PDF intake — `PENDING`
+### 2.1 PDF intake — `IN PROGRESS`
 
 Validate uploads, hash the PDF, extract page-anchored text, and store extraction evidence.
 

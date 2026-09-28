@@ -1,5 +1,5 @@
 {
-  "name": "@dejaml/contracts",
+  "name": "@dejaml/run-store",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -15,6 +15,6 @@
     "test": "vitest run src"
   },
   "dependencies": {
-    "zod": "^4.1.11"
+    "@dejaml/contracts": "0.1.0"
   }
 }
