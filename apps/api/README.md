@@ -25,6 +25,12 @@ To drive the full UI without a model, GitHub, or Docker, run the stand-in stack.
 npm run verify:stack --workspace @dejaml/api
 ```
 
+To prove the failure and cleanup paths against a real Docker engine (success, missing metric, crash, cancel, timeout, a killed API process, unsupported paper, non-PDF):
+
+```bash
+npm run verify:failures --workspace @dejaml/api
+```
+
 ## Routes
 
 | Method and path | Result |
@@ -40,7 +46,7 @@ npm run verify:stack --workspace @dejaml/api
 
 `runStudy` in `src/pipeline.ts`: paper intake, repository discovery restricted to reviewed cases, acquisition pinned to the reviewed commit, parallel Paper and Code Analysts, Lead Researcher and the deterministic policy gate, one baseline attempt in a disposable lab with live observation, result verification, and cleanup. Every terminal state (`completed`, `inconclusive`, `cancelled`, `timed_out`, `failed`) emits `run_finished` and writes `reports/<runId>.json`. When a lab was created, its cleanup receipt is in the report.
 
-On start, `recoverAfterRestart` removes orphan labs and marks interrupted runs `failed`. An interrupted attempt is never resumed.
+On start, `recoverAfterRestart` removes orphan labs and stale checkout folders, and marks interrupted runs `failed`. An interrupted attempt is never resumed.
 
 ## Tests
 

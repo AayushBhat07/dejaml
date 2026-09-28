@@ -143,7 +143,15 @@ npm run verify:stack --workspace @dejaml/api   # stand-ins for model, GitHub, Do
 
 Open `http://127.0.0.1:8787`, upload the sample paper the command prints, and require Findings `Different result` at −1.78 pp, a server report download, and that a reload mid-run resumes the same study.
 
-For the real service, with sections 8–11 in place, run `npm start` (set `DEJAML_EXPECTED_IMAGE_ID` off `linux/arm64`), upload the case paper, and require the same verdict with `cleanup.verifiedAbsent: true` in the report. The service removes orphan labs and marks interrupted runs `failed` on start.
+For the real service, with sections 8–11 in place, run `npm start` (set `DEJAML_EXPECTED_IMAGE_ID` off `linux/arm64`), upload the case paper, and require the same verdict with `cleanup.verifiedAbsent: true` in the report. The service removes orphan labs and stale checkouts, and marks interrupted runs `failed`, on start.
+
+With Docker running, prove the failure paths:
+
+```bash
+npm run verify:failures --workspace @dejaml/api
+```
+
+Require success, missing metric, crash, cancel, timeout, killed-process recovery, unsupported paper, and non-PDF scenarios to pass with `remainingLabContainers: 0`.
 
 ## 14. Resume development
 

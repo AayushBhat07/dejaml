@@ -103,7 +103,7 @@ Connect the uploaded PDF to real repository discovery, analysis, execution, comp
 
 Verified in the cloud with stand-ins for the model, GitHub, and Docker; the real-model run is a Mac acceptance check (see the phase note).
 
-### 5.2 Failure and cleanup verification — `PENDING`
+### 5.2 Failure and cleanup verification — `DONE`
 
 Prove cancellation, timeout, invalid input, unsupported repository, metric failure, and orphan-lab cleanup.
 
