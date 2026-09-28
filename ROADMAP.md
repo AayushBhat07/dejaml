@@ -27,17 +27,17 @@ Prove that one real paper, repository, dataset, claim, and CPU experiment are su
 
 Define product promise, roles, trust boundaries, contracts, state machine, security posture, and acceptance tests.
 
-### 0.3 Repository and restoration conventions — `IN PROGRESS`
+### 0.3 Repository and restoration conventions — `DONE`
 
 Initialize the repository, directory skeleton, phase-note template, restoration runbook, license, and public remote.
 
 ## Phase 1 — Deterministic reproduction core
 
-### 1.1 Curated case package — `PENDING`
+### 1.1 Curated case package — `DONE`
 
 Add the Urban Land Cover case manifest, dataset acquisition metadata, deterministic Random Forest runner, metric output, and case-level verification.
 
-### 1.2 Shared contracts — `PENDING`
+### 1.2 Shared contracts — `IN PROGRESS`
 
 Implement validated schemas for `Claim`, `CodeMapping`, `ExperimentPlan`, `RunEvent`, `Attempt`, `Metric`, and `Assessment`.
 
@@ -114,4 +114,3 @@ If a completed sub-phase is later reverted or materially changed:
 3. state which acceptance checks must be rerun;
 4. update this roadmap;
 5. never delete the historical completion note.
-

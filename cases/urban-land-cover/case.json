@@ -1,0 +1,88 @@
+{
+  "schemaVersion": 1,
+  "caseId": "urban-land-cover-random-forest",
+  "title": "Urban Land Cover — Random Forest",
+  "paper": {
+    "title": "Tabular Deep Learning vs Classical Machine Learning for Urban Land Cover Classification",
+    "url": "https://arxiv.org/abs/2609.19010",
+    "pdfUrl": "https://arxiv.org/pdf/2609.19010",
+    "claim": {
+      "table": "Table 2",
+      "model": "Random Forest",
+      "dataset": "UCI Urban Land Cover",
+      "split": "official test set",
+      "metric": "accuracy",
+      "unit": "percent",
+      "reportedValue": 81.66,
+      "secondaryMetrics": {
+        "precision": 0.81,
+        "recall": 0.83,
+        "f1": 0.81,
+        "auc": 0.97
+      }
+    }
+  },
+  "repository": {
+    "url": "https://github.com/mtesha/tdl-vs-ml-urbanlandcover",
+    "commitSha": "49ece7ff4cc43fd4cb258678d44854f1cb2a417d",
+    "notebook": "Urban Land Cover Classification.ipynb"
+  },
+  "dataset": {
+    "name": "UCI Urban Land Cover",
+    "pageUrl": "https://archive.ics.uci.edu/dataset/295/urban+land+cover",
+    "archiveUrl": "https://archive.ics.uci.edu/static/public/295/urban%2Bland%2Bcover.zip",
+    "archiveSha256": "277a27000a4a4b593f655595b92904ccb30ece48b8bb2a35cf5d3854d7204f79",
+    "archiveBytes": 144090,
+    "license": "CC BY 4.0",
+    "files": {
+      "training": "urban+land+cover/training.csv",
+      "testing": "urban+land+cover/testing.csv"
+    }
+  },
+  "protocol": {
+    "name": "repository-deterministic",
+    "description": "Repository notebook logic with the previously unspecified validation split fixed to seed 42.",
+    "seed": 42,
+    "validationFraction": 0.1,
+    "stratifiedValidation": false,
+    "scaling": "z-score each train and test column independently, matching the notebook",
+    "model": {
+      "type": "RandomForestClassifier",
+      "nEstimators": 30,
+      "maxDepth": 5,
+      "minSamplesSplit": 5,
+      "minSamplesLeaf": 3,
+      "maxFeatures": "log2",
+      "bootstrap": true,
+      "randomState": 42
+    }
+  },
+  "execution": {
+    "executable": "python",
+    "args": [
+      "runner.py",
+      "--training",
+      "data/training.csv",
+      "--testing",
+      "data/testing.csv",
+      "--output",
+      "artifacts/result.json"
+    ],
+    "metricSource": "artifacts/result.json",
+    "metricKey": "metrics.accuracyPercent",
+    "resources": {
+      "cpus": 2,
+      "memoryMb": 2048,
+      "pids": 128,
+      "timeoutSeconds": 120,
+      "networkDuringRun": false
+    }
+  },
+  "knownDiscrepancies": [
+    "The paper states fixed seeds, but the repository notebook leaves train_test_split random_state unset.",
+    "The paper says the validation split is stratified, but the repository notebook does not pass stratify.",
+    "The paper says test features reuse training statistics, but the repository notebook z-scores the test set independently.",
+    "The notebook expects urbantraining.csv and urbantesting.csv while the official archive provides training.csv and testing.csv."
+  ]
+}
+

@@ -2,6 +2,8 @@
 
 **Same claim. One more run.**
 
+Public repository: <https://github.com/AayushBhat07/dejaml>
+
 DéjàML is a hackathon-scale research reproducibility demo. It reads one lightweight ML paper, discovers the public repository cited by the paper, maps one numeric claim to code, runs one bounded CPU experiment in a disposable lab, and produces an evidence-backed comparison.
 
 ## Current status
@@ -12,6 +14,7 @@ The project is being built as one reliable vertical slice around the Urban Land 
 - [Roadmap](ROADMAP.md)
 - [Phase notes](docs/phases/README.md)
 - [Restoration runbook](docs/runbooks/RESTORE.md)
+- [Curated case](cases/urban-land-cover/README.md)
 
 ## Product roles
 
@@ -36,4 +39,3 @@ Implementation-framework names remain internal to the technical architecture.
 ## Repository state
 
 Do not infer readiness from directory presence. The authoritative implementation status is recorded in `docs/phases/` and each completed sub-phase contains a restore checklist.
-
