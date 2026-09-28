@@ -69,7 +69,7 @@ Reconcile both analyses, produce one `ExperimentPlan`, and reject unsupported or
 
 Build and pin a minimal image for the curated experiment.
 
-### 3.2 Lab Manager — `IN PROGRESS`
+### 3.2 Lab Manager — `DONE`
 
 Implement create, prepare, execute, cancel, artifact-read, and destroy operations with resource limits and cleanup receipts.
 

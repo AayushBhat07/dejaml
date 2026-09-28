@@ -19,6 +19,7 @@ The project is being built as one reliable vertical slice around the Urban Land 
 - [Repository intake](packages/repository-intake/README.md)
 - [Parallel research runtime](packages/research-runtime/README.md)
 - [Real-time run store](packages/run-store/README.md)
+- [Lab Manager](services/lab-manager/README.md)
 
 ## Product roles
 
@@ -46,4 +47,4 @@ Do not infer readiness from directory presence. The authoritative implementation
 
 ## Backend progress
 
-The backend foundation now includes validated shared contracts, bounded PDF validation and page-level text extraction, immutable source hashing, page-anchored GitHub discovery, guarded public-repository acquisition with commit pinning, real concurrent Paper/Code Analyst sessions with bounded evidence and live events, Lead Researcher reconciliation, an exact deterministic execution-policy gate, a deterministic curated experiment, and an append-only refresh-safe run store.
+The backend foundation now includes validated shared contracts, bounded PDF validation and page-level text extraction, immutable source hashing, page-anchored GitHub discovery, guarded public-repository acquisition with commit pinning, real concurrent Paper/Code Analyst sessions with bounded evidence and live events, Lead Researcher reconciliation, an exact deterministic execution-policy gate, a deterministic curated experiment, an append-only refresh-safe run store, and a trusted Lab Manager that runs approved attempts in disposable offline containers with enforced time limits, cancellation, bounded artifacts, and verified cleanup receipts.
