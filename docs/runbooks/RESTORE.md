@@ -53,6 +53,21 @@ npm run verify:curated --workspace @dejaml/repository-intake
 
 The receipt must report commit `49ece7ff4cc43fd4cb258678d44854f1cb2a417d` and `cleanedUp: true`. A commit mismatch means the curated case or acquisition policy must be reviewed before continuing.
 
-## 8. Resume development
+## 8. Restore parallel analysts
+
+1. Install OpenClaw `2026.9.5` or review and re-pin the adapter against a newer version.
+2. Create dedicated agents `dejaml-paper` and `dejaml-code` with separate workspaces and no channel bindings.
+3. Configure both with the chosen model/runtime and `tools: { profile: "minimal", allow: ["session_status"] }`.
+4. Confirm the operator's general-purpose agent is not used by DéjàML.
+5. Run:
+
+```bash
+OPENCLAW_BIN=/absolute/path/to/openclaw \
+  npm run verify:curated:live --workspace @dejaml/research-runtime
+```
+
+Require `paperStatus: ready`, `codeStatus: ready`, the Random Forest 81.66% claim, the notebook entry point, two started events before the two completed events, and final run state `planning`.
+
+## 9. Resume development
 
 Resume only from the first `PENDING`, `IN PROGRESS`, or `REGRESSED` sub-phase in `ROADMAP.md`. When it passes, create or update its phase note before moving on.

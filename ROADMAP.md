@@ -55,11 +55,11 @@ Validate uploads, hash the PDF, extract page-anchored text, and store extraction
 
 Extract candidate GitHub URLs, validate targets, shallow-clone the selected repository, and pin its commit.
 
-### 2.3 Parallel analysts — `IN PROGRESS`
+### 2.3 Parallel analysts — `DONE`
 
 Implement Paper Analyst and Code Analyst as independent structured sessions with narrow capabilities.
 
-### 2.4 Lead Researcher and policy gate — `PENDING`
+### 2.4 Lead Researcher and policy gate — `IN PROGRESS`
 
 Reconcile both analyses, produce one `ExperimentPlan`, and reject unsupported or unsafe plans deterministically.
 

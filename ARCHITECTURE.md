@@ -263,6 +263,12 @@ The orchestrator launches Paper Analyst and Code Analyst as independent sessions
 
 The orchestration implementation may use OpenClaw internally, but product events expose research roles and evidence—not framework-specific terminology or private reasoning traces.
 
+For the local OAuth-backed demo, the orchestrator targets two dedicated OpenClaw Gateway agents (`dejaml-paper` and `dejaml-code`) through the pinned `openclaw agent --json` contract. Each has a separate workspace, no channel bindings, a distinct session per run, and an explicit tool allowlist containing only `session_status`. It never targets the operator's general-purpose agent. API-key and local providers may instead use isolated `openclaw agent exec` runs.
+
+The model never receives unrestricted paper or repository access. The trusted backend constructs bounded evidence bundles, removes notebook outputs, ignores symlinks and credential-like files, redacts common token formats, and then submits both analyst requests concurrently. Parsed outputs must pass shared schemas and deterministic cross-checks against discovered page numbers, repository URL, pinned commit, supplied file paths, and SHA-256 digests. Each lane publishes a start event before either model call and its own completed, warning, or failed event as soon as it finishes.
+
+Curated examples may supply the same visible model/dataset/metric target hint to both lanes so they independently investigate one claim. A hint narrows selection but cannot override evidence; unsupported targets remain `Inconclusive`.
+
 ### 6.6 Experiment policy gate
 
 The policy gate is deterministic. It validates the model-produced plan and never asks a model whether its own command is safe.

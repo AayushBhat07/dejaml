@@ -1,0 +1,25 @@
+{
+  "name": "@dejaml/research-runtime",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run src",
+    "verify:curated:live": "node scripts/verify-curated-live.mjs"
+  },
+  "dependencies": {
+    "@dejaml/contracts": "0.1.0",
+    "@dejaml/paper-intake": "0.1.0",
+    "@dejaml/repository-intake": "0.1.0",
+    "@dejaml/run-store": "0.1.0",
+    "zod": "^4.2.1"
+  }
+}

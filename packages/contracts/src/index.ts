@@ -130,6 +130,52 @@ export const CodeMappingSchema = z.object({
   warnings: z.array(z.string()),
 });
 
+export const PaperAnalysisSchema = z
+  .object({
+    schemaVersion: z.literal(1),
+    status: z.enum(["ready", "inconclusive"]),
+    summary: z.string().min(1),
+    selectedRepositoryUrl: GithubRepositoryUrlSchema.nullable(),
+    claim: ClaimSchema.nullable(),
+    reasons: z.array(z.string().min(1)),
+    warnings: z.array(z.string()),
+  })
+  .superRefine((value, context) => {
+    if (value.status === "ready" && (!value.claim || !value.selectedRepositoryUrl)) {
+      context.addIssue({
+        code: "custom",
+        message: "ready paper analysis requires a claim and selected repository",
+      });
+    }
+    if (value.status === "inconclusive" && value.reasons.length === 0) {
+      context.addIssue({
+        code: "custom",
+        message: "inconclusive paper analysis requires at least one reason",
+      });
+    }
+  });
+
+export const CodeAnalysisSchema = z
+  .object({
+    schemaVersion: z.literal(1),
+    status: z.enum(["ready", "inconclusive"]),
+    summary: z.string().min(1),
+    mapping: CodeMappingSchema.nullable(),
+    reasons: z.array(z.string().min(1)),
+    warnings: z.array(z.string()),
+  })
+  .superRefine((value, context) => {
+    if (value.status === "ready" && !value.mapping) {
+      context.addIssue({ code: "custom", message: "ready code analysis requires a mapping" });
+    }
+    if (value.status === "inconclusive" && value.reasons.length === 0) {
+      context.addIssue({
+        code: "custom",
+        message: "inconclusive code analysis requires at least one reason",
+      });
+    }
+  });
+
 export const DatasetSpecSchema = z.object({
   name: z.string().min(1),
   sourceUrl: z.url(),
@@ -267,6 +313,8 @@ export type RepositoryCandidate = z.infer<typeof RepositoryCandidateSchema>;
 export type RepositoryAcquisition = z.infer<typeof RepositoryAcquisitionSchema>;
 export type Claim = z.infer<typeof ClaimSchema>;
 export type CodeMapping = z.infer<typeof CodeMappingSchema>;
+export type PaperAnalysis = z.infer<typeof PaperAnalysisSchema>;
+export type CodeAnalysis = z.infer<typeof CodeAnalysisSchema>;
 export type ExperimentPlan = z.infer<typeof ExperimentPlanSchema>;
 export type RunEvent = z.infer<typeof RunEventSchema>;
 export type Attempt = z.infer<typeof AttemptSchema>;
