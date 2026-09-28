@@ -1,6 +1,6 @@
 # ADR 0008 — Deterministic Experiment Plan Policy
 
-**Status:** Accepted  
+**Status:** Accepted
 **Date:** 2026-09-28
 
 ## Context

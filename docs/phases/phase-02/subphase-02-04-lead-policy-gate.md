@@ -1,8 +1,8 @@
 # Sub-phase 2.4 — Lead Researcher and Policy Gate
 
-**Status:** `DONE`  
-**Completed:** `2026-09-28`  
-**Commit:** `resolve with git log for Lead Researcher policy gate`  
+**Status:** `DONE`
+**Completed:** `2026-09-28`
+**Commit:** `e84de5c`
 **Owner:** `Codex`
 
 ## Objective
