@@ -107,9 +107,11 @@ Verified in the cloud with stand-ins for the model, GitHub, and Docker; the real
 
 Prove cancellation, timeout, invalid input, unsupported repository, metric failure, and orphan-lab cleanup.
 
-### 5.3 Demo freeze — `PENDING`
+### 5.3 Demo freeze — `IN PROGRESS`
 
 Rehearse repeatedly, cache permitted inputs, retain a labelled prior-run report and backup recording, and stop feature work.
+
+Tooling and runbook done; the real rehearsals, recording, and freeze run on the development Mac (see the phase note and `docs/runbooks/DEMO.md`).
 
 ## Change rule
 
