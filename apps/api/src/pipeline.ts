@@ -1,11 +1,16 @@
+import { execFile } from "node:child_process";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { promisify } from "node:util";
 
 import type {
   Assessment,
   Attempt,
+  AuditDecision,
   ExperimentPlan,
+  HostPreparationStep,
   Metric,
+  PaperAnalysis,
   PaperDocument,
   PlanPolicyResult,
   RepositoryAcquisition,
@@ -19,7 +24,7 @@ import {
   cleanupAcquiredRepository,
   discoverGithubRepositories,
 } from "@dejaml/repository-intake";
-import { runLeadResearch, runParallelAnalysis, type StructuredModelClient } from "@dejaml/research-runtime";
+import { runAudit, runLeadResearch, runParallelAnalysis, type StructuredModelClient } from "@dejaml/research-runtime";
 import { verifyResult } from "@dejaml/result-verifier";
 import type { RunStore } from "@dejaml/run-store";
 
@@ -59,6 +64,7 @@ export type StudyReport = {
   } | null;
   metric: Metric | null;
   assessment: Assessment | null;
+  audit: AuditDecision | null;
   failure: string | null;
   events: RunEvent[];
 };
@@ -95,6 +101,7 @@ export async function runStudy(
     lab: null,
     metric: null,
     assessment: null,
+    audit: null,
     failure: null,
   };
   const event = (
@@ -202,6 +209,7 @@ export async function runStudy(
 
     // 3. Parallel analysis, then Lead Researcher and the deterministic policy gate.
     const claim = match.manifest.paper.claim;
+    let paperAnalysis: PaperAnalysis | null = null;
     const analyses = await runParallelAnalysis({
       runId,
       runStore: store,
@@ -212,6 +220,7 @@ export async function runStudy(
       targetHint: { model: claim.model, dataset: claim.dataset, metric: claim.metric },
       signal,
     });
+    paperAnalysis = analyses.paper.value;
     checkCancelled();
     const lead = await runLeadResearch({
       runId,
@@ -232,6 +241,25 @@ export async function runStudy(
     checkCancelled();
     await cleanupAcquiredRepository({ destination: acquisition.destination, destinationRoot: acquisitionRoot });
     acquisition = null;
+
+    // 4a. Host-side preparation (auto-execution: pip install, nbconvert).
+    // Note: acquisition has already been cleaned up; acquisitionRoot still holds any remaining files.
+    if (plan.hostPreparation?.length) {
+      store.transitionRun(runId, "preparing_lab");
+      event("host_preparation_started", "started", "Running host-side preparation steps before lab creation.", {
+        steps: plan.hostPreparation.length,
+      });
+      try {
+        await runHostPreparation(plan.hostPreparation, acquisitionRoot);
+        event("host_preparation_completed", "completed", "Host-side preparation finished.", {});
+      } catch (hostPrepError) {
+        const message = hostPrepError instanceof Error ? hostPrepError.message : String(hostPrepError);
+        event("host_preparation_failed", "failed", `Host-side preparation failed: ${message}`, {});
+        report.failure = `host preparation failed: ${message}`;
+        finish("inconclusive");
+        return await finalize();
+      }
+    }
 
     // 4. One attempt in a disposable lab; the lab is destroyed in every outcome.
     const spec = labSpecFromPlan({
@@ -293,6 +321,27 @@ export async function runStudy(
         });
         report.metric = verification.metric;
         report.assessment = verification.assessment;
+
+        // 6. Audit Agent: semantic verification of metric alignment.
+        if (verification.metric && verification.assessment.verdict !== "inconclusive" && paperAnalysis) {
+          store.transitionRun(runId, "auditing");
+          checkCancelled();
+          try {
+            const auditResult = await runAudit({
+              runId,
+              runStore: store,
+              paperAnalysis,
+              metric: verification.metric,
+              assessment: verification.assessment,
+              plan,
+              modelClient: deps.model,
+              signal,
+            });
+            report.audit = auditResult.decision.value;
+          } catch {
+            // Audit failure is non-fatal: the run still completes with its deterministic verdict.
+          }
+        }
         finish(verification.assessment.verdict === "inconclusive" ? "inconclusive" : "completed");
       }
     } catch (error) {
@@ -342,5 +391,43 @@ export async function runStudy(
     await mkdir(reportsDir, { recursive: true });
     await writeFile(join(reportsDir, `${runId}.json`), `${JSON.stringify(complete, null, 2)}\n`);
     return complete;
+  }
+}
+
+const execFileAsync = promisify(execFile);
+
+/**
+ * Runs host-side preparation steps before the lab is created. Supports:
+ *  - pip_install: installs Python packages from a requirements file or explicit list
+ *  - nbconvert: converts a Jupyter notebook to a Python script
+ *
+ * These steps run on the host (not inside the container) so they can access the
+ * network and the repository checkout. The lab is created only after these complete.
+ */
+async function runHostPreparation(steps: HostPreparationStep[], repoRoot: string): Promise<void> {
+  for (const step of steps) {
+    if (step.kind === "pip_install") {
+      if (step.requirementsPath) {
+        const reqPath = join(repoRoot, step.requirementsPath);
+        await execFileAsync("pip", ["install", "--quiet", "-r", reqPath], {
+          timeout: 5 * 60 * 1000,
+        });
+      } else if (step.packages?.length) {
+        await execFileAsync("pip", ["install", "--quiet", ...step.packages], {
+          timeout: 5 * 60 * 1000,
+        });
+      } else {
+        throw new Error(`pip_install step "${step.description}" has neither requirementsPath nor packages`);
+      }
+    } else if (step.kind === "nbconvert") {
+      if (!step.notebookPath) throw new Error(`nbconvert step "${step.description}" requires notebookPath`);
+      const notebookAbs = join(repoRoot, step.notebookPath);
+      const outputDir = step.outputPath ? join(repoRoot, step.outputPath, "..") : join(repoRoot, "converted");
+      await execFileAsync(
+        "jupyter",
+        ["nbconvert", "--to", "script", "--output-dir", outputDir, notebookAbs],
+        { timeout: 2 * 60 * 1000 },
+      );
+    }
   }
 }

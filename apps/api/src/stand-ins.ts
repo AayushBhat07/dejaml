@@ -6,6 +6,7 @@ import { mkdtemp, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 import {
+  AuditDecisionSchema,
   CodeAnalysisSchema,
   LeadResearchDecisionSchema,
   PaperAnalysisSchema,
@@ -135,6 +136,20 @@ export class ScriptedModel implements StructuredModelClient {
             claim,
             reasons: [],
             warnings: [],
+          }),
+        ),
+      };
+    }
+    if (request.role === "audit_agent") {
+      return {
+        value: request.schema.parse(
+          AuditDecisionSchema.parse({
+            schemaVersion: 1,
+            verdict: "confirmed",
+            metricAligned: true,
+            summary: "The measured accuracy metric matches the paper's Random Forest test accuracy claim on the UCI Urban Land Cover dataset.",
+            evidence: [{ kind: "paper_page", reference: "page 1", excerpt: "Random Forest test accuracy of 81.66" }],
+            concerns: [],
           }),
         ),
       };

@@ -122,6 +122,7 @@ describe("Run API", () => {
       "lab_engineer:lab_create",
       "lab_engineer:lab_output",
       "result_verifier:comparison_completed",
+      "audit_agent:audit_completed",
       "lab_engineer:lab_cleanup",
       "system:run_finished",
     ]) {
@@ -140,6 +141,7 @@ describe("Run API", () => {
       policy: { approved: true },
       metric: { value: 79.88 },
       assessment: { verdict: "different_result", signedDifference: -1.78 },
+      audit: { verdict: "confirmed", metricAligned: true },
       lab: { attempt: { exitCode: 0 }, cleanup: { verifiedAbsent: true, artifactDirectoryRemoved: true } },
       failure: null,
     });

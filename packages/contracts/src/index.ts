@@ -28,6 +28,7 @@ export const RunStatusSchema = z.enum([
   "preparing_lab",
   "running",
   "comparing",
+  "auditing",
   "completed",
   "inconclusive",
   "failed",
@@ -189,6 +190,18 @@ export const PreparationStepSchema = z.object({
   command: ArgvCommandSchema.omit({ env: true }).optional(),
 });
 
+export const HostPreparationStepSchema = z.object({
+  kind: z.enum(["pip_install", "nbconvert"]),
+  description: z.string().min(1),
+  /** Requirements file path relative to the checked-out repository root, or a list of package specs. */
+  requirementsPath: z.string().min(1).optional(),
+  packages: z.array(z.string().min(1)).optional(),
+  /** Input notebook path relative to the repository root (nbconvert only). */
+  notebookPath: z.string().min(1).optional(),
+  /** Output script path relative to the repository root (nbconvert only). */
+  outputPath: z.string().min(1).optional(),
+});
+
 export const ResourceBudgetSchema = z.object({
   cpus: z.number().positive().max(8),
   memoryMb: z.number().int().positive().max(16_384),
@@ -233,6 +246,7 @@ export const ExperimentPlanSchema = z.object({
   }),
   claim: ClaimSchema,
   dataset: DatasetSpecSchema,
+  hostPreparation: z.array(HostPreparationStepSchema).optional(),
   preparation: z.array(PreparationStepSchema),
   executionAdapter: ExecutionAdapterSchema,
   command: ArgvCommandSchema,
@@ -308,6 +322,7 @@ export const ActorSchema = z.enum([
   "lead_researcher",
   "lab_engineer",
   "result_verifier",
+  "audit_agent",
 ]);
 
 export const RunEventSchema = z.object({
@@ -371,6 +386,18 @@ export const AssessmentSchema = z.object({
   evidence: z.array(EvidencePointerSchema),
   limitations: z.array(z.string()),
 });
+
+export const AuditDecisionSchema = z.object({
+  schemaVersion: z.literal(1),
+  verdict: z.enum(["confirmed", "uncertain", "disputed"]),
+  metricAligned: z.boolean(),
+  summary: z.string().min(1),
+  evidence: z.array(EvidencePointerSchema),
+  concerns: z.array(z.string()),
+});
+
+export type AuditDecision = z.infer<typeof AuditDecisionSchema>;
+export type HostPreparationStep = z.infer<typeof HostPreparationStepSchema>;
 
 export type RunStatus = z.infer<typeof RunStatusSchema>;
 export type PaperPage = z.infer<typeof PaperPageSchema>;

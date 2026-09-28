@@ -150,10 +150,18 @@ export function labViewFor(events: readonly RunEvent[]): LabView {
   return view;
 }
 
+export type AuditSummary = {
+  verdict: "confirmed" | "uncertain" | "disputed";
+  metricAligned: boolean;
+  summary: string;
+  concerns: string[];
+};
+
 export type Findings = {
   assessment: Assessment;
   unit: "fraction" | "percent" | "score";
   summary: string;
+  audit: AuditSummary | null;
 };
 
 export function findingsFor(events: readonly RunEvent[]): Findings | null {
@@ -165,7 +173,25 @@ export function findingsFor(events: readonly RunEvent[]): Findings | null {
   const parsed = AssessmentSchema.safeParse(payload.assessment);
   if (!parsed.success) return null;
   const unit = payload.unit === "fraction" || payload.unit === "score" ? payload.unit : "percent";
-  return { assessment: parsed.data, unit, summary: completed.summary };
+
+  const auditEvent = [...events]
+    .reverse()
+    .find((event) => event.actor === "audit_agent" && event.type === "audit_completed");
+  let audit: AuditSummary | null = null;
+  if (auditEvent) {
+    const ap = record(auditEvent.publicPayload);
+    const ar = ap.audit && typeof ap.audit === "object" ? (ap.audit as Record<string, unknown>) : null;
+    if (ar && (ar.verdict === "confirmed" || ar.verdict === "uncertain" || ar.verdict === "disputed")) {
+      audit = {
+        verdict: ar.verdict,
+        metricAligned: ar.metricAligned === true,
+        summary: typeof ar.summary === "string" ? ar.summary : auditEvent.summary,
+        concerns: Array.isArray(ar.concerns) ? (ar.concerns as string[]) : [],
+      };
+    }
+  }
+
+  return { assessment: parsed.data, unit, summary: completed.summary, audit };
 }
 
 /** A self-contained JSON report built from the public event stream. */

@@ -2,7 +2,46 @@ import type { RunEvent } from "@dejaml/contracts";
 
 import { Badge, type Tone } from "../components/Badge";
 import { EvidenceList } from "../components/Evidence";
-import { findingsFor, labViewFor } from "../lib/lab";
+import { findingsFor, labViewFor, type AuditSummary } from "../lib/lab";
+
+const AUDIT_VERDICTS: Record<AuditSummary["verdict"], { label: string; tone: Tone; explanation: string }> = {
+  confirmed: {
+    label: "Metric confirmed",
+    tone: "positive",
+    explanation: "The Audit Agent confirms the measured metric matches the paper's claim semantically.",
+  },
+  uncertain: {
+    label: "Metric uncertain",
+    tone: "neutral",
+    explanation: "The Audit Agent found ambiguities in metric alignment or experimental conditions.",
+  },
+  disputed: {
+    label: "Metric disputed",
+    tone: "negative",
+    explanation: "The Audit Agent found the metric or conditions may not match what the paper reported.",
+  },
+};
+
+function AuditSection({ audit }: { audit: AuditSummary }) {
+  const info = AUDIT_VERDICTS[audit.verdict];
+  return (
+    <article className="card stack" aria-labelledby="audit-title">
+      <h3 id="audit-title">Audit Agent verification</h3>
+      <div className="row">
+        <Badge tone={info.tone}>{info.label}</Badge>
+        <span className="muted small">{info.explanation}</span>
+      </div>
+      <p className="small">{audit.summary}</p>
+      {audit.concerns.length > 0 ? (
+        <ul className="hypotheses small">
+          {audit.concerns.map((c) => (
+            <li key={c}>{c}</li>
+          ))}
+        </ul>
+      ) : null}
+    </article>
+  );
+}
 
 const VERDICTS: Record<string, { label: string; tone: Tone; explanation: string }> = {
   reproduced_within_tolerance: {
@@ -138,6 +177,8 @@ export function Findings({
           <p className="muted small">These are untested explanations, not conclusions.</p>
         </article>
       </div>
+
+      {findings.audit ? <AuditSection audit={findings.audit} /> : null}
 
       <article className="card stack" aria-labelledby="limits-title">
         <h3 id="limits-title">Limitations and cleanup</h3>
