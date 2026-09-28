@@ -1,0 +1,26 @@
+{
+  "name": "@dejaml/lab-manager",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run src",
+    "verify:docker": "node scripts/verify-docker.mjs",
+    "verify:curated": "node scripts/verify-curated.mjs"
+  },
+  "dependencies": {
+    "@dejaml/contracts": "0.1.0",
+    "zod": "^4.1.11"
+  },
+  "devDependencies": {
+    "@dejaml/run-store": "0.1.0"
+  }
+}

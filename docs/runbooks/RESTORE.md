@@ -104,6 +104,27 @@ npm run verify:lab-image
 
 Require UID/GID `10001:10001`, workdir `/workspace/case`, exact locked dependency versions, network disabled during execution, observed accuracy `79.88`, and no remaining stopped containers.
 
-## 11. Resume development
+## 11. Restore the Lab Manager
+
+1. Run `npm run build`.
+2. Prove the lifecycle against the real engine:
+
+```bash
+npm run verify:docker --workspace @dejaml/lab-manager
+```
+
+Require the isolation probe (UID/GID `10001:10001`, network blocked, read-only root and inputs, no Docker socket), timeout, cancellation, memory-limit, and orphan-recovery assertions to pass with `remainingLabContainers: 0`.
+
+3. With the lab image and dataset from section 10 present, run:
+
+```bash
+npm run verify:curated --workspace @dejaml/lab-manager
+```
+
+Require `accuracyPercent: 79.88` and a receipt with `verifiedAbsent: true`. On a platform other than `linux/arm64`, set `DEJAML_EXPECTED_IMAGE_ID` to the locally built image ID.
+
+4. Remove any lab left by a crash with `docker rm --force $(docker ps --all --quiet --filter label=dejaml.lab)`.
+
+## 12. Resume development
 
 Resume only from the first `PENDING`, `IN PROGRESS`, or `REGRESSED` sub-phase in `ROADMAP.md`. When it passes, create or update its phase note before moving on.
