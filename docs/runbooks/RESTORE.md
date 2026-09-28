@@ -121,7 +121,7 @@ Require the isolation probe (UID/GID `10001:10001`, network blocked, read-only r
 npm run verify:curated --workspace @dejaml/lab-manager
 ```
 
-Require `accuracyPercent: 79.88` and a receipt with `verifiedAbsent: true`. On a platform other than `linux/arm64`, set `DEJAML_EXPECTED_IMAGE_ID` to the locally built image ID.
+Require `accuracyPercent: 79.88`, `verdict: different_result`, `signedDifference: -1.78`, and a receipt with `verifiedAbsent: true`. On a platform other than `linux/arm64`, set `DEJAML_EXPECTED_IMAGE_ID` to the locally built image ID.
 
 4. Remove any lab left by a crash with `docker rm --force $(docker ps --all --quiet --filter label=dejaml.lab)`.
 

@@ -77,7 +77,7 @@ Implement create, prepare, execute, cancel, artifact-read, and destroy operation
 
 Stream terminal output, resource telemetry, artifact changes, and approved lab actions. For genuine GUI/browser workloads, provide an authenticated read-only noVNC observer; do not simulate clicks for terminal-only experiments.
 
-### 3.4 Metric verification — `PENDING`
+### 3.4 Metric verification — `DONE`
 
 Extract the observed metric, normalize units, calculate differences, and generate an assessment.
 
