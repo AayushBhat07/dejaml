@@ -13,7 +13,8 @@
     "check": "npm run build && npm run typecheck && npm test",
     "verify:lab-image": "node lab-images/python-cpu/verify.mjs",
     "typecheck": "node scripts/run-workspaces.mjs typecheck",
-    "test": "node scripts/run-workspaces.mjs test"
+    "test": "node scripts/run-workspaces.mjs test",
+    "start": "node apps/api/dist/main.js"
   },
   "engines": {
     "node": ">=24"

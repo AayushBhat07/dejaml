@@ -131,8 +131,20 @@ Require `accuracyPercent: 79.88`, `verdict: different_result`, `signedDifference
 npm run dev --workspace @dejaml/web
 ```
 
-Without a backend the app runs as a labelled example replay. Choose any PDF, start, and require the stepper to reach Findings with a `Different result` verdict at −1.78 pp and a working report download. Set `VITE_DEJAML_API=live` once the Run API exists.
+Without a backend the app runs as a labelled example replay. Choose any PDF, start, and require the stepper to reach Findings with a `Different result` verdict at −1.78 pp and a working report download. To use the Run API instead, see section 13.
 
-## 13. Resume development
+## 13. Restore the Run API
+
+```bash
+npm run build
+VITE_DEJAML_API=live npm run build --workspace @dejaml/web
+npm run verify:stack --workspace @dejaml/api   # stand-ins for model, GitHub, Docker
+```
+
+Open `http://127.0.0.1:8787`, upload the sample paper the command prints, and require Findings `Different result` at −1.78 pp, a server report download, and that a reload mid-run resumes the same study.
+
+For the real service, with sections 8–11 in place, run `npm start` (set `DEJAML_EXPECTED_IMAGE_ID` off `linux/arm64`), upload the case paper, and require the same verdict with `cleanup.verifiedAbsent: true` in the report. The service removes orphan labs and marks interrupted runs `failed` on start.
+
+## 14. Resume development
 
 Resume only from the first `PENDING`, `IN PROGRESS`, or `REGRESSED` sub-phase in `ROADMAP.md`. When it passes, create or update its phase note before moving on.

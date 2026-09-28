@@ -97,9 +97,11 @@ Stream bounded command output and display the paper-versus-observed comparison, 
 
 ## Phase 5 — Integration and demo hardening
 
-### 5.1 End-to-end vertical slice — `PENDING`
+### 5.1 End-to-end vertical slice — `DONE`
 
 Connect the uploaded PDF to real repository discovery, analysis, execution, comparison, and reporting.
+
+Verified in the cloud with stand-ins for the model, GitHub, and Docker; the real-model run is a Mac acceptance check (see the phase note).
 
 ### 5.2 Failure and cleanup verification — `PENDING`
 
