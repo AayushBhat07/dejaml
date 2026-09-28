@@ -2,7 +2,7 @@
 
 **Status:** `DONE`
 **Completed:** `2026-09-28`
-**Commit:** `pending`
+**Commit:** `dc17654`
 **Owner:** `Codex`
 
 ## Objective
@@ -25,6 +25,7 @@ Build and prove a minimal, pinned, non-root Python image capable of running the 
 npm run verify:lab-image
 npm run check
 npm audit --audit-level=moderate
+docker scout cves --only-severity critical,high local://dejaml/python-cpu:0.1.0
 git diff --check
 ```
 
