@@ -219,6 +219,12 @@ export const MetricExtractionSchema = z
     }
   });
 
+export const ExecutionAdapterSchema = z.object({
+  source: z.literal("curated_case"),
+  path: z.string().min(1),
+  sha256: Sha256Schema,
+});
+
 export const ExperimentPlanSchema = z.object({
   caseId: z.string().min(1),
   repository: z.object({
@@ -228,11 +234,71 @@ export const ExperimentPlanSchema = z.object({
   claim: ClaimSchema,
   dataset: DatasetSpecSchema,
   preparation: z.array(PreparationStepSchema),
+  executionAdapter: ExecutionAdapterSchema,
   command: ArgvCommandSchema,
   resources: ResourceBudgetSchema,
   metricExtraction: MetricExtractionSchema,
   maxAttempts: z.union([z.literal(1), z.literal(2)]),
   stopConditions: z.array(z.string().min(1)).min(1),
+});
+
+export const LeadResearchDecisionSchema = z
+  .object({
+    schemaVersion: z.literal(1),
+    status: z.enum(["ready", "inconclusive"]),
+    summary: z.string().min(1),
+    plan: ExperimentPlanSchema.nullable(),
+    reasons: z.array(z.string().min(1)),
+    warnings: z.array(z.string()),
+  })
+  .superRefine((value, context) => {
+    if (value.status === "ready" && !value.plan) {
+      context.addIssue({ code: "custom", message: "ready Lead decision requires a plan" });
+    }
+    if (value.status === "inconclusive" && value.reasons.length === 0) {
+      context.addIssue({
+        code: "custom",
+        message: "inconclusive Lead decision requires at least one reason",
+      });
+    }
+  });
+
+export const ExperimentPolicySchema = z.object({
+  schemaVersion: z.literal(1),
+  caseId: z.string().min(1),
+  repository: z.object({
+    url: GithubRepositoryUrlSchema,
+    commitSha: CommitShaSchema,
+    approvedEntrypoints: z.array(z.string().min(1)).min(1),
+  }),
+  claim: z.object({
+    dataset: z.string().min(1),
+    model: z.string().min(1),
+    metricNames: z.array(z.string().min(1)).min(1),
+    unit: z.enum(["fraction", "percent", "score"]),
+    reportedValue: z.number().finite(),
+  }),
+  dataset: DatasetSpecSchema,
+  preparation: z.array(PreparationStepSchema),
+  trustedExecutionAdapter: ExecutionAdapterSchema,
+  command: ArgvCommandSchema,
+  maximumResources: ResourceBudgetSchema,
+  metricExtraction: MetricExtractionSchema,
+  maximumAttempts: z.union([z.literal(1), z.literal(2)]),
+  requiredStopConditions: z.array(z.string().min(1)).min(1),
+  allowedStopConditions: z.array(z.string().min(1)).min(1),
+});
+
+export const PlanPolicyCheckSchema = z.object({
+  id: z.string().min(1),
+  passed: z.boolean(),
+  explanation: z.string().min(1),
+});
+
+export const PlanPolicyResultSchema = z.object({
+  approved: z.boolean(),
+  planDigest: Sha256Schema.nullable(),
+  checks: z.array(PlanPolicyCheckSchema).min(1),
 });
 
 export const ActorSchema = z.enum([
@@ -316,6 +382,9 @@ export type CodeMapping = z.infer<typeof CodeMappingSchema>;
 export type PaperAnalysis = z.infer<typeof PaperAnalysisSchema>;
 export type CodeAnalysis = z.infer<typeof CodeAnalysisSchema>;
 export type ExperimentPlan = z.infer<typeof ExperimentPlanSchema>;
+export type LeadResearchDecision = z.infer<typeof LeadResearchDecisionSchema>;
+export type ExperimentPolicy = z.infer<typeof ExperimentPolicySchema>;
+export type PlanPolicyResult = z.infer<typeof PlanPolicyResultSchema>;
 export type RunEvent = z.infer<typeof RunEventSchema>;
 export type Attempt = z.infer<typeof AttemptSchema>;
 export type Metric = z.infer<typeof MetricSchema>;

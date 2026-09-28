@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-export type AnalystRole = "paper_analyst" | "code_analyst";
+export type ResearchRole = "paper_analyst" | "code_analyst" | "lead_researcher";
 
 export type StructuredCompletion<T> = {
   value: T;
@@ -11,7 +11,7 @@ export type StructuredCompletion<T> = {
 
 export type StructuredCompletionRequest<T> = {
   sessionId: string;
-  role: AnalystRole;
+  role: ResearchRole;
   systemPrompt: string;
   prompt: string;
   schema: z.ZodType<T>;

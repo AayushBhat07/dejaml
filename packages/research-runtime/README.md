@@ -1,10 +1,10 @@
 # DéjàML Research Runtime
 
-Runs Paper Analyst and Code Analyst concurrently, validates their structured outputs, and records evidence-bearing public events without exposing private reasoning.
+Runs Paper Analyst and Code Analyst concurrently, reconciles their validated outputs through Lead Researcher, and applies a deterministic experiment-policy gate without exposing private reasoning.
 
 ## Runtime choices
 
-- `OpenClawGatewayStructuredClient` is the demo path for OAuth-backed models. It targets two dedicated Gateway agents with separate sessions.
+- `OpenClawGatewayStructuredClient` is the demo path for OAuth-backed models. It targets three dedicated Gateway agents with separate sessions.
 - `OpenClawStructuredClient` is the headless path for API-key or local providers that can run through isolated `openclaw agent exec` state.
 - Both paths are hidden behind `StructuredModelClient`; product events use research-role names only.
 
@@ -18,6 +18,7 @@ The local demo uses:
 
 - `dejaml-paper` → identity `Paper Analyst`
 - `dejaml-code` → identity `Code Analyst`
+- `dejaml-lead` → identity `Lead Researcher`
 
 Each agent must have:
 
@@ -53,4 +54,13 @@ OPENCLAW_BIN=/absolute/path/to/openclaw \
   npm run verify:curated:live --workspace @dejaml/research-runtime
 ```
 
-The live verification downloads the curated paper, discovers and acquires its repository, runs both dedicated analyst sessions concurrently, prints public statuses, and cleans up the checkout.
+The analyst-only verifier downloads the curated paper, discovers and acquires its repository, runs both analyst sessions concurrently, prints public statuses, and cleans up the checkout.
+
+For the complete research-plan handoff:
+
+```bash
+OPENCLAW_BIN=/absolute/path/to/openclaw \
+  npm run verify:curated:plan:live --workspace @dejaml/research-runtime
+```
+
+This adds Lead Researcher reconciliation and requires the deterministic gate to approve the committed case policy before the run may enter `preparing_lab`.

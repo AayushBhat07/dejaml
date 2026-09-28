@@ -37,6 +37,11 @@ describe("ExperimentPlanSchema", () => {
         expectedPaths: ["data/training.csv", "data/testing.csv"],
       },
       preparation: [],
+      executionAdapter: {
+        source: "curated_case",
+        path: "cases/urban-land-cover/runner.py",
+        sha256: "276fa3d9b5d4677139c20ab71ceee491b7c849b74278b9a655c122ade8460f6b",
+      },
       command: {
         executable: "python",
         args: ["runner.py"],
@@ -77,6 +82,11 @@ describe("ExperimentPlanSchema", () => {
         expectedPaths: ["data.csv"],
       },
       preparation: [],
+      executionAdapter: {
+        source: "curated_case",
+        path: "cases/urban-land-cover/runner.py",
+        sha256: "276fa3d9b5d4677139c20ab71ceee491b7c849b74278b9a655c122ade8460f6b",
+      },
       command: { executable: "python", args: [], cwd: "/workspace", env: {} },
       resources: {
         cpus: 1,
@@ -137,4 +147,3 @@ describe("AssessmentSchema", () => {
     expect(assessment.verdict).toBe("different_result");
   });
 });
-

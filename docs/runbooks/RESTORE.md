@@ -56,8 +56,8 @@ The receipt must report commit `49ece7ff4cc43fd4cb258678d44854f1cb2a417d` and `c
 ## 8. Restore parallel analysts
 
 1. Install OpenClaw `2026.9.5` or review and re-pin the adapter against a newer version.
-2. Create dedicated agents `dejaml-paper` and `dejaml-code` with separate workspaces and no channel bindings.
-3. Configure both with the chosen model/runtime and `tools: { profile: "minimal", allow: ["session_status"] }`.
+2. Create dedicated agents `dejaml-paper`, `dejaml-code`, and `dejaml-lead` with separate workspaces and no channel bindings.
+3. Configure all three with the chosen model/runtime and `tools: { profile: "minimal", allow: ["session_status"] }`.
 4. Confirm the operator's general-purpose agent is not used by DéjàML.
 5. Run:
 
@@ -68,6 +68,25 @@ OPENCLAW_BIN=/absolute/path/to/openclaw \
 
 Require `paperStatus: ready`, `codeStatus: ready`, the Random Forest 81.66% claim, the notebook entry point, two started events before the two completed events, and final run state `planning`.
 
-## 9. Resume development
+## 9. Restore Lead Researcher and policy gate
+
+1. Verify `cases/urban-land-cover/policy.json` pins the expected repository commit, dataset checksum, trusted adapter checksum, exact argv command, offline resource ceilings, metric rule, and stop conditions.
+2. Verify the adapter digest:
+
+```bash
+shasum -a 256 cases/urban-land-cover/runner.py
+```
+
+Require `276fa3d9b5d4677139c20ab71ceee491b7c849b74278b9a655c122ade8460f6b` unless both the adapter and reviewed policy were deliberately updated together.
+3. Run:
+
+```bash
+OPENCLAW_BIN=/absolute/path/to/openclaw \
+  npm run verify:curated:plan:live --workspace @dejaml/research-runtime
+```
+
+Require all three role statuses to be `ready`, `policyApproved: true`, no failed policy checks, a SHA-256 plan digest, final state `preparing_lab`, and eight ordered public events. Confirm the temporary repository checkout was removed.
+
+## 10. Resume development
 
 Resume only from the first `PENDING`, `IN PROGRESS`, or `REGRESSED` sub-phase in `ROADMAP.md`. When it passes, create or update its phase note before moving on.

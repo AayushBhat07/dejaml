@@ -46,4 +46,4 @@ Do not infer readiness from directory presence. The authoritative implementation
 
 ## Backend progress
 
-The backend foundation now includes validated shared contracts, bounded PDF validation and page-level text extraction, immutable source hashing, page-anchored GitHub discovery, guarded public-repository acquisition with commit pinning, real concurrent Paper/Code Analyst sessions with bounded evidence and live events, a deterministic curated experiment, and an append-only refresh-safe run store.
+The backend foundation now includes validated shared contracts, bounded PDF validation and page-level text extraction, immutable source hashing, page-anchored GitHub discovery, guarded public-repository acquisition with commit pinning, real concurrent Paper/Code Analyst sessions with bounded evidence and live events, Lead Researcher reconciliation, an exact deterministic execution-policy gate, a deterministic curated experiment, and an append-only refresh-safe run store.

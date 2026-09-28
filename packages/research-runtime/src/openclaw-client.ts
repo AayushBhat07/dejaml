@@ -52,7 +52,8 @@ export type OpenClawClientOptions = {
 
 export type OpenClawGatewayClientOptions = {
   binaryPath: string;
-  analystAgents: Record<"paper_analyst" | "code_analyst", string>;
+  analystAgents: Record<"paper_analyst" | "code_analyst", string> &
+    Partial<Record<"lead_researcher", string>>;
   model?: string;
   timeoutSeconds?: number;
   thinking?: "off" | "minimal" | "low" | "medium" | "high";
@@ -255,6 +256,7 @@ export class OpenClawGatewayStructuredClient implements StructuredModelClient {
 
   async complete<T>(request: StructuredCompletionRequest<T>): Promise<StructuredCompletion<T>> {
     const agentId = this.#options.analystAgents[request.role];
+    if (!agentId) throw new Error(`no dedicated OpenClaw agent configured for ${request.role}`);
     const temporaryRoot = await mkdtemp(join(tmpdir(), "dejaml-gateway-prompt-"));
     const promptPath = join(temporaryRoot, "prompt.txt");
     await writeFile(promptPath, `${request.systemPrompt}\n\n${request.prompt}`, {

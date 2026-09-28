@@ -263,7 +263,7 @@ The orchestrator launches Paper Analyst and Code Analyst as independent sessions
 
 The orchestration implementation may use OpenClaw internally, but product events expose research roles and evidence—not framework-specific terminology or private reasoning traces.
 
-For the local OAuth-backed demo, the orchestrator targets two dedicated OpenClaw Gateway agents (`dejaml-paper` and `dejaml-code`) through the pinned `openclaw agent --json` contract. Each has a separate workspace, no channel bindings, a distinct session per run, and an explicit tool allowlist containing only `session_status`. It never targets the operator's general-purpose agent. API-key and local providers may instead use isolated `openclaw agent exec` runs.
+For the local OAuth-backed demo, the orchestrator targets three dedicated OpenClaw Gateway agents (`dejaml-paper`, `dejaml-code`, and `dejaml-lead`) through the pinned `openclaw agent --json` contract. Each has a separate workspace, no channel bindings, a distinct session per run, and an explicit tool allowlist containing only `session_status`. It never targets the operator's general-purpose agent. API-key and local providers may instead use isolated `openclaw agent exec` runs.
 
 The model never receives unrestricted paper or repository access. The trusted backend constructs bounded evidence bundles, removes notebook outputs, ignores symlinks and credential-like files, redacts common token formats, and then submits both analyst requests concurrently. Parsed outputs must pass shared schemas and deterministic cross-checks against discovered page numbers, repository URL, pinned commit, supplied file paths, and SHA-256 digests. Each lane publishes a start event before either model call and its own completed, warning, or failed event as soon as it finishes.
 
@@ -285,6 +285,8 @@ Checks include:
 - time and resource budgets are within server limits;
 - metric extraction rule is bounded;
 - preparation steps are recorded separately from execution.
+
+The curated case policy is committed application data. It pins the repository commit, dataset URL and SHA-256, approved repository entry point, exact argv command and environment, resource ceilings, offline execution, metric extraction, attempt count, and stop conditions. It also pins the DéjàML-owned execution adapter separately from repository evidence by path and SHA-256. This makes clear that the adapter is reviewed control-plane code translating known notebook logic into a bounded run; it is not falsely attributed to the paper repository. The policy gate emits a digest only when every check passes.
 
 ### 6.7 Lab Manager
 
@@ -393,6 +395,11 @@ type ExperimentPlan = {
     description: string;
     command?: { executable: string; args: string[] };
   }>;
+  executionAdapter: {
+    source: "curated_case";
+    path: string;
+    sha256: string;
+  };
   command: {
     executable: string;
     args: string[];

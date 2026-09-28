@@ -59,13 +59,13 @@ Extract candidate GitHub URLs, validate targets, shallow-clone the selected repo
 
 Implement Paper Analyst and Code Analyst as independent structured sessions with narrow capabilities.
 
-### 2.4 Lead Researcher and policy gate — `IN PROGRESS`
+### 2.4 Lead Researcher and policy gate — `DONE`
 
 Reconcile both analyses, produce one `ExperimentPlan`, and reject unsupported or unsafe plans deterministically.
 
 ## Phase 3 — Disposable lab
 
-### 3.1 Python CPU image — `PENDING`
+### 3.1 Python CPU image — `IN PROGRESS`
 
 Build and pin a minimal image for the curated experiment.
 

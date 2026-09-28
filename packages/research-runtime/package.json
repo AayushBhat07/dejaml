@@ -13,7 +13,8 @@
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run src",
-    "verify:curated:live": "node scripts/verify-curated-live.mjs"
+    "verify:curated:live": "node scripts/verify-curated-live.mjs",
+    "verify:curated:plan:live": "node scripts/verify-curated-plan-live.mjs"
   },
   "dependencies": {
     "@dejaml/contracts": "0.1.0",

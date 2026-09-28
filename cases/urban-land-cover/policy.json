@@ -1,0 +1,66 @@
+{
+  "schemaVersion": 1,
+  "caseId": "urban-land-cover-random-forest",
+  "repository": {
+    "url": "https://github.com/mtesha/tdl-vs-ml-urbanlandcover",
+    "commitSha": "49ece7ff4cc43fd4cb258678d44854f1cb2a417d",
+    "approvedEntrypoints": ["Urban Land Cover Classification.ipynb"]
+  },
+  "claim": {
+    "dataset": "UCI Urban Land Cover",
+    "model": "Random Forest",
+    "metricNames": ["accuracy", "test accuracy"],
+    "unit": "percent",
+    "reportedValue": 81.66
+  },
+  "dataset": {
+    "name": "UCI Urban Land Cover",
+    "sourceUrl": "https://archive.ics.uci.edu/static/public/295/urban%2Bland%2Bcover.zip",
+    "sha256": "277a27000a4a4b593f655595b92904ccb30ece48b8bb2a35cf5d3854d7204f79",
+    "expectedPaths": ["data/training.csv", "data/testing.csv"]
+  },
+  "preparation": [],
+  "trustedExecutionAdapter": {
+    "source": "curated_case",
+    "path": "cases/urban-land-cover/runner.py",
+    "sha256": "276fa3d9b5d4677139c20ab71ceee491b7c849b74278b9a655c122ade8460f6b"
+  },
+  "command": {
+    "executable": "python",
+    "args": [
+      "runner.py",
+      "--training",
+      "data/training.csv",
+      "--testing",
+      "data/testing.csv",
+      "--output",
+      "artifacts/result.json"
+    ],
+    "cwd": "/workspace/case",
+    "env": {}
+  },
+  "maximumResources": {
+    "cpus": 2,
+    "memoryMb": 2048,
+    "pids": 128,
+    "timeoutSeconds": 120,
+    "networkDuringRun": false
+  },
+  "metricExtraction": {
+    "source": "json",
+    "path": "artifacts/result.json",
+    "key": "metrics.accuracyPercent"
+  },
+  "maximumAttempts": 1,
+  "requiredStopConditions": [
+    "dataset digest mismatch",
+    "repository commit mismatch",
+    "timeout or resource limit"
+  ],
+  "allowedStopConditions": [
+    "dataset digest mismatch",
+    "repository commit mismatch",
+    "timeout or resource limit",
+    "metric artifact missing or invalid"
+  ]
+}

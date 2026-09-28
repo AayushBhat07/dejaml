@@ -1,5 +1,9 @@
 import {
+  type CodeAnalysis,
   CodeAnalysisSchema,
+  type ExperimentPolicy,
+  LeadResearchDecisionSchema,
+  type PaperAnalysis,
   type RepositoryAcquisition,
   type RepositoryCandidate,
   PaperAnalysisSchema,
@@ -43,6 +47,33 @@ ${schemaInstruction(PaperAnalysisSchema)}
 
 Paper evidence:
 ${input.paper.text}
+`,
+  };
+}
+
+export function buildLeadResearcherPrompt(input: {
+  paperAnalysis: PaperAnalysis;
+  codeAnalysis: CodeAnalysis;
+  policy: ExperimentPolicy;
+}): { systemPrompt: string; prompt: string } {
+  return {
+    systemPrompt: `You are the DéjàML Lead Researcher. Reconcile the two validated analyst reports into exactly one bounded experiment plan. You recommend; deterministic backend policy makes the final authorization decision.${SHARED_RULES}`,
+    prompt: `
+Validated Paper Analyst report:
+${JSON.stringify(input.paperAnalysis, null, 2)}
+
+Validated Code Analyst report:
+${JSON.stringify(input.codeAnalysis, null, 2)}
+
+Reviewed experiment policy. Copy its repository, dataset, trusted execution adapter, command, resource ceilings, metric extraction, attempt limit, and required stop conditions exactly when the analyst evidence supports the case. Do not widen it.
+
+The trustedExecutionAdapter is reviewed DéjàML-owned code, deliberately separate from the acquired paper repository. It translates the mapped notebook logic into a bounded machine-readable run. Its path and SHA-256 are authoritative policy evidence; the Code Analyst is not expected to find this adapter in the paper repository. The adapter also owns the reviewed input-path translation and JSON metric artifact declared by the policy:
+${JSON.stringify(input.policy, null, 2)}
+
+Return inconclusive when either analyst is inconclusive, the reports conflict, or the evidence does not support the reviewed case.
+
+Required JSON schema:
+${schemaInstruction(LeadResearchDecisionSchema)}
 `,
   };
 }
