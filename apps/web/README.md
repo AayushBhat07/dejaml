@@ -1,0 +1,31 @@
+# DéjàML Web
+
+React + Vite interface for the four product states: New Study, Research Team, Virtual Lab, and Findings.
+
+## Run it
+
+```bash
+npm install
+npm run dev --workspace @dejaml/web        # http://localhost:5173
+```
+
+By default the app runs in **recorded replay** mode. It replays `fixtures/events/urban-land-cover-success.json` and shows a banner saying nothing is executed. To use the Run API (Phase 5.1), which the dev server proxies at `/api` to `127.0.0.1:8787`, set:
+
+```bash
+VITE_DEJAML_API=live npm run dev --workspace @dejaml/web
+```
+
+## Structure
+
+- `src/lib/run-client.ts`: `RunClient`, with `HttpRunClient` (POST `/api/runs`, SSE `/api/runs/:id/events?after=n`, POST `/api/runs/:id/cancel`) and `ReplayRunClient`. Every event is validated with `RunEventSchema`.
+- `src/lib/paper.ts`: client-side PDF checks (non-empty, at most 20 MB, `%PDF-` header) and the SHA-256 fingerprint. The server remains authoritative.
+- `src/lib/stages.ts`: maps run status and events to the four product stages.
+- `src/components/`: shell, stepper, file drop, badge.
+- `src/screens/`: New Study and the interim activity list.
+- `src/styles.css`: design tokens for light and dark schemes, plus the shared component styles.
+
+## Verification
+
+```bash
+npm run check    # includes the web typecheck, build, and tests
+```

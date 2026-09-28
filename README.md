@@ -21,6 +21,7 @@ The project is being built as one reliable vertical slice around the Urban Land 
 - [Real-time run store](packages/run-store/README.md)
 - [Lab Manager](services/lab-manager/README.md)
 - [Result Verifier](packages/result-verifier/README.md)
+- [Web app](apps/web/README.md)
 
 ## Product roles
 

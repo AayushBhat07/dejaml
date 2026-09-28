@@ -125,6 +125,14 @@ Require `accuracyPercent: 79.88`, `verdict: different_result`, `signedDifference
 
 4. Remove any lab left by a crash with `docker rm --force $(docker ps --all --quiet --filter label=dejaml.lab)`.
 
-## 12. Resume development
+## 12. Restore the web app
+
+```bash
+npm run dev --workspace @dejaml/web
+```
+
+Without a backend the app runs as a labelled recorded replay. Choose any PDF, start, and require the stepper to reach Findings. Set `VITE_DEJAML_API=live` once the Run API exists.
+
+## 13. Resume development
 
 Resume only from the first `PENDING`, `IN PROGRESS`, or `REGRESSED` sub-phase in `ROADMAP.md`. When it passes, create or update its phase note before moving on.

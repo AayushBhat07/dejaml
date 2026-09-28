@@ -83,7 +83,7 @@ Extract the observed metric, normalize units, calculate differences, and generat
 
 ## Phase 4 — Product interface
 
-### 4.1 New Study and application shell — `PENDING`
+### 4.1 New Study and application shell — `DONE`
 
 Build the PDF submission experience and common visual system.
 
