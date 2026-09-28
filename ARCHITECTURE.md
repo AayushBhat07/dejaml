@@ -306,6 +306,12 @@ The report contains:
 - limitations and unresolved discrepancies;
 - cleanup outcome.
 
+### 6.9 Live Lab observer
+
+The primary lab view is an honest observability surface for terminal-based ML experiments. It streams bounded stdout/stderr, current command, elapsed time, CPU/RAM telemetry, attempt status, and approved artifact changes.
+
+An optional read-only virtual desktop is supported only for experiments that genuinely operate a GUI or browser. It uses a container-local display with authenticated, short-lived noVNC observer access. The observer is proxied by the trusted backend; container VNC ports are never exposed publicly, observer credentials are not provided to research agents, and judge input is disabled by default. A terminal-only experiment must not manufacture cursor motion merely for visual effect.
+
 ## 7. Core contracts
 
 ### 7.1 Claim

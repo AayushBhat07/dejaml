@@ -47,11 +47,11 @@ Implement append-only run/event persistence and create a deterministic full-run 
 
 ## Phase 2 — Intake and research analysis
 
-### 2.1 PDF intake — `IN PROGRESS`
+### 2.1 PDF intake — `DONE`
 
 Validate uploads, hash the PDF, extract page-anchored text, and store extraction evidence.
 
-### 2.2 Repository discovery and acquisition — `PENDING`
+### 2.2 Repository discovery and acquisition — `IN PROGRESS`
 
 Extract candidate GitHub URLs, validate targets, shallow-clone the selected repository, and pin its commit.
 
@@ -73,7 +73,11 @@ Build and pin a minimal image for the curated experiment.
 
 Implement create, prepare, execute, cancel, artifact-read, and destroy operations with resource limits and cleanup receipts.
 
-### 3.3 Metric verification — `PENDING`
+### 3.3 Live Lab observer — `PENDING`
+
+Stream terminal output, resource telemetry, artifact changes, and approved lab actions. For genuine GUI/browser workloads, provide an authenticated read-only noVNC observer; do not simulate clicks for terminal-only experiments.
+
+### 3.4 Metric verification — `PENDING`
 
 Extract the observed metric, normalize units, calculate differences, and generate an assessment.
 

@@ -25,6 +25,25 @@ export const RunStatusSchema = z.enum([
   "timed_out",
 ]);
 
+export const PaperPageSchema = z.object({
+  pageNumber: z.number().int().positive(),
+  text: z.string(),
+  charCount: z.number().int().nonnegative(),
+});
+
+export const PaperDocumentSchema = z.object({
+  schemaVersion: z.literal(1),
+  file: z.object({
+    originalName: z.string().min(1),
+    bytes: z.number().int().positive(),
+    sha256: Sha256Schema,
+  }),
+  pageCount: z.number().int().positive(),
+  pages: z.array(PaperPageSchema).min(1),
+  totalTextChars: z.number().int().nonnegative(),
+  warnings: z.array(z.string()),
+});
+
 export const EvidencePointerSchema = z.object({
   kind: z.enum(["paper_page", "repository_file", "log_line", "artifact"]),
   reference: z.string().min(1),
@@ -210,6 +229,8 @@ export const AssessmentSchema = z.object({
 });
 
 export type RunStatus = z.infer<typeof RunStatusSchema>;
+export type PaperPage = z.infer<typeof PaperPageSchema>;
+export type PaperDocument = z.infer<typeof PaperDocumentSchema>;
 export type Claim = z.infer<typeof ClaimSchema>;
 export type CodeMapping = z.infer<typeof CodeMappingSchema>;
 export type ExperimentPlan = z.infer<typeof ExperimentPlanSchema>;
@@ -217,4 +238,3 @@ export type RunEvent = z.infer<typeof RunEventSchema>;
 export type Attempt = z.infer<typeof AttemptSchema>;
 export type Metric = z.infer<typeof MetricSchema>;
 export type Assessment = z.infer<typeof AssessmentSchema>;
-

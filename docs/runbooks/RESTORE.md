@@ -40,7 +40,10 @@ Follow `docs/phases/phase-00/subphase-00-01-case-feasibility.md`, then the lates
 - Clean up any orphan lab before retrying.
 - Start a new attempt record; never overwrite an interrupted attempt.
 
-## 6. Resume development
+## 6. Verify paper intake
+
+Run `npm run check`, then confirm the paper-intake tests cover a text-readable PDF, invalid input, an oversized upload, and a PDF without extractable text. Paper bytes must be hashed before parsing, and extracted text must retain page numbers for later evidence citations.
+
+## 7. Resume development
 
 Resume only from the first `PENDING`, `IN PROGRESS`, or `REGRESSED` sub-phase in `ROADMAP.md`. When it passes, create or update its phase note before moving on.
-
