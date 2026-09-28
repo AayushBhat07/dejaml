@@ -12,7 +12,10 @@ import { VirtualLab } from "./screens/VirtualLab";
 
 export function App({ client: provided }: { client?: RunClient }) {
   const client = useMemo(() => provided ?? defaultRunClient(), [provided]);
-  const [runId, setRunId] = useState<string | null>(null);
+  // Live runs keep their ID in the URL so a refresh resumes the same study.
+  const [runId, setRunId] = useState<string | null>(() =>
+    client.mode === "live" ? new URLSearchParams(window.location.search).get("run") : null,
+  );
   const [events, setEvents] = useState<RunEvent[]>([]);
   const [pinned, setPinned] = useState<StageId | null>(null);
   const [connectionError, setConnectionError] = useState<string | null>(null);
@@ -35,12 +38,20 @@ export function App({ client: provided }: { client?: RunClient }) {
     setEvents([]);
     setPinned(null);
     setRunId(run.runId);
+    if (client.mode === "live") window.history.replaceState(null, "", `?run=${encodeURIComponent(run.runId)}`);
   };
 
   const stage: StageId = runId ? stageForEvents(events) : "new_study";
   // Follow the run unless the viewer chose an earlier screen; clicking the live stage resumes following.
   const viewing = pinned ?? stage;
   const select = (next: StageId) => setPinned(next === stage ? null : next);
+
+  const reset = () => {
+    setRunId(null);
+    setEvents([]);
+    setPinned(null);
+    if (window.location.search) window.history.replaceState(null, "", window.location.pathname);
+  };
 
   const download = () => {
     if (!runId) return;
@@ -63,7 +74,12 @@ export function App({ client: provided }: { client?: RunClient }) {
       ) : viewing === "virtual_lab" ? (
         <VirtualLab events={events} onCancel={() => void client.cancel(runId)} />
       ) : (
-        <Findings events={events} onDownload={download} reportHref={client.reportUrl(runId)} />
+        <Findings
+          events={events}
+          onDownload={download}
+          reportHref={client.reportUrl(runId)}
+          onNewStudy={events.some((event) => event.type === "run_finished" || event.type === "lab_cleanup") ? reset : undefined}
+        />
       )}
     </Shell>
   );

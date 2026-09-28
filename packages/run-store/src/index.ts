@@ -129,6 +129,18 @@ export class RunStore {
     };
   }
 
+  /** Runs that have not reached a terminal status, oldest first. */
+  listActiveRuns(): RunSnapshot[] {
+    const rows = this.#database
+      .prepare("SELECT id FROM runs ORDER BY created_at ASC, id ASC")
+      .all() as Array<{ id: string }>;
+    return rows.map((row) => this.getRun(row.id)).filter((run) => !TERMINAL_STATUSES.has(run.status));
+  }
+
+  isTerminal(runId: string): boolean {
+    return TERMINAL_STATUSES.has(this.getRun(runId).status);
+  }
+
   transitionRun(runId: string, nextStatus: RunStatus): RunSnapshot {
     const current = this.getRun(runId);
     const parsedNext = RunStatusSchema.parse(nextStatus);

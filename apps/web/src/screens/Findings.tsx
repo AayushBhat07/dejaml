@@ -31,10 +31,12 @@ export function Findings({
   events,
   onDownload,
   reportHref,
+  onNewStudy,
 }: {
   events: readonly RunEvent[];
   onDownload: () => void;
   reportHref: string | null;
+  onNewStudy?: (() => void) | undefined;
 }) {
   const findings = findingsFor(events);
   const lab = labViewFor(events);
@@ -55,15 +57,22 @@ export function Findings({
     <section className="stack" aria-labelledby="findings-title">
       <div className="row space-between">
         <h2 id="findings-title">Findings</h2>
-        {reportHref ? (
-          <a className="button secondary" href={reportHref} download>
-            Download report
-          </a>
-        ) : (
-          <button className="button secondary" type="button" onClick={onDownload}>
-            Download report
-          </button>
-        )}
+        <div className="row-tight">
+          {onNewStudy ? (
+            <button className="button secondary" type="button" onClick={onNewStudy}>
+              New study
+            </button>
+          ) : null}
+          {reportHref ? (
+            <a className="button secondary" href={reportHref} download>
+              Download report
+            </a>
+          ) : (
+            <button className="button secondary" type="button" onClick={onDownload}>
+              Download report
+            </button>
+          )}
+        </div>
       </div>
 
       <article className="card stack verdict" data-verdict={assessment.verdict}>

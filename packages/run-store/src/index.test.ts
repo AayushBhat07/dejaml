@@ -108,4 +108,16 @@ describe("RunStore", () => {
       "cannot transition terminal run",
     );
   });
+
+  it("lists only non-terminal runs for restart recovery", () => {
+    const store = new RunStore();
+    const active = store.createRun({}, "run_active");
+    store.createRun({}, "run_done");
+    store.transitionRun("run_done", "failed");
+    store.transitionRun(active.id, "ingesting");
+
+    expect(store.listActiveRuns().map((run) => run.id)).toEqual(["run_active"]);
+    expect(store.isTerminal("run_done")).toBe(true);
+    store.close();
+  });
 });

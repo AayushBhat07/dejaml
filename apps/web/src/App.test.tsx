@@ -49,3 +49,25 @@ describe("App shell", () => {
     expect((await screen.findByRole("alert")).textContent).toBe("This file is not a PDF.");
   });
 });
+
+describe("live mode", () => {
+  it("resumes the run named in the URL and offers a new study when it ends", async () => {
+    const replay = new ReplayRunClient(1);
+    const client = {
+      mode: "live" as const,
+      createRun: replay.createRun.bind(replay),
+      subscribe: replay.subscribe.bind(replay),
+      cancel: replay.cancel.bind(replay),
+      reportUrl: (runId: string) => `/api/runs/${runId}/report`,
+    };
+    window.history.replaceState(null, "", "/?run=run_resumed");
+    render(<App client={client} />);
+    expect(screen.queryByRole("note")).toBeNull();
+    await waitFor(() => expect(screen.getByText("Different result")).toBeTruthy());
+    expect(screen.getByRole("link", { name: "Download report" }).getAttribute("href")).toBe("/api/runs/run_resumed/report");
+
+    fireEvent.click(screen.getByRole("button", { name: "New study" }));
+    expect(screen.getByRole("heading", { name: "New study" })).toBeTruthy();
+    expect(window.location.search).toBe("");
+  });
+});
