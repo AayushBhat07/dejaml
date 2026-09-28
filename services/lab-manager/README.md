@@ -17,6 +17,16 @@ The Lab Manager is the only trusted component that talks to the container engine
 
 `labSpecFromPlan` maps an approved plan to a lab: the DéjàML execution adapter and dataset files are mounted read-only from the curated case directory, and the metric artifact's directory is the only writable path.
 
+## Live observation
+
+Pass `observe: true` (or options) to `executeAttempt` to publish events while the attempt runs:
+
+- `lab_output`: sanitized stdout/stderr lines in batches, with a per-attempt character budget;
+- `lab_telemetry`: CPU %, memory, PIDs, and elapsed time from a streaming `docker stats`;
+- `artifact_changed`: created or resized artifact files.
+
+Terminal control sequences are stripped, so output is safe to render as plain text. There is no virtual desktop; see ADR 0011.
+
 ## Isolation
 
 Every lab runs with `--network none`, `--read-only`, `--cap-drop ALL`, `no-new-privileges`, `--init`, CPU, memory (swap disabled), and PID limits, and a bounded `noexec` `/tmp`. No Docker socket, host home directory, credential, or repository checkout is mounted. Events use the `lab_engineer` role and can be passed straight to `RunStore.appendEvent`.
@@ -27,7 +37,7 @@ Every lab runs with `--network none`, `--read-only`, `--cap-drop ALL`, `no-new-p
 npm run check
 
 # Real Docker lifecycle proof: isolation probes, success, timeout,
-# cancellation, memory limit, artifact export, orphan recovery.
+# cancellation, memory limit, live observation, orphan recovery.
 npm run build
 npm run verify:docker --workspace @dejaml/lab-manager
 

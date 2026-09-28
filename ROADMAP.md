@@ -73,7 +73,7 @@ Build and pin a minimal image for the curated experiment.
 
 Implement create, prepare, execute, cancel, artifact-read, and destroy operations with resource limits and cleanup receipts.
 
-### 3.3 Live Lab observer — `PENDING`
+### 3.3 Live Lab observer — `DONE`
 
 Stream terminal output, resource telemetry, artifact changes, and approved lab actions. For genuine GUI/browser workloads, provide an authenticated read-only noVNC observer; do not simulate clicks for terminal-only experiments.
 

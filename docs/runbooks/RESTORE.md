@@ -113,7 +113,7 @@ Require UID/GID `10001:10001`, workdir `/workspace/case`, exact locked dependenc
 npm run verify:docker --workspace @dejaml/lab-manager
 ```
 
-Require the isolation probe (UID/GID `10001:10001`, network blocked, read-only root and inputs, no Docker socket), timeout, cancellation, memory-limit, and orphan-recovery assertions to pass with `remainingLabContainers: 0`.
+Require the isolation probe (UID/GID `10001:10001`, network blocked, read-only root and inputs, no Docker socket), timeout, cancellation, memory-limit, live-observation, and orphan-recovery assertions to pass with `remainingLabContainers: 0`.
 
 3. With the lab image and dataset from section 10 present, run:
 
