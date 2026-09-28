@@ -5,10 +5,14 @@ import { Stepper } from "./Stepper";
 
 export function Shell({
   stage,
+  viewing,
+  onSelectStage,
   replay,
   children,
 }: {
   stage: StageId;
+  viewing?: StageId;
+  onSelectStage?: (stage: StageId) => void;
   replay: boolean;
   children: ReactNode;
 }) {
@@ -19,7 +23,7 @@ export function Shell({
           <span className="brand-name">DéjàML</span>
           <span className="brand-tagline">Same claim. One more run.</span>
         </div>
-        <Stepper current={stage} />
+        <Stepper current={stage} viewing={viewing ?? stage} {...(onSelectStage ? { onSelect: onSelectStage } : {})} />
       </header>
       {replay ? (
         <div className="banner" role="note">
