@@ -19,6 +19,7 @@ const STATUS_STAGE: Record<RunStatus, StageId> = {
   preparing_lab: "virtual_lab",
   running: "virtual_lab",
   comparing: "findings",
+  auditing: "findings",
   completed: "findings",
   inconclusive: "findings",
   failed: "findings",

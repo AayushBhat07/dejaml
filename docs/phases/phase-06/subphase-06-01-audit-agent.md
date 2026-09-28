@@ -1,0 +1,53 @@
+# Sub-phase 6.1 — Audit Agent
+
+**Status:** `DONE` (cloud-verified with stand-ins; production requires `dejaml-audit` agent in OpenClaw on the Mac)
+**Completed:** `2026-09-28`
+**Owner:** `Claude`
+
+## Objective
+
+Add an LLM-based post-run verification step that checks whether the measured metric semantically matches what the paper claimed, going beyond the seven deterministic comparability checks in the Result Verifier.
+
+## Delivered
+
+- **`AuditDecisionSchema`** in `@dejaml/contracts`: verdict `confirmed | uncertain | disputed`, `metricAligned` flag, free-text `summary`, structured `evidence` pointers, and a `concerns` list.
+- **`"audit_agent"`** added to `ActorSchema` and `ResearchRole`.
+- **`"auditing"` run status** added between `comparing` and terminal states, with allowed transitions updated in `RunStore`.
+- **`runAudit()`** in `@dejaml/research-runtime/src/audit.ts`:
+  - receives `paperAnalysis`, the extracted `metric`, the deterministic `assessment`, and the `plan`;
+  - builds the Audit Agent prompt via `buildAuditAgentPrompt()` in `prompts.ts`;
+  - emits `audit_started`, `audit_completed`, and `audit_failed` events;
+  - is **non-fatal**: an audit failure (network, model error) does not abort the run — the deterministic verdict is the authoritative result.
+- **Pipeline step 6** in `apps/api/src/pipeline.ts`: after `verifyResult`, if the metric was parsed and the verdict is not `inconclusive`, the pipeline transitions to `auditing`, calls `runAudit`, and records `report.audit`.
+- **Web**: `Findings.tsx` renders an `AuditSection` card showing the verdict badge (`confirmed` → green, `uncertain` → neutral, `disputed` → red), the summary, and the concerns list. `ROLE_LABELS` and `STATUS_STAGE` updated for the new actor and status.
+- **Stand-in**: `ScriptedModel` returns a pre-canned `confirmed` decision for the `audit_agent` role so the full pipeline test passes without a real model.
+- `main.ts` reads `DEJAML_AUDIT_AGENT` env var (default `"dejaml-audit"`) and passes it to the OpenClaw gateway client.
+
+## Files changed
+
+- `packages/contracts/src/index.ts` — `AuditDecisionSchema`, `"audit_agent"` actor, `"auditing"` status, `hostPreparation` on `ExperimentPlanSchema`.
+- `packages/research-runtime/src/audit.ts` — new file: `runAudit`.
+- `packages/research-runtime/src/prompts.ts` — `buildAuditAgentPrompt`.
+- `packages/research-runtime/src/model.ts` — `ResearchRole` union extended.
+- `packages/research-runtime/src/openclaw-client.ts` — `analystAgents` type updated.
+- `packages/research-runtime/src/index.ts` — re-export `audit.ts`.
+- `packages/run-store/src/index.ts` — `auditing` transitions.
+- `apps/api/src/pipeline.ts` — step 6 (audit), `report.audit`.
+- `apps/api/src/stand-ins.ts` — `ScriptedModel` audit branch.
+- `apps/api/src/main.ts` — `DEJAML_AUDIT_AGENT` wiring.
+- `apps/api/src/api.test.ts` — `audit_agent:audit_completed` assertion.
+- `apps/web/src/lib/lab.ts` — `AuditSummary` type, `findingsFor` extraction.
+- `apps/web/src/screens/Findings.tsx` — `AuditSection` component.
+- `apps/web/src/lib/roles.ts` — `audit_agent` label.
+- `apps/web/src/lib/stages.ts` — `auditing` stage mapping.
+
+## Not yet proven in production
+
+- The `dejaml-audit` OpenClaw agent must be created on the Mac before the audit step can call a real model. Until then, the production run skips audit silently (the non-fatal catch).
+- No paper has been run with audit against a live model in this cloud environment (no OpenClaw access, no Mac Docker).
+
+## Verification
+
+```bash
+npm run check   # all 59 tests pass, full typecheck clean
+```

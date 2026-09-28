@@ -250,7 +250,7 @@ export async function runStudy(
         steps: plan.hostPreparation.length,
       });
       try {
-        await runHostPreparation(plan.hostPreparation, acquisitionRoot);
+        await runHostPreparation(plan.hostPreparation, acquisitionRoot, deps.image.name);
         event("host_preparation_completed", "completed", "Host-side preparation finished.", {});
       } catch (hostPrepError) {
         const message = hostPrepError instanceof Error ? hostPrepError.message : String(hostPrepError);
@@ -397,35 +397,42 @@ export async function runStudy(
 const execFileAsync = promisify(execFile);
 
 /**
- * Runs host-side preparation steps before the lab is created. Supports:
- *  - pip_install: installs Python packages from a requirements file or explicit list
- *  - nbconvert: converts a Jupyter notebook to a Python script
+ * Runs host-side preparation steps inside a disposable Docker container before the lab
+ * is created. Running inside Docker keeps untrusted repo code off the host machine while
+ * still allowing network access (for pip) or filesystem mutations (for nbconvert).
  *
- * These steps run on the host (not inside the container) so they can access the
- * network and the repository checkout. The lab is created only after these complete.
+ *  - pip_install: installs packages into <repoRoot>/site-packages via --target so they
+ *    are available inside the lab when PYTHONPATH includes that directory.
+ *  - nbconvert: converts a Jupyter notebook to a Python script inside the repo tree.
  */
-async function runHostPreparation(steps: HostPreparationStep[], repoRoot: string): Promise<void> {
+async function runHostPreparation(steps: HostPreparationStep[], repoRoot: string, image: string): Promise<void> {
   for (const step of steps) {
     if (step.kind === "pip_install") {
+      const targetDir = "/repo/site-packages";
+      let pipArgs: string[];
       if (step.requirementsPath) {
-        const reqPath = join(repoRoot, step.requirementsPath);
-        await execFileAsync("pip", ["install", "--quiet", "-r", reqPath], {
-          timeout: 5 * 60 * 1000,
-        });
+        pipArgs = ["pip", "install", "--quiet", "--target", targetDir, "-r", `/repo/${step.requirementsPath}`];
       } else if (step.packages?.length) {
-        await execFileAsync("pip", ["install", "--quiet", ...step.packages], {
-          timeout: 5 * 60 * 1000,
-        });
+        pipArgs = ["pip", "install", "--quiet", "--target", targetDir, ...step.packages];
       } else {
         throw new Error(`pip_install step "${step.description}" has neither requirementsPath nor packages`);
       }
+      await execFileAsync(
+        "docker",
+        ["run", "--rm", "--network", "bridge", "-v", `${repoRoot}:/repo`, "--workdir", "/repo", image, ...pipArgs],
+        { timeout: 5 * 60 * 1000 },
+      );
     } else if (step.kind === "nbconvert") {
       if (!step.notebookPath) throw new Error(`nbconvert step "${step.description}" requires notebookPath`);
-      const notebookAbs = join(repoRoot, step.notebookPath);
-      const outputDir = step.outputPath ? join(repoRoot, step.outputPath, "..") : join(repoRoot, "converted");
+      const outputDir = step.outputPath ? `/repo/${step.outputPath.replace(/\/[^/]+$/, "")}` : "/repo/converted";
       await execFileAsync(
-        "jupyter",
-        ["nbconvert", "--to", "script", "--output-dir", outputDir, notebookAbs],
+        "docker",
+        [
+          "run", "--rm", "--network", "none",
+          "-v", `${repoRoot}:/repo`, "--workdir", "/repo",
+          image,
+          "jupyter", "nbconvert", "--to", "script", "--output-dir", outputDir, `/repo/${step.notebookPath}`,
+        ],
         { timeout: 2 * 60 * 1000 },
       );
     }

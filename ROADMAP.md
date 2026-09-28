@@ -113,6 +113,24 @@ Rehearse repeatedly, cache permitted inputs, retain a labelled prior-run report 
 
 Tooling and runbook done; the real rehearsals, recording, and freeze run on the development Mac (see the phase note and `docs/runbooks/DEMO.md`).
 
+## Phase 6 — Semantic audit and auto-execution
+
+### 6.1 Audit Agent — `DONE`
+
+Add an LLM-based post-run step that checks whether the measured metric semantically matches what the paper claimed, beyond the seven deterministic comparability checks.
+
+The agent is non-fatal: a model or network error does not abort the run. The `dejaml-audit` OpenClaw agent must be created on the Mac before production runs can call a real model.
+
+See `docs/phases/phase-06/subphase-06-01-audit-agent.md`.
+
+### 6.2 Auto-execution (host preparation) — `DONE (schema + plumbing); end-to-end unproven`
+
+Allow the Lead Researcher to specify host-side `pip install` and `nbconvert` steps that run inside a disposable Docker container before the offline lab is created, so papers with notebooks or unpackaged dependencies need no hand-written adapter.
+
+No paper has exercised `hostPreparation` end-to-end yet. The Lead Researcher prompt does not yet instruct the agent to emit those steps.
+
+See `docs/phases/phase-06/subphase-06-02-auto-execution.md`.
+
 ## Change rule
 
 If a completed sub-phase is later reverted or materially changed:
