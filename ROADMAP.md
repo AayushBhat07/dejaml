@@ -87,7 +87,7 @@ Extract the observed metric, normalize units, calculate differences, and generat
 
 Build the PDF submission experience and common visual system.
 
-### 4.2 Research Team — `PENDING`
+### 4.2 Research Team — `DONE`
 
 Render Paper Analyst, Code Analyst, and Lead Researcher progress with evidence-bearing events.
 
