@@ -10,7 +10,13 @@ const CaseManifestSchema = z.object({
   paper: z.object({
     claim: z.object({ model: z.string(), dataset: z.string(), metric: z.string() }),
   }),
-  comparison: z.object({ tolerance: z.number().nonnegative() }),
+  comparison: z.object({
+    tolerance: z.number().nonnegative(),
+    /** The result a correct rehearsal of this case is expected to reproduce exactly. */
+    rehearsalBaseline: z
+      .object({ observedValue: z.number(), verdict: z.enum(["reproduced_within_tolerance", "different_result"]) })
+      .optional(),
+  }),
   knownDiscrepancies: z.array(z.string()),
 });
 

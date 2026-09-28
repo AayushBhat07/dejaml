@@ -55,7 +55,7 @@ export function App({ client: provided }: { client?: RunClient }) {
 
   const download = () => {
     if (!runId) return;
-    const report = buildReport(runId, events, client.mode);
+    const report = buildReport(runId, events, client.mode === "replay" ? (client.replaySource ?? { kind: "prepared" }) : null);
     const url = URL.createObjectURL(new Blob([JSON.stringify(report, null, 2)], { type: "application/json" }));
     const link = document.createElement("a");
     link.href = url;
@@ -65,7 +65,7 @@ export function App({ client: provided }: { client?: RunClient }) {
   };
 
   return (
-    <Shell stage={stage} viewing={viewing} onSelectStage={select} replay={client.mode === "replay"}>
+    <Shell stage={stage} viewing={viewing} onSelectStage={select} replay={client.mode === "replay" ? (client.replaySource ?? { kind: "prepared" }) : null}>
       {connectionError ? <p className="error">{connectionError}</p> : null}
       {!runId ? (
         <NewStudy onStart={start} />

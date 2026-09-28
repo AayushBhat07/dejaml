@@ -153,6 +153,10 @@ npm run verify:failures --workspace @dejaml/api
 
 Require success, missing metric, crash, cancel, timeout, killed-process recovery, unsupported paper, and non-PDF scenarios to pass with `remainingLabContainers: 0`.
 
-## 14. Resume development
+## 14. Demo
+
+Follow [DEMO.md](DEMO.md): cache inputs, pre-flight, rehearse with `npm run rehearse --workspace @dejaml/api`, record the fallback with `npm run record-fixture --workspace @dejaml/api`, and freeze.
+
+## 15. Resume development
 
 Resume only from the first `PENDING`, `IN PROGRESS`, or `REGRESSED` sub-phase in `ROADMAP.md`. When it passes, create or update its phase note before moving on.

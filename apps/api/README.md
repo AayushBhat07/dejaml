@@ -31,6 +31,13 @@ To prove the failure and cleanup paths against a real Docker engine (success, mi
 npm run verify:failures --workspace @dejaml/api
 ```
 
+## Demo tooling
+
+- `npm run rehearse --workspace @dejaml/api -- --paper <pdf> [--runs 3]` rehearses against a running API and applies the demo acceptance test (`src/acceptance.ts`) to each report. A run counts as real only when it used the expected lab image.
+- `npm run record-fixture --workspace @dejaml/api -- <report.json>` turns a passing real report into the web app's recorded replay and keeps it as the prior-run report.
+
+See `docs/runbooks/DEMO.md`.
+
 ## Routes
 
 | Method and path | Result |

@@ -14,6 +14,7 @@ The project is being built as one reliable vertical slice around the Urban Land 
 - [Roadmap](ROADMAP.md)
 - [Phase notes](docs/phases/README.md)
 - [Restoration runbook](docs/runbooks/RESTORE.md)
+- [Demo runbook](docs/runbooks/DEMO.md)
 - [Curated case](cases/urban-land-cover/README.md)
 - [Paper intake](packages/paper-intake/README.md)
 - [Repository intake](packages/repository-intake/README.md)

@@ -1,5 +1,7 @@
 import { AssessmentSchema, type Assessment, type RunEvent } from "@dejaml/contracts";
 
+import type { ReplaySource } from "./run-client";
+
 export type LabPhase = "waiting" | "preparing" | "running" | "finished" | "failed" | "timed_out" | "cancelled";
 
 export type TerminalLine = { stream: "stdout" | "stderr"; text: string; key: string };
@@ -167,14 +169,19 @@ export function findingsFor(events: readonly RunEvent[]): Findings | null {
 }
 
 /** A self-contained JSON report built from the public event stream. */
-export function buildReport(runId: string, events: readonly RunEvent[], mode: "live" | "replay") {
+export function buildReport(runId: string, events: readonly RunEvent[], replay: ReplaySource | null) {
   const findings = findingsFor(events);
   const lab = labViewFor(events);
   return {
     schemaVersion: 1,
     runId,
     generatedAt: new Date().toISOString(),
-    source: mode === "replay" ? "example replay (nothing was executed)" : "live run",
+    source:
+      replay === null
+        ? "live run"
+        : replay.kind === "recorded"
+          ? `recorded run ${replay.runId} from ${replay.recordedAt}, replayed (nothing was executed now)`
+          : "example replay (nothing was executed)",
     verdict: findings?.assessment.verdict ?? null,
     summary: findings?.summary ?? null,
     assessment: findings?.assessment ?? null,

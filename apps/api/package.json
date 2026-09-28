@@ -18,7 +18,9 @@
     "test": "vitest run src",
     "start": "node dist/main.js",
     "verify:stack": "node scripts/verify-stack.mjs",
-    "verify:failures": "node scripts/verify-failures.mjs"
+    "verify:failures": "node scripts/verify-failures.mjs",
+    "rehearse": "node scripts/rehearse.mjs",
+    "record-fixture": "node scripts/record-fixture.mjs"
   },
   "dependencies": {
     "@dejaml/contracts": "0.1.0",

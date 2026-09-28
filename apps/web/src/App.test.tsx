@@ -2,13 +2,36 @@ import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { afterEach, describe, expect, it } from "vitest";
 
 import { App } from "./App";
-import { ReplayRunClient } from "./lib/run-client";
+import recordedRun from "../../../fixtures/events/urban-land-cover-success.json";
+import { ReplayRunClient, replaySourceFrom } from "./lib/run-client";
 
 afterEach(() => {
   document.body.innerHTML = "";
 });
 
 describe("App shell", () => {
+  it("labels a recorded replay with its recording date", () => {
+    render(
+      <App
+        client={new ReplayRunClient(5, recordedRun, { kind: "recorded", runId: "run_real", recordedAt: "2026-09-29T10:00:00Z" })}
+      />,
+    );
+    const note = screen.getByRole("note").textContent ?? "";
+    expect(note).toContain("Recorded replay");
+    expect(note).toContain("2026-09-29");
+    expect(note).toContain("Nothing is executed now.");
+  });
+
+  it("reads the replay source from fixture metadata", () => {
+    expect(replaySourceFrom({ source: "prepared" })).toEqual({ kind: "prepared" });
+    expect(replaySourceFrom({ source: "recorded", runId: "run_real", recordedAt: "2026-09-29T10:00:00Z" })).toEqual({
+      kind: "recorded",
+      runId: "run_real",
+      recordedAt: "2026-09-29T10:00:00Z",
+    });
+    expect(replaySourceFrom({ source: "recorded" })).toEqual({ kind: "prepared" });
+  });
+
   it("labels replay mode and starts a study from a valid PDF", async () => {
     render(<App client={new ReplayRunClient(5)} />);
 

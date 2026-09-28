@@ -18,6 +18,10 @@ const fixturePath = fileURLToPath(new URL("urban-land-cover-success.json", impor
 const root = fileURLToPath(new URL("../../", import.meta.url));
 const policy = ExperimentPolicySchema.parse(JSON.parse(await readFile(join(root, "cases/urban-land-cover/policy.json"), "utf8")));
 const caseManifest = JSON.parse(await readFile(join(root, "cases/urban-land-cover/case.json"), "utf8"));
+const meta = JSON.parse(await readFile(fileURLToPath(new URL("urban-land-cover-success.meta.json", import.meta.url)), "utf8"));
+if (meta.source === "recorded") {
+  throw new Error("The fixture is a recorded real run; rebuilding it would replace real events with prepared ones.");
+}
 const existing = RunEventSchema.array().parse(JSON.parse(await readFile(fixturePath, "utf8")));
 const research = existing.slice(0, existing.findIndex((event) => event.type === "plan_approved") + 1);
 const runId = research[0].runId;

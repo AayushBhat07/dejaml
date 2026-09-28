@@ -59,10 +59,14 @@ describe("findings and report", () => {
     expect(findings?.unit).toBe("percent");
     expect(findingsFor(until("attempt", "completed"))).toBeNull();
 
-    const report = buildReport("run_x", events, "replay");
+    const report = buildReport("run_x", events, { kind: "prepared" });
     expect(report.source).toBe("example replay (nothing was executed)");
     expect(report.verdict).toBe("different_result");
     expect(report.lab.cleanup).toEqual({ clean: true, summary: "Disposable lab removed" });
     expect(report.events).toHaveLength(events.length);
+    expect(buildReport("run_x", events, { kind: "recorded", runId: "run_real", recordedAt: "2026-09-29T10:00:00Z" }).source).toBe(
+      "recorded run run_real from 2026-09-29T10:00:00Z, replayed (nothing was executed now)",
+    );
+    expect(buildReport("run_x", events, null).source).toBe("live run");
   });
 });

@@ -9,7 +9,8 @@ import { LabManager } from "@dejaml/lab-manager";
 import { RunStore } from "@dejaml/run-store";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { loadCases } from "./cases.js";
+import { checkDemoAcceptance } from "./acceptance.js";
+import { loadCases, type CuratedCase } from "./cases.js";
 import type { StudyReport } from "./pipeline.js";
 import { createApiServer, recoverAfterRestart, type ApiServer } from "./server.js";
 import { paperPdf, ScriptedModel, ScriptedRuntime, STAND_IN_IMAGE_ID, standInAcquire } from "./stand-ins.js";
@@ -22,6 +23,7 @@ let api: ApiServer;
 let serverStarted = false;
 let base: string;
 let checkoutsCreated: string[];
+let curated: CuratedCase;
 
 async function startServer(
   options: { timeoutSeconds?: number; editPlan?: (plan: ExperimentPlan) => ExperimentPlan; commitSha?: string } = {},
@@ -36,6 +38,7 @@ async function startServer(
   await writeFile(join(caseDir, "data/training.csv"), "placeholder\n");
   await writeFile(join(caseDir, "data/testing.csv"), "placeholder\n");
   const cases = await loadCases(projectRoot);
+  curated = cases[0]!;
 
   store = new RunStore();
   runtime = new ScriptedRuntime();
@@ -144,6 +147,13 @@ describe("Run API", () => {
     expect(checkoutsCreated).toHaveLength(1);
     await expect(readdir(join(work, "data"))).resolves.toEqual(["reports"]);
 
+    // The demo acceptance test passes, but only counts as a real run for the expected image.
+    const acceptance = checkDemoAcceptance(report, curated, { expectedImageId: STAND_IN_IMAGE_ID });
+    expect(acceptance.checks.filter((check) => !check.passed)).toEqual([]);
+    expect(acceptance).toMatchObject({ passed: true, realRun: true });
+    expect(acceptance.checks.map((check) => check.name)).toContain("matches_rehearsal_baseline");
+    expect(checkDemoAcceptance(report, curated).realRun).toBe(false);
+
     // Refresh-safe replay from a later sequence.
     const resumed = await collectEvents(runId, events.length - 3);
     expect(resumed.map((event) => event.sequence)).toEqual([events.length - 2, events.length - 1, events.length]);
@@ -176,6 +186,8 @@ describe("Run API", () => {
     const report = (await (await fetch(`${base}/api/runs/${runId}/report`)).json()) as StudyReport;
     expect(report.status).toBe("cancelled");
     expect(report.lab?.attempt).toMatchObject({ cancelled: true });
+    const failed = checkDemoAcceptance(report, curated).checks.filter((check) => !check.passed).map((check) => check.name);
+    expect(failed).toEqual(expect.arrayContaining(["isolated_experiment", "metric_parsed", "comparison", "report_complete"]));
     expect(report.lab?.cleanup?.verifiedAbsent).toBe(true);
     expect(report.assessment).toBeNull();
     expect(runtime.containers.size).toBe(0);

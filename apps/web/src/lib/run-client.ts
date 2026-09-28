@@ -1,8 +1,21 @@
 import { RunEventSchema, type RunEvent } from "@dejaml/contracts";
 
 import recordedRun from "../../../../fixtures/events/urban-land-cover-success.json";
+import recordedRunMeta from "../../../../fixtures/events/urban-land-cover-success.meta.json";
 
 export type RunHandle = { runId: string };
+
+/** Where replayed events came from, so the UI can label them honestly. */
+export type ReplaySource =
+  | { kind: "prepared" }
+  | { kind: "recorded"; runId: string; recordedAt: string };
+
+export function replaySourceFrom(meta: unknown): ReplaySource {
+  const value = (meta ?? {}) as Record<string, unknown>;
+  return value.source === "recorded" && typeof value.runId === "string" && typeof value.recordedAt === "string"
+    ? { kind: "recorded", runId: value.runId, recordedAt: value.recordedAt }
+    : { kind: "prepared" };
+}
 
 export type RunSubscription = {
   onEvent: (event: RunEvent) => void;
@@ -11,6 +24,8 @@ export type RunSubscription = {
 
 export interface RunClient {
   readonly mode: "live" | "replay";
+  /** Set in replay mode. */
+  readonly replaySource?: ReplaySource;
   createRun(paper: File): Promise<RunHandle>;
   /** Replays events after `afterSequence`, then streams new ones. Returns an unsubscribe function. */
   subscribe(runId: string, afterSequence: number, subscription: RunSubscription): () => void;
@@ -74,9 +89,12 @@ export class ReplayRunClient implements RunClient {
   readonly #cancelled = new Set<string>();
   readonly #onCancel = new Map<string, () => void>();
 
-  constructor(intervalMs = 900, events: unknown = recordedRun) {
+  readonly replaySource: ReplaySource;
+
+  constructor(intervalMs = 900, events: unknown = recordedRun, source: ReplaySource = replaySourceFrom(recordedRunMeta)) {
     this.#events = RunEventSchema.array().parse(events);
     this.#intervalMs = intervalMs;
+    this.replaySource = source;
   }
 
   async createRun(_paper: File): Promise<RunHandle> {
