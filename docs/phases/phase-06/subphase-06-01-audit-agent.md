@@ -41,9 +41,34 @@ Add an LLM-based post-run verification step that checks whether the measured met
 - `apps/web/src/lib/roles.ts` — `audit_agent` label.
 - `apps/web/src/lib/stages.ts` — `auditing` stage mapping.
 
+## Setting up the dejaml-audit agent on your Mac
+
+Before real-model audit runs work, create the agent in OpenClaw:
+
+```bash
+# 1. Open the OpenClaw dashboard (same place you created dejaml-paper, dejaml-code, dejaml-lead).
+# 2. Create a new structured-output agent named exactly: dejaml-audit
+# 3. Paste the system prompt from buildAuditAgentPrompt() in
+#    packages/research-runtime/src/prompts.ts (the `systemPrompt` field).
+# 4. Set the output schema to match AuditDecisionSchema:
+#    {
+#      "schemaVersion": 1 (literal),
+#      "verdict": "confirmed" | "uncertain" | "disputed",
+#      "metricAligned": boolean,
+#      "summary": string (min 1 char),
+#      "evidence": array of EvidencePointer objects,
+#      "concerns": array of strings
+#    }
+# 5. Copy the agent ID that OpenClaw assigns.
+# 6. Add it to .env (or export before npm start):
+#    DEJAML_AUDIT_AGENT=<the-agent-id>
+# 7. Restart the server: npm start
+```
+
+Until those steps are done, `runAudit` silently catches the error and the run completes without an audit card.
+
 ## Not yet proven in production
 
-- The `dejaml-audit` OpenClaw agent must be created on the Mac before the audit step can call a real model. Until then, the production run skips audit silently (the non-fatal catch).
 - No paper has been run with audit against a live model in this cloud environment (no OpenClaw access, no Mac Docker).
 
 ## Verification
