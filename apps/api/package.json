@@ -17,7 +17,8 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run src",
     "start": "node dist/main.js",
-    "verify:stack": "node scripts/verify-stack.mjs"
+    "verify:stack": "node scripts/verify-stack.mjs",
+    "verify:failures": "node scripts/verify-failures.mjs"
   },
   "dependencies": {
     "@dejaml/contracts": "0.1.0",

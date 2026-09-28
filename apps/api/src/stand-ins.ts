@@ -23,7 +23,7 @@ export const NOTEBOOK = '{"cells":[],"metadata":{},"nbformat":4,"nbformat_minor"
 export const NOTEBOOK_PATH = "Urban Land Cover Classification.ipynb";
 const RESULT = '{"metrics":{"accuracyPercent":79.88}}';
 
-export type ExecMode = "success" | "hang";
+export type ExecMode = "success" | "hang" | "no_metric" | "crash";
 
 function ok(stdout = ""): RuntimeCommandResult {
   return {
@@ -34,7 +34,10 @@ function ok(stdout = ""): RuntimeCommandResult {
   };
 }
 
-/** Stands in for Docker: success writes the curated result; hang waits to be killed. */
+/**
+ * Stands in for Docker: success writes the curated result; hang waits to be
+ * killed; no_metric exits 0 without a result; crash exits 3.
+ */
 export class ScriptedRuntime implements ContainerRuntime {
   mode: ExecMode = "success";
   /** Spreads the scripted output over this many milliseconds so live views have time to update. */
@@ -61,6 +64,11 @@ export class ScriptedRuntime implements ContainerRuntime {
           this.#kill = resolve;
         });
         return { ...ok(), exitCode: 137 };
+      }
+      if (this.mode === "no_metric") return ok("finished without writing a result\n");
+      if (this.mode === "crash") {
+        options.onOutput?.("stderr", "Traceback (most recent call last): KeyError: 'class'\n");
+        return { ...ok(), exitCode: 3, stderr: { text: "KeyError: 'class'\n", bytes: 16, truncated: false } };
       }
       for (let step = 1; step <= 3 && this.execDelayMs > 0; step += 1) {
         options.onOutput?.("stdout", `stand-in progress ${step}/3\n`);
@@ -96,6 +104,8 @@ export class ScriptedModel implements StructuredModelClient {
     private readonly curated: CuratedCase,
     private readonly timeoutSeconds: number,
     private readonly delayMs = 0,
+    /** Lets a test alter the Lead Researcher's plan, for example to exceed policy. */
+    private readonly editPlan: (plan: ExperimentPlan) => ExperimentPlan = (plan) => plan,
   ) {}
 
   async complete<T>(request: StructuredCompletionRequest<T>): Promise<{ value: T }> {
@@ -174,7 +184,7 @@ export class ScriptedModel implements StructuredModelClient {
           schemaVersion: 1,
           status: "ready",
           summary: "Approved one deterministic CPU experiment with seed 42",
-          plan,
+          plan: this.editPlan(plan),
           reasons: [],
           warnings: [],
         }),
@@ -202,7 +212,11 @@ export async function paperPdf(withLink = true): Promise<Uint8Array> {
 }
 
 /** Creates a checkout containing only the curated notebook, pinned to the reviewed commit. */
-export function standInAcquire(curated: CuratedCase, created: string[] = []) {
+export function standInAcquire(
+  curated: CuratedCase,
+  created: string[] = [],
+  commitSha = curated.policy.repository.commitSha,
+) {
   return async (input: { repositoryUrl: string; destinationRoot: string }): Promise<RepositoryAcquisition> => {
     const destination = await mkdtemp(join(input.destinationRoot, "dejaml-repo-"));
     created.push(destination);
@@ -210,7 +224,7 @@ export function standInAcquire(curated: CuratedCase, created: string[] = []) {
     return {
       schemaVersion: 1,
       repositoryUrl: input.repositoryUrl,
-      commitSha: curated.policy.repository.commitSha,
+      commitSha,
       defaultBranch: "main",
       repositorySizeKb: 10,
       destination,

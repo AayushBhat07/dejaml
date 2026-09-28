@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { RunEventSchema, type RunEvent } from "@dejaml/contracts";
+import { RunEventSchema, type ExperimentPlan, type RunEvent } from "@dejaml/contracts";
 import { LabManager } from "@dejaml/lab-manager";
 import { RunStore } from "@dejaml/run-store";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -23,7 +23,9 @@ let serverStarted = false;
 let base: string;
 let checkoutsCreated: string[];
 
-async function startServer(timeoutSeconds = 120): Promise<void> {
+async function startServer(
+  options: { timeoutSeconds?: number; editPlan?: (plan: ExperimentPlan) => ExperimentPlan; commitSha?: string } = {},
+): Promise<void> {
   // A private project root holding the reviewed adapter and placeholder data files.
   const projectRoot = join(work, "project");
   const caseDir = join(projectRoot, "cases/urban-land-cover");
@@ -41,12 +43,12 @@ async function startServer(timeoutSeconds = 120): Promise<void> {
   api = createApiServer({
     store,
     labs,
-    model: new ScriptedModel(cases[0]!, timeoutSeconds),
+    model: new ScriptedModel(cases[0]!, options.timeoutSeconds ?? 120, 0, options.editPlan),
     cases,
     projectRoot,
     workRoot: join(work, "data"),
     image: { name: "dejaml/python-cpu:0.1.0", expectedImageId: STAND_IN_IMAGE_ID },
-    acquire: standInAcquire(cases[0]!, checkoutsCreated),
+    acquire: standInAcquire(cases[0]!, checkoutsCreated, options.commitSha),
   });
   await mkdir(join(work, "data"), { recursive: true });
   await new Promise<void>((resolve) => api.server.listen(0, "127.0.0.1", resolve));
@@ -181,7 +183,7 @@ describe("Run API", () => {
   });
 
   it("stops an attempt at the plan's wall-time limit", async () => {
-    await startServer(1);
+    await startServer({ timeoutSeconds: 1 });
     runtime.mode = "hang";
     const { runId } = (await (await upload(await paperPdf())).json()) as { runId: string };
     await api.idle();
@@ -189,6 +191,60 @@ describe("Run API", () => {
     expect(report.status).toBe("timed_out");
     expect(report.lab?.attempt).toMatchObject({ timedOut: true, exitCode: null });
     expect(report.lab?.cleanup?.verifiedAbsent).toBe(true);
+  });
+
+  it("ends as inconclusive when the attempt writes no metric, and still removes the lab", async () => {
+    await startServer();
+    runtime.mode = "no_metric";
+    const { runId } = (await (await upload(await paperPdf())).json()) as { runId: string };
+    await api.idle();
+    const report = (await (await fetch(`${base}/api/runs/${runId}/report`)).json()) as StudyReport;
+    expect(report.status).toBe("inconclusive");
+    expect(report.metric).toBeNull();
+    expect(report.assessment).toMatchObject({ verdict: "inconclusive", observedValue: null });
+    expect(report.events.find((event) => event.type === "metric_extracted")?.status).toBe("failed");
+    expect(report.lab?.cleanup?.verifiedAbsent).toBe(true);
+    expect(runtime.containers.size).toBe(0);
+  });
+
+  it("ends as inconclusive when the attempt exits non-zero", async () => {
+    await startServer();
+    runtime.mode = "crash";
+    const { runId } = (await (await upload(await paperPdf())).json()) as { runId: string };
+    await api.idle();
+    const report = (await (await fetch(`${base}/api/runs/${runId}/report`)).json()) as StudyReport;
+    expect(report.status).toBe("inconclusive");
+    expect(report.lab?.attempt?.exitCode).toBe(3);
+    expect(report.lab?.stderr).toContain("KeyError");
+    expect(report.assessment?.checks.find((check) => check.name === "attempt_completed")?.passed).toBe(false);
+    expect(report.lab?.cleanup?.verifiedAbsent).toBe(true);
+  });
+
+  it("stops before any lab when the repository moved past the reviewed commit", async () => {
+    await startServer({ commitSha: "f".repeat(40) });
+    const { runId } = (await (await upload(await paperPdf())).json()) as { runId: string };
+    await api.idle();
+    const report = (await (await fetch(`${base}/api/runs/${runId}/report`)).json()) as StudyReport;
+    expect(report.status).toBe("inconclusive");
+    expect(report.failure).toBe("repository commit mismatch");
+    expect(report.lab).toBeNull();
+    expect(report.events.some((event) => event.actor === "lab_engineer")).toBe(false);
+    expect(checkoutsCreated).toHaveLength(1);
+    await expect(readdir(join(work, "data"))).resolves.toEqual(["reports"]);
+  });
+
+  it("stops before any lab when the plan exceeds the reviewed policy", async () => {
+    await startServer({
+      editPlan: (plan) => ({ ...plan, command: { ...plan.command, args: [...plan.command.args, "--download"] } }),
+    });
+    const { runId } = (await (await upload(await paperPdf())).json()) as { runId: string };
+    await api.idle();
+    const report = (await (await fetch(`${base}/api/runs/${runId}/report`)).json()) as StudyReport;
+    expect(report.policy?.approved).toBe(false);
+    expect(report.failure).toBe("plan rejected by policy");
+    expect(report.lab).toBeNull();
+    expect(runtime.containers.size).toBe(0);
+    expect(report.status).toBe("inconclusive");
   });
 
   it("rejects bad uploads, a second concurrent study, and unknown runs", async () => {
@@ -212,7 +268,7 @@ describe("Run API", () => {
 });
 
 describe("restart recovery", () => {
-  it("marks interrupted runs failed and removes orphan labs", async () => {
+  it("marks interrupted runs failed and removes orphan labs and stale checkouts", async () => {
     const recoveryStore = new RunStore();
     const run = recoveryStore.createRun({}, "run_interrupted");
     recoveryStore.transitionRun(run.id, "ingesting");
@@ -220,8 +276,12 @@ describe("restart recovery", () => {
     orphanRuntime.containers.add("dejaml-lab-orphan");
     const labs = new LabManager({ runtime: orphanRuntime, labRoot: join(work, "labs") });
 
-    const result = await recoverAfterRestart({ store: recoveryStore, labs });
-    expect(result).toEqual({ interruptedRuns: ["run_interrupted"], orphanLabs: 1 });
+    await mkdir(join(work, "data/checkouts-abc123/dejaml-repo-x"), { recursive: true });
+    await mkdir(join(work, "data/reports"), { recursive: true });
+
+    const result = await recoverAfterRestart({ store: recoveryStore, labs, workRoot: join(work, "data") });
+    expect(result).toEqual({ interruptedRuns: ["run_interrupted"], orphanLabs: 1, staleCheckouts: 1 });
+    await expect(readdir(join(work, "data"))).resolves.toEqual(["reports"]);
     expect(orphanRuntime.containers.size).toBe(0);
     expect(recoveryStore.getRun(run.id).status).toBe("failed");
     expect(recoveryStore.listEvents(run.id).at(-1)?.type).toBe("run_interrupted");

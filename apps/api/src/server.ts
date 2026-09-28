@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { readFile, stat } from "node:fs/promises";
+import { readdir, readFile, rm, stat } from "node:fs/promises";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { extname, join, normalize, resolve, sep } from "node:path";
 
@@ -233,14 +233,26 @@ export function createApiServer(options: ApiOptions): ApiServer {
 }
 
 /**
- * Restart recovery (ARCHITECTURE.md §13): remove orphan labs and mark runs
- * that were mid-flight as failed. An interrupted attempt is never resumed.
+ * Restart recovery (ARCHITECTURE.md §13): remove orphan labs and any repository
+ * checkouts left in `workRoot`, and mark runs that were mid-flight as failed.
+ * An interrupted attempt is never resumed.
  */
-export async function recoverAfterRestart(options: Pick<ApiOptions, "store" | "labs">): Promise<{
+export async function recoverAfterRestart(
+  options: Pick<ApiOptions, "store" | "labs"> & { workRoot?: string },
+): Promise<{
   interruptedRuns: string[];
   orphanLabs: number;
+  staleCheckouts: number;
 }> {
   const receipts = await options.labs.cleanupOrphans();
+  let staleCheckouts = 0;
+  if (options.workRoot) {
+    for (const entry of await readdir(options.workRoot).catch(() => [] as string[])) {
+      if (!entry.startsWith("checkouts-")) continue;
+      await rm(join(options.workRoot, entry), { recursive: true, force: true });
+      staleCheckouts += 1;
+    }
+  }
   const interrupted = options.store.listActiveRuns();
   for (const run of interrupted) {
     options.store.appendEvent({
@@ -254,5 +266,5 @@ export async function recoverAfterRestart(options: Pick<ApiOptions, "store" | "l
     });
     options.store.transitionRun(run.id, "failed");
   }
-  return { interruptedRuns: interrupted.map((run) => run.id), orphanLabs: receipts.length };
+  return { interruptedRuns: interrupted.map((run) => run.id), orphanLabs: receipts.length, staleCheckouts };
 }

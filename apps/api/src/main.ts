@@ -33,7 +33,7 @@ const model = new OpenClawGatewayStructuredClient({
   thinking: "low",
 });
 
-const recovery = await recoverAfterRestart({ store, labs });
+const recovery = await recoverAfterRestart({ store, labs, workRoot: dataDir });
 const api = createApiServer({
   store,
   labs,
