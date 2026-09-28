@@ -37,11 +37,11 @@ Initialize the repository, directory skeleton, phase-note template, restoration 
 
 Add the Urban Land Cover case manifest, dataset acquisition metadata, deterministic Random Forest runner, metric output, and case-level verification.
 
-### 1.2 Shared contracts — `IN PROGRESS`
+### 1.2 Shared contracts — `DONE`
 
 Implement validated schemas for `Claim`, `CodeMapping`, `ExperimentPlan`, `RunEvent`, `Attempt`, `Metric`, and `Assessment`.
 
-### 1.3 Run store and event fixture — `PENDING`
+### 1.3 Run store and event fixture — `IN PROGRESS`
 
 Implement append-only run/event persistence and create a deterministic full-run fixture for the frontend.
 
