@@ -131,7 +131,7 @@ Require `accuracyPercent: 79.88`, `verdict: different_result`, `signedDifference
 npm run dev --workspace @dejaml/web
 ```
 
-Without a backend the app runs as a labelled recorded replay. Choose any PDF, start, and require the stepper to reach Findings. Set `VITE_DEJAML_API=live` once the Run API exists.
+Without a backend the app runs as a labelled example replay. Choose any PDF, start, and require the stepper to reach Findings with a `Different result` verdict at −1.78 pp and a working report download. Set `VITE_DEJAML_API=live` once the Run API exists.
 
 ## 13. Resume development
 

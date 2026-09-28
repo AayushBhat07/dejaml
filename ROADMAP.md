@@ -91,7 +91,7 @@ Build the PDF submission experience and common visual system.
 
 Render Paper Analyst, Code Analyst, and Lead Researcher progress with evidence-bearing events.
 
-### 4.3 Virtual Lab and Findings — `PENDING`
+### 4.3 Virtual Lab and Findings — `DONE`
 
 Stream bounded command output and display the paper-versus-observed comparison, discrepancy findings, cleanup status, and report download.
 
