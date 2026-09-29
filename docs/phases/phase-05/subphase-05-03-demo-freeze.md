@@ -22,20 +22,20 @@ Rehearse repeatedly, cache permitted inputs, retain a labelled prior-run report 
   - cleanup receipt;
   - complete report;
   - the case's new `comparison.rehearsalBaseline` (79.88, `different_result`).
-  
+
   `realRun` is true only when the lab image is the expected one, so a stand-in run can never count as a real rehearsal.
 - **`npm run rehearse --workspace @dejaml/api`** uploads the paper N times to a running API. For each run it:
   - waits for the study and downloads the report;
   - applies the acceptance test;
   - checks that no `dejaml.lab` container remains;
   - keeps every report and a `summary.json` under `artifacts/rehearsals/<time>/`.
-  
+
   It exits non-zero unless every rehearsal passes and was real (`--allow-stand-in` for testing).
 - **`npm run record-fixture --workspace @dejaml/api`** turns a passing real report into:
   - the replay fixture;
   - `urban-land-cover-success.meta.json` with `source: "recorded"`, run ID, and date;
   - the labelled prior-run report `fixtures/reports/urban-land-cover-prior-run.json`.
-  
+
   It refuses a failing report or another image. It refuses to write a stand-in run into the repository.
 - **Web**:
   - The replay banner and the browser-built report now say which kind of replay is playing. Prepared: "Example replay … Nothing is executed." Recorded: "Recorded replay … recorded on <date>. Nothing is executed now."

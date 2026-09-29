@@ -1,14 +1,11 @@
-import { execFile } from "node:child_process";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { promisify } from "node:util";
 
 import type {
   Assessment,
   Attempt,
   AuditDecision,
   ExperimentPlan,
-  HostPreparationStep,
   Metric,
   PaperAnalysis,
   PaperDocument,
@@ -242,25 +239,6 @@ export async function runStudy(
     await cleanupAcquiredRepository({ destination: acquisition.destination, destinationRoot: acquisitionRoot });
     acquisition = null;
 
-    // 4a. Host-side preparation (auto-execution: pip install, nbconvert).
-    // Note: acquisition has already been cleaned up; acquisitionRoot still holds any remaining files.
-    if (plan.hostPreparation?.length) {
-      store.transitionRun(runId, "preparing_lab");
-      event("host_preparation_started", "started", "Running host-side preparation steps before lab creation.", {
-        steps: plan.hostPreparation.length,
-      });
-      try {
-        await runHostPreparation(plan.hostPreparation, acquisitionRoot, deps.image.name);
-        event("host_preparation_completed", "completed", "Host-side preparation finished.", {});
-      } catch (hostPrepError) {
-        const message = hostPrepError instanceof Error ? hostPrepError.message : String(hostPrepError);
-        event("host_preparation_failed", "failed", `Host-side preparation failed: ${message}`, {});
-        report.failure = `host preparation failed: ${message}`;
-        finish("inconclusive");
-        return await finalize();
-      }
-    }
-
     // 4. One attempt in a disposable lab; the lab is destroyed in every outcome.
     const spec = labSpecFromPlan({
       plan,
@@ -391,50 +369,5 @@ export async function runStudy(
     await mkdir(reportsDir, { recursive: true });
     await writeFile(join(reportsDir, `${runId}.json`), `${JSON.stringify(complete, null, 2)}\n`);
     return complete;
-  }
-}
-
-const execFileAsync = promisify(execFile);
-
-/**
- * Runs host-side preparation steps inside a disposable Docker container before the lab
- * is created. Running inside Docker keeps untrusted repo code off the host machine while
- * still allowing network access (for pip) or filesystem mutations (for nbconvert).
- *
- *  - pip_install: installs packages into <repoRoot>/site-packages via --target so they
- *    are available inside the lab when PYTHONPATH includes that directory.
- *  - nbconvert: converts a Jupyter notebook to a Python script inside the repo tree.
- */
-async function runHostPreparation(steps: HostPreparationStep[], repoRoot: string, image: string): Promise<void> {
-  for (const step of steps) {
-    if (step.kind === "pip_install") {
-      const targetDir = "/repo/site-packages";
-      let pipArgs: string[];
-      if (step.requirementsPath) {
-        pipArgs = ["pip", "install", "--quiet", "--target", targetDir, "-r", `/repo/${step.requirementsPath}`];
-      } else if (step.packages?.length) {
-        pipArgs = ["pip", "install", "--quiet", "--target", targetDir, ...step.packages];
-      } else {
-        throw new Error(`pip_install step "${step.description}" has neither requirementsPath nor packages`);
-      }
-      await execFileAsync(
-        "docker",
-        ["run", "--rm", "--network", "bridge", "-v", `${repoRoot}:/repo`, "--workdir", "/repo", image, ...pipArgs],
-        { timeout: 5 * 60 * 1000 },
-      );
-    } else if (step.kind === "nbconvert") {
-      if (!step.notebookPath) throw new Error(`nbconvert step "${step.description}" requires notebookPath`);
-      const outputDir = step.outputPath ? `/repo/${step.outputPath.replace(/\/[^/]+$/, "")}` : "/repo/converted";
-      await execFileAsync(
-        "docker",
-        [
-          "run", "--rm", "--network", "none",
-          "-v", `${repoRoot}:/repo`, "--workdir", "/repo",
-          image,
-          "jupyter", "nbconvert", "--to", "script", "--output-dir", outputDir, `/repo/${step.notebookPath}`,
-        ],
-        { timeout: 2 * 60 * 1000 },
-      );
-    }
   }
 }

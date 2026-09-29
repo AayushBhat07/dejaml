@@ -190,18 +190,6 @@ export const PreparationStepSchema = z.object({
   command: ArgvCommandSchema.omit({ env: true }).optional(),
 });
 
-export const HostPreparationStepSchema = z.object({
-  kind: z.enum(["pip_install", "nbconvert"]),
-  description: z.string().min(1),
-  /** Requirements file path relative to the checked-out repository root, or a list of package specs. */
-  requirementsPath: z.string().min(1).optional(),
-  packages: z.array(z.string().min(1)).optional(),
-  /** Input notebook path relative to the repository root (nbconvert only). */
-  notebookPath: z.string().min(1).optional(),
-  /** Output script path relative to the repository root (nbconvert only). */
-  outputPath: z.string().min(1).optional(),
-});
-
 export const ResourceBudgetSchema = z.object({
   cpus: z.number().positive().max(8),
   memoryMb: z.number().int().positive().max(16_384),
@@ -246,7 +234,6 @@ export const ExperimentPlanSchema = z.object({
   }),
   claim: ClaimSchema,
   dataset: DatasetSpecSchema,
-  hostPreparation: z.array(HostPreparationStepSchema).optional(),
   preparation: z.array(PreparationStepSchema),
   executionAdapter: ExecutionAdapterSchema,
   command: ArgvCommandSchema,
