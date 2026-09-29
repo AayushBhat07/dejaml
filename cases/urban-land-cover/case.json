@@ -78,6 +78,16 @@
       "networkDuringRun": false
     }
   },
+  "comparison": {
+    "tolerance": 1.0,
+    "toleranceUnit": "percentage points",
+    "note": "Product threshold for the demo verdict, not a test of statistical equivalence.",
+    "rehearsalBaseline": {
+      "observedValue": 79.88,
+      "verdict": "different_result",
+      "source": "Phase 3.1 deterministic run with seed 42 on the pinned image"
+    }
+  },
   "knownDiscrepancies": [
     "The paper states fixed seeds, but the repository notebook leaves train_test_split random_state unset.",
     "The paper says the validation split is stratified, but the repository notebook does not pass stratify.",
@@ -85,4 +95,3 @@
     "The notebook expects urbantraining.csv and urbantesting.csv while the official archive provides training.csv and testing.csv."
   ]
 }
-

@@ -28,6 +28,7 @@ export const RunStatusSchema = z.enum([
   "preparing_lab",
   "running",
   "comparing",
+  "auditing",
   "completed",
   "inconclusive",
   "failed",
@@ -308,6 +309,7 @@ export const ActorSchema = z.enum([
   "lead_researcher",
   "lab_engineer",
   "result_verifier",
+  "audit_agent",
 ]);
 
 export const RunEventSchema = z.object({
@@ -371,6 +373,17 @@ export const AssessmentSchema = z.object({
   evidence: z.array(EvidencePointerSchema),
   limitations: z.array(z.string()),
 });
+
+export const AuditDecisionSchema = z.object({
+  schemaVersion: z.literal(1),
+  verdict: z.enum(["confirmed", "uncertain", "disputed"]),
+  metricAligned: z.boolean(),
+  summary: z.string().min(1),
+  evidence: z.array(EvidencePointerSchema),
+  concerns: z.array(z.string()),
+});
+
+export type AuditDecision = z.infer<typeof AuditDecisionSchema>;
 
 export type RunStatus = z.infer<typeof RunStatusSchema>;
 export type PaperPage = z.infer<typeof PaperPageSchema>;

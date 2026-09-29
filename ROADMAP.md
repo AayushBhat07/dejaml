@@ -73,41 +73,63 @@ Build and pin a minimal image for the curated experiment.
 
 Implement create, prepare, execute, cancel, artifact-read, and destroy operations with resource limits and cleanup receipts.
 
-### 3.3 Live Lab observer — `PENDING`
+### 3.3 Live Lab observer — `DONE`
 
 Stream terminal output, resource telemetry, artifact changes, and approved lab actions. For genuine GUI/browser workloads, provide an authenticated read-only noVNC observer; do not simulate clicks for terminal-only experiments.
 
-### 3.4 Metric verification — `PENDING`
+### 3.4 Metric verification — `DONE`
 
 Extract the observed metric, normalize units, calculate differences, and generate an assessment.
 
 ## Phase 4 — Product interface
 
-### 4.1 New Study and application shell — `PENDING`
+### 4.1 New Study and application shell — `DONE`
 
 Build the PDF submission experience and common visual system.
 
-### 4.2 Research Team — `PENDING`
+### 4.2 Research Team — `DONE`
 
 Render Paper Analyst, Code Analyst, and Lead Researcher progress with evidence-bearing events.
 
-### 4.3 Virtual Lab and Findings — `PENDING`
+### 4.3 Virtual Lab and Findings — `DONE`
 
 Stream bounded command output and display the paper-versus-observed comparison, discrepancy findings, cleanup status, and report download.
 
 ## Phase 5 — Integration and demo hardening
 
-### 5.1 End-to-end vertical slice — `PENDING`
+### 5.1 End-to-end vertical slice — `DONE`
 
 Connect the uploaded PDF to real repository discovery, analysis, execution, comparison, and reporting.
 
-### 5.2 Failure and cleanup verification — `PENDING`
+Verified in the cloud with stand-ins for the model, GitHub, and Docker; the real-model run is a Mac acceptance check (see the phase note).
+
+### 5.2 Failure and cleanup verification — `DONE`
 
 Prove cancellation, timeout, invalid input, unsupported repository, metric failure, and orphan-lab cleanup.
 
-### 5.3 Demo freeze — `PENDING`
+### 5.3 Demo freeze — `IN PROGRESS`
 
 Rehearse repeatedly, cache permitted inputs, retain a labelled prior-run report and backup recording, and stop feature work.
+
+Tooling and runbook done; the real rehearsals, recording, and freeze run on the development Mac (see the phase note and `docs/runbooks/DEMO.md`).
+
+## Phase 6 — Semantic audit and future auto-execution
+
+### 6.1 Audit Agent — `DONE`
+
+Add an LLM-based post-run step that checks whether the measured metric semantically matches what the paper claimed, beyond the seven deterministic comparability checks.
+
+The agent is non-fatal: a model or network error does not abort the run. The `dejaml-audit` OpenClaw agent must be created on the Mac before production runs can call a real model.
+
+See `docs/phases/phase-06/subphase-06-01-audit-agent.md`.
+
+### 6.2 Auto-execution (host preparation) — `REGRESSED / BLOCKED`
+
+Allow reviewed dependency installation and notebook conversion before the offline lab is created, so more papers can run without hand-written adapters.
+
+The initial unproven plumbing was removed in commit `0b4168a`: model-proposed steps bypassed the deterministic policy, referenced a checkout after it was deleted, and required tools intentionally absent from the locked lab image. Reimplementation requires a separately pinned preparation image, exact allowlisted inputs and paths, resource limits, network policy, tests, and a real end-to-end case.
+
+See `docs/phases/phase-06/subphase-06-02-auto-execution.md`.
 
 ## Change rule
 

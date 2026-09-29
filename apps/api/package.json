@@ -1,0 +1,36 @@
+{
+  "name": "@dejaml/api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "bin": {
+    "dejaml-api": "./dist/main.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run src",
+    "start": "node dist/main.js",
+    "verify:stack": "node scripts/verify-stack.mjs",
+    "verify:failures": "node scripts/verify-failures.mjs",
+    "rehearse": "node scripts/rehearse.mjs",
+    "record-fixture": "node scripts/record-fixture.mjs"
+  },
+  "dependencies": {
+    "@dejaml/contracts": "0.1.0",
+    "@dejaml/lab-manager": "0.1.0",
+    "@dejaml/paper-intake": "0.1.0",
+    "@dejaml/repository-intake": "0.1.0",
+    "@dejaml/research-runtime": "0.1.0",
+    "@dejaml/result-verifier": "0.1.0",
+    "@dejaml/run-store": "0.1.0",
+    "zod": "^4.1.11",
+    "pdf-lib": "1.17.1"
+  }
+}

@@ -111,7 +111,7 @@ export async function runLeadResearch(input: {
       evidence: [],
       publicPayload: {},
     });
-    input.runStore.transitionRun(input.runId, "inconclusive");
+    input.runStore.transitionRun(input.runId, input.signal?.aborted ? "cancelled" : "inconclusive");
     throw error;
   }
 }

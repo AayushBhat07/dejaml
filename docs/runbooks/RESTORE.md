@@ -113,7 +113,7 @@ Require UID/GID `10001:10001`, workdir `/workspace/case`, exact locked dependenc
 npm run verify:docker --workspace @dejaml/lab-manager
 ```
 
-Require the isolation probe (UID/GID `10001:10001`, network blocked, read-only root and inputs, no Docker socket), timeout, cancellation, memory-limit, and orphan-recovery assertions to pass with `remainingLabContainers: 0`.
+Require the isolation probe (UID/GID `10001:10001`, network blocked, read-only root and inputs, no Docker socket), timeout, cancellation, memory-limit, live-observation, and orphan-recovery assertions to pass with `remainingLabContainers: 0`.
 
 3. With the lab image and dataset from section 10 present, run:
 
@@ -121,10 +121,42 @@ Require the isolation probe (UID/GID `10001:10001`, network blocked, read-only r
 npm run verify:curated --workspace @dejaml/lab-manager
 ```
 
-Require `accuracyPercent: 79.88` and a receipt with `verifiedAbsent: true`. On a platform other than `linux/arm64`, set `DEJAML_EXPECTED_IMAGE_ID` to the locally built image ID.
+Require `accuracyPercent: 79.88`, `verdict: different_result`, `signedDifference: -1.78`, and a receipt with `verifiedAbsent: true`. On a platform other than `linux/arm64`, set `DEJAML_EXPECTED_IMAGE_ID` to the locally built image ID.
 
 4. Remove any lab left by a crash with `docker rm --force $(docker ps --all --quiet --filter label=dejaml.lab)`.
 
-## 12. Resume development
+## 12. Restore the web app
+
+```bash
+npm run dev --workspace @dejaml/web
+```
+
+Without a backend the app runs as a labelled example replay. Choose any PDF, start, and require the stepper to reach Findings with a `Different result` verdict at −1.78 pp and a working report download. To use the Run API instead, see section 13.
+
+## 13. Restore the Run API
+
+```bash
+npm run build
+VITE_DEJAML_API=live npm run build --workspace @dejaml/web
+npm run verify:stack --workspace @dejaml/api   # stand-ins for model, GitHub, Docker
+```
+
+Open `http://127.0.0.1:8787`, upload the sample paper the command prints, and require Findings `Different result` at −1.78 pp, a server report download, and that a reload mid-run resumes the same study.
+
+For the real service, with sections 8–11 in place, run `npm start` (set `DEJAML_EXPECTED_IMAGE_ID` off `linux/arm64`), upload the case paper, and require the same verdict with `cleanup.verifiedAbsent: true` in the report. The service removes orphan labs and stale checkouts, and marks interrupted runs `failed`, on start.
+
+With Docker running, prove the failure paths:
+
+```bash
+npm run verify:failures --workspace @dejaml/api
+```
+
+Require success, missing metric, crash, cancel, timeout, killed-process recovery, unsupported paper, and non-PDF scenarios to pass with `remainingLabContainers: 0`.
+
+## 14. Demo
+
+Follow [DEMO.md](DEMO.md): cache inputs, pre-flight, rehearse with `npm run rehearse --workspace @dejaml/api`, record the fallback with `npm run record-fixture --workspace @dejaml/api`, and freeze.
+
+## 15. Resume development
 
 Resume only from the first `PENDING`, `IN PROGRESS`, or `REGRESSED` sub-phase in `ROADMAP.md`. When it passes, create or update its phase note before moving on.

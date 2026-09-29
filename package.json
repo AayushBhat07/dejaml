@@ -13,7 +13,8 @@
     "check": "npm run build && npm run typecheck && npm test",
     "verify:lab-image": "node lab-images/python-cpu/verify.mjs",
     "typecheck": "node scripts/run-workspaces.mjs typecheck",
-    "test": "node scripts/run-workspaces.mjs test"
+    "test": "node scripts/run-workspaces.mjs test",
+    "start": "node apps/api/dist/main.js"
   },
   "engines": {
     "node": ">=24"
@@ -21,6 +22,8 @@
   "devDependencies": {
     "@types/node": "^24.10.0",
     "typescript": "^5.9.3",
-    "vitest": "^5.0.2"
+    "vitest": "^5.0.2",
+    "@dejaml/lab-manager": "0.1.0",
+    "@dejaml/result-verifier": "0.1.0"
   }
 }

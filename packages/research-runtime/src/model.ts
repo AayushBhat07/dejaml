@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-export type ResearchRole = "paper_analyst" | "code_analyst" | "lead_researcher";
+export type ResearchRole = "paper_analyst" | "code_analyst" | "lead_researcher" | "audit_agent";
 
 export type StructuredCompletion<T> = {
   value: T;

@@ -14,12 +14,16 @@ The project is being built as one reliable vertical slice around the Urban Land 
 - [Roadmap](ROADMAP.md)
 - [Phase notes](docs/phases/README.md)
 - [Restoration runbook](docs/runbooks/RESTORE.md)
+- [Demo runbook](docs/runbooks/DEMO.md)
 - [Curated case](cases/urban-land-cover/README.md)
 - [Paper intake](packages/paper-intake/README.md)
 - [Repository intake](packages/repository-intake/README.md)
 - [Parallel research runtime](packages/research-runtime/README.md)
 - [Real-time run store](packages/run-store/README.md)
 - [Lab Manager](services/lab-manager/README.md)
+- [Result Verifier](packages/result-verifier/README.md)
+- [Web app](apps/web/README.md)
+- [Run API](apps/api/README.md)
 
 ## Product roles
 
@@ -47,4 +51,4 @@ Do not infer readiness from directory presence. The authoritative implementation
 
 ## Backend progress
 
-The backend foundation now includes validated shared contracts, bounded PDF validation and page-level text extraction, immutable source hashing, page-anchored GitHub discovery, guarded public-repository acquisition with commit pinning, real concurrent Paper/Code Analyst sessions with bounded evidence and live events, Lead Researcher reconciliation, an exact deterministic execution-policy gate, a deterministic curated experiment, an append-only refresh-safe run store, and a trusted Lab Manager that runs approved attempts in disposable offline containers with enforced time limits, cancellation, bounded artifacts, and verified cleanup receipts.
+The backend foundation now includes validated shared contracts, bounded PDF validation and page-level text extraction, immutable source hashing, page-anchored GitHub discovery, guarded public-repository acquisition with commit pinning, real concurrent Paper/Code Analyst sessions with bounded evidence and live events, Lead Researcher reconciliation, an exact deterministic execution-policy gate, a deterministic curated experiment, an append-only refresh-safe run store, and a trusted Lab Manager that runs approved attempts in disposable offline containers with enforced time limits, cancellation, bounded artifacts, and verified cleanup receipts, live output and telemetry events, and a deterministic Result Verifier that turns the exported metric into a tolerance verdict with labelled hypotheses, and a Run API that connects an uploaded paper to all of it with live events, cancellation, restart recovery, and a downloadable report.

@@ -63,6 +63,14 @@ class FakeRuntime implements ContainerRuntime {
       });
       return this.onExec({ args, artifactsDir: this.containers.get(name)?.artifactsDir ?? "", options, killed });
     }
+    if (command === "stats") {
+      const frame = '\u001b[H{"CPUPerc":"95.00%","MemPerc":"5.00%","MemUsage":"100MiB / 2GiB","PIDs":"4"}\n';
+      while (!options.signal?.aborted) {
+        options.onOutput?.("stdout", frame);
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+      return { ...ok(), aborted: true };
+    }
     if (command === "kill") {
       this.#kill?.();
       return ok();
@@ -316,5 +324,39 @@ describe("LabManager", () => {
     expect(receipts[0]).toMatchObject({ reason: "orphan cleanup", verifiedAbsent: true });
     expect(runtime.containers.size).toBe(1);
     expect(manager.state(mine.labId)).toBe("ready");
+  });
+
+  it("publishes live output, telemetry, and artifact changes while observing an attempt", async () => {
+    runtime.onExec = async ({ artifactsDir, options }) => {
+      options.onOutput?.("stdout", "loading data\n\u001b[32mtraining\u001b[0m\n");
+      await new Promise((resolve) => setTimeout(resolve, 60));
+      await writeFile(join(artifactsDir, "result.json"), "{}");
+      await new Promise((resolve) => setTimeout(resolve, 60));
+      options.onOutput?.("stdout", "accuracy 79.88");
+      return ok("loading data\ntraining\naccuracy 79.88");
+    };
+    const lab = await manager.createLab(await validSpec());
+    await manager.executeAttempt(lab.labId, {
+      number: 1,
+      label: "baseline",
+      command,
+      observe: { flushIntervalMs: 10, telemetryIntervalMs: 20, artifactIntervalMs: 20 },
+    });
+
+    const output = events.filter((event) => event.type === "lab_output");
+    expect(output.flatMap((event) => event.publicPayload.lines as string[])).toEqual([
+      "loading data",
+      "training",
+      "accuracy 79.88",
+    ]);
+    const telemetry = events.find((event) => event.type === "lab_telemetry");
+    expect(telemetry?.publicPayload).toMatchObject({ cpuPercent: 95, pids: 4, limits: { cpus: 2, memoryMb: 2048 } });
+    // The polling observer may also catch the file between truncate and write,
+    // producing a legitimate later "Updated" event. Creation must always be visible.
+    expect(events.filter((event) => event.type === "artifact_changed").map((event) => event.summary)).toContain(
+      "Created artifacts/result.json",
+    );
+    const attemptDone = events.findIndex((event) => event.type === "attempt" && event.status === "completed");
+    expect(events.findLastIndex((event) => event.type === "lab_output")).toBeLessThan(attemptDone);
   });
 });

@@ -1,8 +1,11 @@
 import {
+  type Assessment,
+  AuditDecisionSchema,
   type CodeAnalysis,
   CodeAnalysisSchema,
   type ExperimentPolicy,
   LeadResearchDecisionSchema,
+  type Metric,
   type PaperAnalysis,
   type RepositoryAcquisition,
   type RepositoryCandidate,
@@ -74,6 +77,44 @@ Return inconclusive when either analyst is inconclusive, the reports conflict, o
 
 Required JSON schema:
 ${schemaInstruction(LeadResearchDecisionSchema)}
+`,
+  };
+}
+
+export function buildAuditAgentPrompt(input: {
+  paperAnalysis: PaperAnalysis;
+  metric: Metric;
+  assessment: Assessment;
+  paperClaimedValue: number;
+  paperClaimedUnit: string;
+}): { systemPrompt: string; prompt: string } {
+  return {
+    systemPrompt: `You are the DéjàML Audit Agent. Your role is to semantically verify that the measured metric matches what the paper actually claimed — going beyond deterministic tolerance checks. Assess whether the metric name, unit, dataset split, and experimental conditions are genuinely aligned with the paper's claim.${SHARED_RULES}`,
+    prompt: `
+Paper analysis (what the paper claimed):
+${JSON.stringify(input.paperAnalysis, null, 2)}
+
+Measured metric from the executed run:
+${JSON.stringify(input.metric, null, 2)}
+
+Deterministic comparison result:
+${JSON.stringify(input.assessment, null, 2)}
+
+Paper claimed value: ${input.paperClaimedValue} ${input.paperClaimedUnit}
+Observed value: ${input.metric.value} ${input.metric.unit}
+
+Assess:
+1. Is this the same metric the paper reported (name, unit, split)?
+2. Are the experimental conditions (model, dataset, split) aligned with the claim?
+3. Is the signed difference meaningful given the paper's reported value?
+4. What are the most likely causes if the values differ?
+
+Return "confirmed" if the metric is semantically the right one and conditions match.
+Return "uncertain" if there are ambiguities in metric alignment or conditions.
+Return "disputed" if the metric or conditions are clearly mismatched.
+
+Required JSON schema:
+${schemaInstruction(AuditDecisionSchema)}
 `,
   };
 }

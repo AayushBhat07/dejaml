@@ -21,6 +21,7 @@
     "zod": "^4.1.11"
   },
   "devDependencies": {
-    "@dejaml/run-store": "0.1.0"
+    "@dejaml/run-store": "0.1.0",
+    "@dejaml/result-verifier": "0.1.0"
   }
 }

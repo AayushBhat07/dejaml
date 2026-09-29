@@ -39,7 +39,8 @@ const ALLOWED_TRANSITIONS: Record<RunStatus, readonly RunStatus[]> = {
   validating_plan: ["preparing_lab", "inconclusive", "cancelled", "failed"],
   preparing_lab: ["running", "cancelled", "failed", "timed_out"],
   running: ["comparing", "cancelled", "failed", "timed_out"],
-  comparing: ["completed", "inconclusive", "failed"],
+  comparing: ["auditing", "completed", "inconclusive", "failed"],
+  auditing: ["completed", "inconclusive", "failed"],
   completed: [],
   inconclusive: [],
   failed: [],
@@ -127,6 +128,18 @@ export class RunStore {
       updatedAt: row.updated_at,
       input: JSON.parse(row.input_json) as Record<string, unknown>,
     };
+  }
+
+  /** Runs that have not reached a terminal status, oldest first. */
+  listActiveRuns(): RunSnapshot[] {
+    const rows = this.#database
+      .prepare("SELECT id FROM runs ORDER BY created_at ASC, id ASC")
+      .all() as Array<{ id: string }>;
+    return rows.map((row) => this.getRun(row.id)).filter((run) => !TERMINAL_STATUSES.has(run.status));
+  }
+
+  isTerminal(runId: string): boolean {
+    return TERMINAL_STATUSES.has(this.getRun(runId).status);
   }
 
   transitionRun(runId: string, nextStatus: RunStatus): RunSnapshot {

@@ -224,7 +224,7 @@ export async function runParallelAnalysis(input: {
     failures.push({ role: "code_analyst", message: errorMessage(codeResult.reason) });
   }
   if (failures.length > 0) {
-    input.runStore.transitionRun(input.runId, "inconclusive");
+    input.runStore.transitionRun(input.runId, input.signal?.aborted ? "cancelled" : "inconclusive");
     throw new ParallelAnalysisError("one or more analyst sessions failed", failures);
   }
 
