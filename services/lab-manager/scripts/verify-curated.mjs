@@ -1,7 +1,8 @@
 // Runs the curated Urban Land Cover experiment through the Lab Manager using
 // the pinned dejaml/python-cpu image and the policy-approved plan.
 // Requires: `npm run verify:lab-image` (builds the image) and the fetched dataset.
-import { readFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { ExperimentPolicySchema } from "@dejaml/contracts";
@@ -92,6 +93,9 @@ try {
   if (!receipt.verifiedAbsent || !receipt.artifactDirectoryRemoved) {
     throw new Error(`cleanup not verified: ${JSON.stringify(receipt)}`);
   }
+  const resultPath = join(projectRoot, "cases/urban-land-cover/artifacts/result.json");
+  await mkdir(dirname(resultPath), { recursive: true });
+  await writeFile(resultPath, `${JSON.stringify(value.result, null, 2)}\n`, { mode: 0o600 });
   process.stdout.write(
     `${JSON.stringify(
       {
@@ -103,6 +107,7 @@ try {
         artifactDigests: value.outcome.attempt.artifactDigests,
         verdict: assessment.verdict,
         signedDifference: assessment.signedDifference,
+        resultPath,
         receipt,
         events: store.listEvents(run.id).map((event) => `${event.sequence} ${event.type} ${event.status}`),
       },

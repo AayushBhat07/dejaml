@@ -9,9 +9,12 @@
     "services/*"
   ],
   "scripts": {
+    "bootstrap": "node scripts/bootstrap.mjs",
     "build": "node scripts/run-workspaces.mjs build",
     "check": "npm run build && npm run typecheck && npm test",
+    "demo:replay": "npm run dev --workspace @dejaml/web",
     "verify:lab-image": "node lab-images/python-cpu/verify.mjs",
+    "start:local": "node scripts/start-local.mjs",
     "typecheck": "node scripts/run-workspaces.mjs typecheck",
     "test": "node scripts/run-workspaces.mjs test",
     "start": "node apps/api/dist/main.js"
