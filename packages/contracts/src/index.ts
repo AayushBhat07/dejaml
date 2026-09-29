@@ -384,7 +384,6 @@ export const AuditDecisionSchema = z.object({
 });
 
 export type AuditDecision = z.infer<typeof AuditDecisionSchema>;
-export type HostPreparationStep = z.infer<typeof HostPreparationStepSchema>;
 
 export type RunStatus = z.infer<typeof RunStatusSchema>;
 export type PaperPage = z.infer<typeof PaperPageSchema>;
