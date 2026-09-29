@@ -351,9 +351,11 @@ describe("LabManager", () => {
     ]);
     const telemetry = events.find((event) => event.type === "lab_telemetry");
     expect(telemetry?.publicPayload).toMatchObject({ cpuPercent: 95, pids: 4, limits: { cpus: 2, memoryMb: 2048 } });
-    expect(events.filter((event) => event.type === "artifact_changed").map((event) => event.summary)).toEqual([
+    // The polling observer may also catch the file between truncate and write,
+    // producing a legitimate later "Updated" event. Creation must always be visible.
+    expect(events.filter((event) => event.type === "artifact_changed").map((event) => event.summary)).toContain(
       "Created artifacts/result.json",
-    ]);
+    );
     const attemptDone = events.findIndex((event) => event.type === "attempt" && event.status === "completed");
     expect(events.findLastIndex((event) => event.type === "lab_output")).toBeLessThan(attemptDone);
   });
