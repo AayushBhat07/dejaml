@@ -1,14 +1,15 @@
 # Sub-phase 6.2 — Auto-execution (host preparation)
 
-**Status:** `DONE (schema and pipeline plumbing); end-to-end demo unproven`
+**Status:** `REGRESSED / BLOCKED`
 **Completed:** `2026-09-28`
+**Regressed:** `2026-09-29` in commit `0b4168a`
 **Owner:** `Claude`
 
 ## Objective
 
 Allow the Lead Researcher to specify host-side preparation steps (pip install, notebook conversion) that run before the sandboxed lab is created, so papers with notebooks or unpackaged dependencies can be executed without a hand-written adapter.
 
-## Delivered
+## Historical implementation
 
 - **`HostPreparationStepSchema`** in `@dejaml/contracts`:
   - `pip_install`: installs packages from a `requirementsPath` (path relative to repo root) or an explicit `packages` list using `pip install --target site-packages`;
@@ -23,35 +24,36 @@ Allow the Lead Researcher to specify host-side preparation steps (pip install, n
   - if any step fails the run ends as `inconclusive` before any lab is created.
 - Events: `host_preparation_started`, `host_preparation_completed`, `host_preparation_failed`.
 
-## Security model
+## Why it was removed
 
-The original implementation called `pip` and `jupyter` directly on the Mac, which would have executed untrusted code from the cloned repository with full host access. The Docker-based replacement gives each step only:
-- read/write access to the cloned repo directory (bind-mounted as `/repo`);
-- outbound network (pip_install only);
-- the lab image's Python environment.
+The merge review found that this path did not meet DéjàML's deterministic approval boundary:
 
-No step can read host files outside the repo directory or write to the host outside it.
+- the Lead Researcher could propose steps that the policy gate did not validate or allowlist;
+- the repository checkout was deleted before the preparation code ran;
+- the locked lab image intentionally has no `pip`, `ensurepip`, or Jupyter;
+- model-provided paths and package specifications were not bounded;
+- the preparation containers lacked the lab's CPU, memory, PID, capability, and `no-new-privileges` controls;
+- the dependency-install step enabled general outbound network access.
 
-## Files changed
+The schema and execution path were removed rather than shipping a feature that was both unproven and outside the reviewed trust boundary. The curated adapter flow remains unchanged and offline.
 
-- `packages/contracts/src/index.ts` — `HostPreparationStepSchema`, `hostPreparation` field on `ExperimentPlanSchema`.
-- `apps/api/src/pipeline.ts` — phase 4a (`runHostPreparation`) with Docker-based execution.
+## Regression files
 
-## Not yet proven end-to-end
+- `packages/contracts/src/index.ts` — removed `HostPreparationStepSchema` and the plan field.
+- `apps/api/src/pipeline.ts` — removed the host-preparation execution path.
+- `ROADMAP.md` — restored the feature to blocked status.
 
-No paper has actually exercised `hostPreparation` yet. The `urban-land-cover` case uses a hand-written `runner.py` and has no notebook or extra dependencies. For a real auto-execution case:
+## Requirements before restoration
 
-1. The Lead Researcher must emit a plan with `hostPreparation` steps.
-2. The lab image must have `pip` and `jupyter` installed.
-3. The `runner.py` (or auto-detected entry point) must add `site-packages` to `sys.path` when using pip-installed dependencies.
-4. A new case file with `policy.json` and `case.json` must be curated for the target paper.
+Before this sub-phase can return to `DONE`, it needs:
 
-The `dejaml-lead` agent prompt does not yet instruct the Lead Researcher to emit `hostPreparation`. That update is the next step toward fully automatic execution.
+1. a separate, digest-pinned preparation image with only the required tools;
+2. an exact case-policy allowlist for every step, package, checksum, input path, and output path;
+3. traversal-safe path schemas and argument validation;
+4. CPU, memory, PID, timeout, capability, filesystem, and egress limits;
+5. immutable dependency inputs or a recorded lock artifact;
+6. unit, policy-tampering, real-Docker, cleanup, and end-to-end case proofs.
 
 ## Verification
 
-```bash
-npm run check   # all 59 tests pass, full typecheck clean
-# No new test for runHostPreparation because it shells out to Docker,
-# which is not available in the cloud CI environment.
-```
+After removal, rerun `npm run check`, `npm audit --audit-level=moderate`, the Lab Manager Docker verification, and the API failure-path verification. A future restoration must add dedicated preparation-container tests rather than relying on the general suite.

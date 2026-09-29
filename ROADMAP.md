@@ -113,7 +113,7 @@ Rehearse repeatedly, cache permitted inputs, retain a labelled prior-run report 
 
 Tooling and runbook done; the real rehearsals, recording, and freeze run on the development Mac (see the phase note and `docs/runbooks/DEMO.md`).
 
-## Phase 6 — Semantic audit and auto-execution
+## Phase 6 — Semantic audit and future auto-execution
 
 ### 6.1 Audit Agent — `DONE`
 
@@ -123,11 +123,11 @@ The agent is non-fatal: a model or network error does not abort the run. The `de
 
 See `docs/phases/phase-06/subphase-06-01-audit-agent.md`.
 
-### 6.2 Auto-execution (host preparation) — `DONE (schema + plumbing); end-to-end unproven`
+### 6.2 Auto-execution (host preparation) — `REGRESSED / BLOCKED`
 
-Allow the Lead Researcher to specify host-side `pip install` and `nbconvert` steps that run inside a disposable Docker container before the offline lab is created, so papers with notebooks or unpackaged dependencies need no hand-written adapter.
+Allow reviewed dependency installation and notebook conversion before the offline lab is created, so more papers can run without hand-written adapters.
 
-No paper has exercised `hostPreparation` end-to-end yet. The Lead Researcher prompt does not yet instruct the agent to emit those steps.
+The initial unproven plumbing was removed in commit `0b4168a`: model-proposed steps bypassed the deterministic policy, referenced a checkout after it was deleted, and required tools intentionally absent from the locked lab image. Reimplementation requires a separately pinned preparation image, exact allowlisted inputs and paths, resource limits, network policy, tests, and a real end-to-end case.
 
 See `docs/phases/phase-06/subphase-06-02-auto-execution.md`.
 

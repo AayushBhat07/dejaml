@@ -25,7 +25,7 @@ Add an LLM-based post-run verification step that checks whether the measured met
 
 ## Files changed
 
-- `packages/contracts/src/index.ts` — `AuditDecisionSchema`, `"audit_agent"` actor, `"auditing"` status, `hostPreparation` on `ExperimentPlanSchema`.
+- `packages/contracts/src/index.ts` — `AuditDecisionSchema`, `"audit_agent"` actor, and `"auditing"` status.
 - `packages/research-runtime/src/audit.ts` — new file: `runAudit`.
 - `packages/research-runtime/src/prompts.ts` — `buildAuditAgentPrompt`.
 - `packages/research-runtime/src/model.ts` — `ResearchRole` union extended.
