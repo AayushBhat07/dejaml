@@ -483,3 +483,6 @@ export type RunEvent = z.infer<typeof RunEventSchema>;
 export type Attempt = z.infer<typeof AttemptSchema>;
 export type Metric = z.infer<typeof MetricSchema>;
 export type Assessment = z.infer<typeof AssessmentSchema>;
+
+export * from "./platform.js";
+export * from "./study.js";
