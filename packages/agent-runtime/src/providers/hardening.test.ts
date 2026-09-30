@@ -97,14 +97,22 @@ describe("adapter wire formats are separate", () => {
   it("continues a tool conversation in each provider's own shape", async () => {
     const history: ChatRequest["messages"] = [
       { role: "user", content: "Run it." },
-      { role: "assistant", text: null, toolCalls: [{ id: "call_1", name: "run_command", input: { command: "ls" }, rawInput: '{"command":"ls"}' }] },
+      {
+        role: "assistant",
+        text: null,
+        toolCalls: [{ id: "call_1", name: "run_command", input: { command: "ls" }, rawInput: '{"command":"ls"}' }],
+      },
       { role: "tool", toolCallId: "call_1", name: "run_command", content: "a.txt", isError: false },
     ];
     const oa = fakeFetch([() => jsonResponse(fixture("openai/chat-text.json"))]);
     await adapters[0]!.make(oa.fetchImpl).chat(request("gpt-fixture-1", { messages: history }));
     expect((oa.calls[0]?.body as { messages: unknown[] }).messages).toEqual([
       { role: "user", content: "Run it." },
-      { role: "assistant", content: null, tool_calls: [{ id: "call_1", type: "function", function: { name: "run_command", arguments: '{"command":"ls"}' } }] },
+      {
+        role: "assistant",
+        content: null,
+        tool_calls: [{ id: "call_1", type: "function", function: { name: "run_command", arguments: '{"command":"ls"}' } }],
+      },
       { role: "tool", tool_call_id: "call_1", content: "a.txt" },
     ]);
     const an = fakeFetch([() => jsonResponse(fixture("anthropic/message-text.json"))]);
@@ -172,14 +180,21 @@ describe.each(adapters)("$name adapter hardening", (adapter) => {
   it("honours x-should-retry both ways", async () => {
     const { sleep } = recordingSleep();
     const noRetry = fakeFetch([() => jsonResponse({ error: { message: "stop" } }, 503, { "x-should-retry": "false" })]);
-    expect((await catchError(adapter.make(noRetry.fetchImpl, { retry: { sleep } }).chat(request(adapter.model)))).details.retryable).toBe(false);
+    expect((await catchError(adapter.make(noRetry.fetchImpl, { retry: { sleep } }).chat(request(adapter.model)))).details.retryable).toBe(
+      false,
+    );
     expect(noRetry.calls).toHaveLength(1);
-    const retry = fakeFetch([() => jsonResponse({ error: { message: "again" } }, 400, { "x-should-retry": "true" }), () => adapter.okBody()]);
+    const retry = fakeFetch([
+      () => jsonResponse({ error: { message: "again" } }, 400, { "x-should-retry": "true" }),
+      () => adapter.okBody(),
+    ]);
     expect((await adapter.make(retry.fetchImpl, { retry: { sleep } }).chat(request(adapter.model))).attempts).toBe(2);
   });
 
   it("retries a connection reset", async () => {
-    const reset = Object.assign(new TypeError("fetch failed"), { cause: Object.assign(new Error("socket hang up"), { code: "ECONNRESET" }) });
+    const reset = Object.assign(new TypeError("fetch failed"), {
+      cause: Object.assign(new Error("socket hang up"), { code: "ECONNRESET" }),
+    });
     const { fetchImpl, calls } = fakeFetch([
       () => {
         throw reset;
@@ -215,10 +230,19 @@ describe.each(adapters)("$name adapter hardening", (adapter) => {
   });
 
   it("keeps the key out of JSON, util.inspect, and errors", async () => {
-    const { fetchImpl } = fakeFetch([() => jsonResponse({ error: { type: "authentication_error", message: `bad key ${adapter.key}` } }, 401)]);
+    const { fetchImpl } = fakeFetch([
+      () => jsonResponse({ error: { type: "authentication_error", message: `bad key ${adapter.key}` } }, 401),
+    ]);
     const provider = adapter.make(fetchImpl);
     const err = await catchError(provider.chat(request(adapter.model)));
-    for (const text of [JSON.stringify(provider), inspect(provider, { depth: 10, showHidden: true }), String(provider), err.message, JSON.stringify(err), inspect(err)]) {
+    for (const text of [
+      JSON.stringify(provider),
+      inspect(provider, { depth: 10, showHidden: true }),
+      String(provider),
+      err.message,
+      JSON.stringify(err),
+      inspect(err),
+    ]) {
       expect(text).not.toContain(adapter.key);
     }
     expect(inspect(provider)).toContain(adapter.name);
@@ -249,16 +273,23 @@ describe("rate-limit headers", () => {
   it("waits for OpenAI's x-ratelimit-reset duration, and gives up when it exceeds the cap", async () => {
     const { sleep, delays } = recordingSleep();
     const ok = fakeFetch([
-      () => jsonResponse(fixture("openai/error-429.json"), 429, { "x-ratelimit-remaining-requests": "0", "x-ratelimit-reset-requests": "1.5s" }),
+      () =>
+        jsonResponse(fixture("openai/error-429.json"), 429, {
+          "x-ratelimit-remaining-requests": "0",
+          "x-ratelimit-reset-requests": "1.5s",
+        }),
       () => jsonResponse(fixture("openai/chat-text.json")),
     ]);
     await adapters[0]!.make(ok.fetchImpl, { retry: { sleep } }).chat(request("gpt-fixture-1"));
     expect(delays).toEqual([1500]);
 
     const capped = fakeFetch([
-      () => jsonResponse(fixture("openai/error-429.json"), 429, { "x-ratelimit-remaining-tokens": "0", "x-ratelimit-reset-tokens": "6m0s" }),
+      () =>
+        jsonResponse(fixture("openai/error-429.json"), 429, { "x-ratelimit-remaining-tokens": "0", "x-ratelimit-reset-tokens": "6m0s" }),
     ]);
-    const err = await catchError(adapters[0]!.make(capped.fetchImpl, { retry: { sleep, maxDelayMs: 20_000 } }).chat(request("gpt-fixture-1")));
+    const err = await catchError(
+      adapters[0]!.make(capped.fetchImpl, { retry: { sleep, maxDelayMs: 20_000 } }).chat(request("gpt-fixture-1")),
+    );
     expect(err.code).toBe("rate_limited");
     expect(err.details).toMatchObject({ retryable: false, retryAfterMs: 360_000 });
     expect(capped.calls).toHaveLength(1);

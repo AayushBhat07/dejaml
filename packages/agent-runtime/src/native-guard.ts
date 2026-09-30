@@ -49,7 +49,10 @@ export type NativeRuntimeGuard = NativeRuntimeGuardReport & {
 
 export class NativeRuntimeViolation extends Error {
   readonly code = "native_runtime_violation";
-  constructor(readonly target: string, readonly reason: string) {
+  constructor(
+    readonly target: string,
+    readonly reason: string,
+  ) {
     super(`native runtime guard blocked ${target}: ${reason}`);
     this.name = "NativeRuntimeViolation";
   }
@@ -203,64 +206,79 @@ export function installNativeRuntimeGuard(options: NativeRuntimeGuardOptions = {
   };
 
   if (typeof globalThis.fetch === "function") {
-    patch(globalThis, "fetch", (original) =>
-      function guardedFetch(this: unknown, ...args: unknown[]) {
-        const url = fetchUrl(args[0]);
-        try {
-          if (url) checkUrl(url);
-        } catch (error) {
-          return Promise.reject(error);
-        }
-        return original.apply(this, args);
-      },
+    patch(
+      globalThis,
+      "fetch",
+      (original) =>
+        function guardedFetch(this: unknown, ...args: unknown[]) {
+          const url = fetchUrl(args[0]);
+          try {
+            if (url) checkUrl(url);
+          } catch (error) {
+            return Promise.reject(error);
+          }
+          return original.apply(this, args);
+        },
     );
   }
 
   for (const name of CHILD_PROCESS_LAUNCHERS) {
-    patch(childProcess, name, (original) =>
-      function guardedLaunch(this: unknown, ...args: unknown[]) {
-        const argv = commandLine(name, args);
-        const recorded = clip(argv.join(" "));
-        processes.push(recorded);
-        const reason = nativeRuntimeCommandViolation(argv);
-        if (reason && !allowed(recorded)) {
-          blocked.push(`${recorded}: ${reason}`);
-          throw new NativeRuntimeViolation(recorded, reason);
-        }
-        return original.apply(this, args);
-      },
+    patch(
+      childProcess,
+      name,
+      (original) =>
+        function guardedLaunch(this: unknown, ...args: unknown[]) {
+          const argv = commandLine(name, args);
+          const recorded = clip(argv.join(" "));
+          processes.push(recorded);
+          const reason = nativeRuntimeCommandViolation(argv);
+          if (reason && !allowed(recorded)) {
+            blocked.push(`${recorded}: ${reason}`);
+            throw new NativeRuntimeViolation(recorded, reason);
+          }
+          return original.apply(this, args);
+        },
     );
   }
 
-  for (const [module, protocol] of [[http, "http:"], [https, "https:"]] as const) {
+  for (const [module, protocol] of [
+    [http, "http:"],
+    [https, "https:"],
+  ] as const) {
     for (const name of ["request", "get"]) {
-      patch(module, name, (original) =>
-        function guardedRequest(this: unknown, ...args: unknown[]) {
-          const url = httpRequestUrl(protocol, args);
-          if (url) checkUrl(url);
-          return original.apply(this, args);
-        },
+      patch(
+        module,
+        name,
+        (original) =>
+          function guardedRequest(this: unknown, ...args: unknown[]) {
+            const url = httpRequestUrl(protocol, args);
+            if (url) checkUrl(url);
+            return original.apply(this, args);
+          },
       );
     }
   }
 
-  patch(net.Socket.prototype, "connect", (original) =>
-    function guardedConnect(this: unknown, ...args: unknown[]) {
-      const target = socketTarget(args);
-      if (target && "path" in target) {
-        recordDestination(`ipc:${target.path}`);
-      } else if (target) {
-        const recorded = `tcp://${target.host.includes(":") ? `[${target.host}]` : target.host}:${target.port ?? "?"}`;
-        recordDestination(recorded);
-        const reason =
-          target.port === OPENCLAW_GATEWAY_PORT ? "OpenClaw Gateway port" : /openclaw/iu.test(target.host) ? "OpenClaw host" : undefined;
-        if (reason && !allowed(recorded)) {
-          blocked.push(`${recorded}: ${reason}`);
-          throw new NativeRuntimeViolation(recorded, reason);
+  patch(
+    net.Socket.prototype,
+    "connect",
+    (original) =>
+      function guardedConnect(this: unknown, ...args: unknown[]) {
+        const target = socketTarget(args);
+        if (target && "path" in target) {
+          recordDestination(`ipc:${target.path}`);
+        } else if (target) {
+          const recorded = `tcp://${target.host.includes(":") ? `[${target.host}]` : target.host}:${target.port ?? "?"}`;
+          recordDestination(recorded);
+          const reason =
+            target.port === OPENCLAW_GATEWAY_PORT ? "OpenClaw Gateway port" : /openclaw/iu.test(target.host) ? "OpenClaw host" : undefined;
+          if (reason && !allowed(recorded)) {
+            blocked.push(`${recorded}: ${reason}`);
+            throw new NativeRuntimeViolation(recorded, reason);
+          }
         }
-      }
-      return original.apply(this, args);
-    },
+        return original.apply(this, args);
+      },
   );
 
   syncBuiltinESMExports();

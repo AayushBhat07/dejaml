@@ -25,9 +25,7 @@ export function App({ client: provided }: { client?: RunClient }) {
     return client.subscribe(runId, 0, {
       onEvent: (event) => {
         setConnectionError(null);
-        setEvents((current) =>
-          current.some((existing) => existing.sequence >= event.sequence) ? current : [...current, event],
-        );
+        setEvents((current) => (current.some((existing) => existing.sequence >= event.sequence) ? current : [...current, event]));
       },
       onError: setConnectionError,
     });
@@ -76,7 +74,12 @@ export function App({ client: provided }: { client?: RunClient }) {
   };
 
   return (
-    <Shell stage={stage} viewing={viewing} onSelectStage={select} replay={client.mode === "replay" ? (client.replaySource ?? { kind: "prepared" }) : null}>
+    <Shell
+      stage={stage}
+      viewing={viewing}
+      onSelectStage={select}
+      replay={client.mode === "replay" ? (client.replaySource ?? { kind: "prepared" }) : null}
+    >
       {connectionError ? <p className="error">{connectionError}</p> : null}
       {!runId ? (
         <NewStudy key={config ? "configured" : "default"} onStart={start} config={client.mode === "live" ? config : null} />

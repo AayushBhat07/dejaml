@@ -176,9 +176,7 @@ function parseBaseUrl(
   if (url.protocol === "http:") {
     if (!(endpoint.allowLocalHttp && LOCAL_HOSTS.has(url.hostname))) {
       errs.push(
-        endpoint.allowLocalHttp
-          ? "must use https (plain http is only allowed for 127.0.0.1, localhost or [::1])"
-          : "must use https",
+        endpoint.allowLocalHttp ? "must use https (plain http is only allowed for 127.0.0.1, localhost or [::1])" : "must use https",
       );
     }
   } else if (url.protocol !== "https:") errs.push("must use https");
@@ -387,7 +385,8 @@ export function createChatProvider(
     throw new ProviderSelectionError("Provider keys come only from the server environment");
   }
   const provider = config.providers.find((p) => p.id === providerId);
-  if (!provider || !provider.available) throw new ProviderSelectionError(`Provider ${JSON.stringify(providerId.slice(0, 64))} is not configured`);
+  if (!provider || !provider.available)
+    throw new ProviderSelectionError(`Provider ${JSON.stringify(providerId.slice(0, 64))} is not configured`);
   if (!provider.models.includes(model)) {
     throw new ProviderSelectionError(`Model ${JSON.stringify(model.slice(0, 128))} is not allowed for provider ${provider.id}`);
   }

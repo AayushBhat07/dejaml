@@ -212,9 +212,7 @@ describe.skipIf(!hasOpenssl())("safeDownload against a local TLS server", () => 
 
   it("keeps TLS verification on (untrusted certificate fails)", async () => {
     handler = (_request, response) => response.writeHead(200).end(BODY);
-    expect(await failure(safeDownload(options({ url: url("/data.csv"), transport: https.request })))).toBe(
-      "tls_failed",
-    );
+    expect(await failure(safeDownload(options({ url: url("/data.csv"), transport: https.request })))).toBe("tls_failed");
     await expectNoFiles();
   });
 
@@ -283,9 +281,7 @@ describe.skipIf(!hasOpenssl())("safeDownload against a local TLS server", () => 
         },
         callback,
       );
-    expect(await failure(safeDownload(options({ url: url("/x"), resolver, transport: hijack })))).toBe(
-      "pinning_violation",
-    );
+    expect(await failure(safeDownload(options({ url: url("/x"), resolver, transport: hijack })))).toBe("pinning_violation");
     await expectNoFiles();
   });
 
@@ -296,21 +292,18 @@ describe.skipIf(!hasOpenssl())("safeDownload against a local TLS server", () => 
   });
 
   it("rejects a redirect to https://169.254.169.254/", async () => {
-    handler = (_request, response) =>
-      response.writeHead(301, { Location: "https://169.254.169.254/latest/meta-data/" }).end();
+    handler = (_request, response) => response.writeHead(301, { Location: "https://169.254.169.254/latest/meta-data/" }).end();
     expect(await failure(safeDownload(options({ url: url("/r") })))).toBe("ip_literal_not_allowed");
   });
 
   it("rejects a redirect to a private-resolving hostname", async () => {
-    handler = (_request, response) =>
-      response.writeHead(307, { Location: `https://evil.example.test:${port}/steal` }).end();
+    handler = (_request, response) => response.writeHead(307, { Location: `https://evil.example.test:${port}/steal` }).end();
     expect(await failure(safeDownload(options({ url: url("/r") })))).toBe("private_address");
     expect(hits).toHaveLength(1);
   });
 
   it("rejects a redirect to plain http", async () => {
-    handler = (_request, response) =>
-      response.writeHead(302, { Location: `http://data.example.test:${port}/x` }).end();
+    handler = (_request, response) => response.writeHead(302, { Location: `http://data.example.test:${port}/x` }).end();
     expect(await failure(safeDownload(options({ url: url("/r") })))).toBe("scheme_not_allowed");
   });
 
@@ -324,9 +317,7 @@ describe.skipIf(!hasOpenssl())("safeDownload against a local TLS server", () => 
       const step = Number((request.url ?? "/0").slice(1));
       response.writeHead(302, { Location: `/${step + 1}` }).end();
     };
-    expect(await failure(safeDownload(options({ url: url("/0"), policy: policy({ maxRedirects: 2 }) })))).toBe(
-      "too_many_redirects",
-    );
+    expect(await failure(safeDownload(options({ url: url("/0"), policy: policy({ maxRedirects: 2 }) })))).toBe("too_many_redirects");
     expect(hits).toHaveLength(3);
     await expectNoFiles();
   });
@@ -358,9 +349,9 @@ describe.skipIf(!hasOpenssl())("safeDownload against a local TLS server", () => 
   it("rejects a checksum mismatch and removes the file", async () => {
     handler = (_request, response) => response.writeHead(200, { "Content-Length": BODY.length }).end(BODY);
     const destinationFile = join(workDir, "data.csv");
-    expect(
-      await failure(safeDownload(options({ url: url("/data.csv"), destinationFile, expectedSha256: "0".repeat(64) }))),
-    ).toBe("checksum_mismatch");
+    expect(await failure(safeDownload(options({ url: url("/data.csv"), destinationFile, expectedSha256: "0".repeat(64) })))).toBe(
+      "checksum_mismatch",
+    );
     expect(existsSync(destinationFile)).toBe(false);
     await expectNoFiles();
   });
@@ -370,17 +361,15 @@ describe.skipIf(!hasOpenssl())("safeDownload against a local TLS server", () => 
       response.writeHead(200);
       response.write(Buffer.alloc(8));
     };
-    expect(await failure(safeDownload(options({ url: url("/slow"), policy: policy({ timeoutMs: 300 }) })))).toBe(
-      "timeout",
-    );
+    expect(await failure(safeDownload(options({ url: url("/slow"), policy: policy({ timeoutMs: 300 }) })))).toBe("timeout");
     await expectNoFiles();
   });
 
   it("enforces the socket idle timeout", async () => {
     handler = () => undefined;
-    expect(
-      await failure(safeDownload(options({ url: url("/idle"), policy: policy({ timeoutMs: 5_000, idleTimeoutMs: 200 }) }))),
-    ).toBe("timeout");
+    expect(await failure(safeDownload(options({ url: url("/idle"), policy: policy({ timeoutMs: 5_000, idleTimeoutMs: 200 }) })))).toBe(
+      "timeout",
+    );
   });
 
   it("cancels via AbortSignal and removes the partial file", async () => {
@@ -453,11 +442,9 @@ describe.skipIf(!hasOpenssl())("safeDownload against a local TLS server", () => 
 
     it("rejects unsafe explicit file names before any request", async () => {
       for (const fileName of ["../x", ".hidden", "a/b", "", "x".repeat(129)]) {
-        expect(
-          await failure(
-            acquireDataset({ url: url("/x"), policy: policy(), destinationDir: join(workDir, "d"), fileName }),
-          ),
-        ).toBe("unsafe_file_name");
+        expect(await failure(acquireDataset({ url: url("/x"), policy: policy(), destinationDir: join(workDir, "d"), fileName }))).toBe(
+          "unsafe_file_name",
+        );
       }
       expect(hits).toEqual([]);
     });

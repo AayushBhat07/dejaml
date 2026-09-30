@@ -1,4 +1,13 @@
-import type { ClaimContract, CommandReceipt, ContainerPlatform, PaperDocument, PlatformSpec, RepositoryCandidate, ResourceBudgetSchema, RunEvent } from "@dejaml/contracts";
+import type {
+  ClaimContract,
+  CommandReceipt,
+  ContainerPlatform,
+  PaperDocument,
+  PlatformSpec,
+  RepositoryCandidate,
+  ResourceBudgetSchema,
+  RunEvent,
+} from "@dejaml/contracts";
 import type { BoundedAgentRuntime } from "@dejaml/agent-runtime";
 import type { ArtifactSummary, LabWorker } from "@dejaml/lab-manager";
 import type { FetchPolicy } from "@dejaml/net-guard";
@@ -87,7 +96,12 @@ export type DependencyPort = {
   /** Static checks with no network: URLs, local paths, source builds, GPU packages. */
   screen(requirements: string[], platform: PlatformSpec): DependencyScreen;
   /** Whether binary wheels exist for these requirements on the platform (no download). */
-  check(input: { runId: string; platform: PlatformSpec; requirements: string[]; signal: AbortSignal }): Promise<{ ok: boolean; detail: Record<string, unknown> }>;
+  check(input: {
+    runId: string;
+    platform: PlatformSpec;
+    requirements: string[];
+    signal: AbortSignal;
+  }): Promise<{ ok: boolean; detail: Record<string, unknown> }>;
   prepare(input: {
     runId: string;
     platform: PlatformSpec;
@@ -119,7 +133,15 @@ export type DatasetIdentity = {
 export type AcquiredDataset = { identity: DatasetIdentity; root: string; labPath: string };
 
 export type DatasetPort = {
-  acquire(input: { runId: string; name: string; url: string; sha256: string | null; extract: boolean; destinationDir: string; signal: AbortSignal }): Promise<AcquiredDataset>;
+  acquire(input: {
+    runId: string;
+    name: string;
+    url: string;
+    sha256: string | null;
+    extract: boolean;
+    destinationDir: string;
+    signal: AbortSignal;
+  }): Promise<AcquiredDataset>;
   release(dataset: AcquiredDataset): Promise<{ removed: boolean }>;
 };
 

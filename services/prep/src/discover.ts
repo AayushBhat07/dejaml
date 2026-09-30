@@ -249,17 +249,12 @@ function parseCandidate(
 }
 
 function clip(text: string): string {
+  // eslint-disable-next-line no-control-regex -- rejects control characters
   const flat = text.replace(/[\u0000-\u001f\u007f]/gu, "?");
   return flat.length > 200 ? `${flat.slice(0, 197)}...` : flat;
 }
 
-function accept(
-  file: string,
-  line: number,
-  text: string,
-  rejected: RejectedLine[],
-  into: ParsedRequirement[],
-): void {
+function accept(file: string, line: number, text: string, rejected: RejectedLine[], into: ParsedRequirement[]): void {
   const result = parseRequirementLine(text);
   if (!result.ok) {
     rejected.push({ file, line, text: clip(text), reason: result.reason });
@@ -282,9 +277,7 @@ export function parseRequirementsText(file: string, content: string, rejected: R
 type TomlLine = { line: number; text: string };
 
 function tomlSections(content: string): { header: string; array: boolean; line: number; body: TomlLine[] }[] {
-  const sections: { header: string; array: boolean; line: number; body: TomlLine[] }[] = [
-    { header: "", array: false, line: 0, body: [] },
-  ];
+  const sections: { header: string; array: boolean; line: number; body: TomlLine[] }[] = [{ header: "", array: false, line: 0, body: [] }];
   content.split("\n").forEach((raw, index) => {
     const text = raw.replace(/\r$/u, "");
     const header = /^\s*(\[\[?)\s*([A-Za-z0-9_.\-" ]+?)\s*\]\]?\s*(#.*)?$/u.exec(text);
@@ -403,7 +396,8 @@ function parsePyproject(
     for (const entry of tomlStringArrayAt(poetryExtras?.body ?? [], start)) enabledOptional.add(normalizePackageName(entry.value));
   }
   for (const extra of extras) {
-    if (!found.has(extra) && (optional || poetryExtras || project)) unsupported.push({ path: file, reason: `optional_dependency_group_missing:${extra}` });
+    if (!found.has(extra) && (optional || poetryExtras || project))
+      unsupported.push({ path: file, reason: `optional_dependency_group_missing:${extra}` });
   }
   const poetry = sections.find((section) => section.header === "tool.poetry.dependencies" && !section.array);
   if (poetry) {
@@ -499,7 +493,11 @@ function parseLockPackages(
     const text = `${name ?? "?"}==${version ?? "?"}`;
     const subText = subtables.join("\n");
     if (/\b(editable|virtual)\s*=/u.test(source)) continue; // the project itself (uv)
-    if (/\b(git|path|directory|url)\s*=/u.test(source) || /\b(vcs|directory)\b/u.test(subText) || /type\s*=\s*"(git|directory|file|url)"/u.test(subText)) {
+    if (
+      /\b(git|path|directory|url)\s*=/u.test(source) ||
+      /\b(vcs|directory)\b/u.test(subText) ||
+      /type\s*=\s*"(git|directory|file|url)"/u.test(subText)
+    ) {
       rejected.push({ file, line: section.line, text: clip(text), reason: "non-registry lockfile source" });
       continue;
     }
@@ -543,4 +541,3 @@ function parsePipfileLock(file: string, content: string, rejected: RejectedLine[
   }
   return requirements;
 }
-

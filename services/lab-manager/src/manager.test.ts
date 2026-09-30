@@ -61,8 +61,7 @@ class FakeRuntime implements ContainerRuntime {
       if (!this.imagePresent) return failed(1, `Error response from daemon: No such image: ${args.at(-1)}`);
       const platformIndex = args.indexOf("--platform");
       const platform = platformIndex > 0 ? (args[platformIndex + 1] ?? "") : this.imagePlatform;
-      const [os = "", architecture = ""] =
-        platformIndex > 0 && !this.platformsPresent.has(platform) ? [] : platform.split("/");
+      const [os = "", architecture = ""] = platformIndex > 0 && !this.platformsPresent.has(platform) ? [] : platform.split("/");
       return ok(
         `${JSON.stringify({
           Id: this.imageId,
@@ -268,9 +267,7 @@ describe("LabManager", () => {
     expect(receipt).toMatchObject({ containerRemoved: true, artifactDirectoryRemoved: true, verifiedAbsent: true });
     expect(await readdir(join(workspace, "labs"))).toEqual([]);
     for (const event of events) {
-      expect(() =>
-        RunEventSchema.parse({ ...event, id: "evt", sequence: 1, timestamp: new Date().toISOString() }),
-      ).not.toThrow();
+      expect(() => RunEventSchema.parse({ ...event, id: "evt", sequence: 1, timestamp: new Date().toISOString() })).not.toThrow();
     }
   });
 
@@ -285,9 +282,7 @@ describe("LabManager", () => {
     expect(outcome.attempt).toMatchObject({ timedOut: true, cancelled: false, exitCode: null });
     expect(runtime.calls.some((call) => call[0] === "kill")).toBe(true);
     expect(manager.state(lab.labId)).toBe("timed_out");
-    await expect(
-      manager.executeAttempt(lab.labId, { number: 2, label: "baseline", command }),
-    ).rejects.toMatchObject({ code: "lab_state" });
+    await expect(manager.executeAttempt(lab.labId, { number: 2, label: "baseline", command })).rejects.toMatchObject({ code: "lab_state" });
     expect((await manager.destroyLab(lab.labId, "timed out")).verifiedAbsent).toBe(true);
   });
 
@@ -352,17 +347,17 @@ describe("LabManager", () => {
       ...(await validSpec()),
       limits: { ...DEFAULT_LAB_LIMITS, maxArtifactBytes: 1024 },
     });
-    await expect(
-      manager.executeAttempt(lab.labId, { number: 1, label: "baseline", command }),
-    ).rejects.toMatchObject({ code: "artifact_limit" });
+    await expect(manager.executeAttempt(lab.labId, { number: 1, label: "baseline", command })).rejects.toMatchObject({
+      code: "artifact_limit",
+    });
     expect(manager.state(lab.labId)).toBe("failed");
   });
 
   it("rejects install preparation steps because labs stay offline", async () => {
     const lab = await manager.createLab(await validSpec());
-    await expect(
-      manager.prepareLab(lab.labId, [{ kind: "install", description: "pip install extra" }]),
-    ).rejects.toMatchObject({ code: "preparation_rejected" });
+    await expect(manager.prepareLab(lab.labId, [{ kind: "install", description: "pip install extra" }])).rejects.toMatchObject({
+      code: "preparation_rejected",
+    });
   });
 
   it("destroys the lab even when the work inside withLab throws", async () => {
@@ -405,11 +400,7 @@ describe("LabManager", () => {
     });
 
     const output = events.filter((event) => event.type === "lab_output");
-    expect(output.flatMap((event) => event.publicPayload.lines as string[])).toEqual([
-      "loading data",
-      "training",
-      "accuracy 79.88",
-    ]);
+    expect(output.flatMap((event) => event.publicPayload.lines as string[])).toEqual(["loading data", "training", "accuracy 79.88"]);
     const telemetry = events.find((event) => event.type === "lab_telemetry");
     expect(telemetry?.publicPayload).toMatchObject({ cpuPercent: 95, pids: 4, limits: { cpus: 2, memoryMb: 2048 } });
     // The polling observer may also catch the file between truncate and write,
@@ -535,12 +526,7 @@ describe("sealed labs on an explicit platform", () => {
         expect(cliEnv.stdout.text).not.toContain(value);
       }
       const created = events.find((event) => event.type === "lab_create" && event.status === "completed");
-      expect((created?.publicPayload.sealed as { envKeys: string[] }).envKeys).toEqual([
-        "PATH",
-        "LANG",
-        "HOME",
-        "PYTHONUNBUFFERED",
-      ]);
+      expect((created?.publicPayload.sealed as { envKeys: string[] }).envKeys).toEqual(["PATH", "LANG", "HOME", "PYTHONUNBUFFERED"]);
     } finally {
       for (const [key, value] of Object.entries(saved)) {
         if (value === undefined) delete process.env[key];

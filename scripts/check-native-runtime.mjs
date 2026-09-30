@@ -129,7 +129,9 @@ if (invokedDirectly) {
     for (const finding of findings) {
       console.error(`${finding.file}:${finding.line}: ${finding.message} [${finding.rule}]\n    ${finding.text}`);
     }
-    console.error(`\nnative runtime check failed: ${findings.length} finding(s). DéjàML must not depend on OpenClaw or a localhost model bridge.`);
+    console.error(
+      `\nnative runtime check failed: ${findings.length} finding(s). DéjàML must not depend on OpenClaw or a localhost model bridge.`,
+    );
     process.exit(1);
   }
   console.log("native runtime check passed: no OpenClaw or localhost-bridge paths in production code.");

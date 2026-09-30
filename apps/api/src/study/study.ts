@@ -64,7 +64,15 @@ import {
   SupervisorVerdictSchema,
 } from "./roles.js";
 import { acquireRepository, buildStudyTools } from "./tools.js";
-import { applySupervisor, decideStatus, type EngineerOutcome, type OfficialRun, type StatusDecision, runStatusFor, terminalStageFor } from "./verdict.js";
+import {
+  applySupervisor,
+  decideStatus,
+  type EngineerOutcome,
+  type OfficialRun,
+  type StatusDecision,
+  runStatusFor,
+  terminalStageFor,
+} from "./verdict.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -101,7 +109,10 @@ export type LeakCheck = (runId: string) => Promise<{ containers: string[]; netwo
 export const dockerLeakCheck: LeakCheck = async (runId) => {
   const list = async (args: string[]): Promise<string[]> => {
     const { stdout } = await execFileAsync("docker", args, { timeout: 30_000 });
-    return stdout.split("\n").map((line) => line.trim()).filter(Boolean);
+    return stdout
+      .split("\n")
+      .map((line) => line.trim())
+      .filter(Boolean);
   };
   return {
     containers: await list(["ps", "-a", "--filter", `label=dejaml.run=${runId}`, "--format", "{{.Names}}"]),
@@ -149,8 +160,26 @@ export type MultiAgentReport = {
   agents: AgentSummary[];
   stages: Array<Pick<StageRecord, "stage" | "status" | "attempt" | "retryReason" | "error" | "startedAt" | "endedAt">>;
   transitions: Array<{ stage: string; from: string; to: string; attempt: number; reason: string | null; at: string }>;
-  board: Array<{ id: string; kind: string; key: string | null; author: string; authorAgentId: string | null; createdAt: string; payload: Record<string, unknown> }>;
-  receipts: Array<{ id: string; agentId: string; tool: string; status: string; summary: string | null; inputSha256: string; outputSha256: string | null; startedAt: string; finishedAt: string | null }>;
+  board: Array<{
+    id: string;
+    kind: string;
+    key: string | null;
+    author: string;
+    authorAgentId: string | null;
+    createdAt: string;
+    payload: Record<string, unknown>;
+  }>;
+  receipts: Array<{
+    id: string;
+    agentId: string;
+    tool: string;
+    status: string;
+    summary: string | null;
+    inputSha256: string;
+    outputSha256: string | null;
+    startedAt: string;
+    finishedAt: string | null;
+  }>;
   messages: Array<{ from: string | null; to: string; at: string }>;
   paper: { name: string; sha256: string; pages: number };
   repository: Record<string, unknown> | null;
@@ -162,7 +191,12 @@ export type MultiAgentReport = {
   labImage: LabImage | null;
   dependencies: Omit<PreparedDependencies, "wheelhouseDir"> | null;
   datasets: Array<AcquiredDataset["identity"]>;
-  engineers: Array<Omit<EngineerOutcome, "submission"> & { submission: Submission | null; artifacts: Array<{ path: string; sha256: string; bytes: number }> }>;
+  engineers: Array<
+    Omit<EngineerOutcome, "submission"> & {
+      submission: Submission | null;
+      artifacts: Array<{ path: string; sha256: string; bytes: number }>;
+    }
+  >;
   result: {
     status: ResultStatus;
     computedStatus: ResultStatus;
@@ -200,9 +234,27 @@ export type MultiAgentResult = {
 
 type StageOutput = Record<string, unknown>;
 type PaperStageOutput = { agentId: string; status: string; reason: string | null; result: PaperClaimResult | null };
-type RepositoryStageOutput = { agentId: string; status: string; reason: string | null; result: RepositoryMapping | null; repository: { url: string; commitSha: string; manifestSha256: string; fileCount: number; totalBytes: number } | null };
-type PlanStageOutput = { agentId: string; status: string; reason: string | null; plan: Plan | null; contract: ClaimContract | null; reconcileErrors: string[] };
-type PolicyStageOutput = { outcome: "approved" | "policy_blocked" | "inconclusive"; violations: string[]; warnings: string[]; planDigest: string | null };
+type RepositoryStageOutput = {
+  agentId: string;
+  status: string;
+  reason: string | null;
+  result: RepositoryMapping | null;
+  repository: { url: string; commitSha: string; manifestSha256: string; fileCount: number; totalBytes: number } | null;
+};
+type PlanStageOutput = {
+  agentId: string;
+  status: string;
+  reason: string | null;
+  plan: Plan | null;
+  contract: ClaimContract | null;
+  reconcileErrors: string[];
+};
+type PolicyStageOutput = {
+  outcome: "approved" | "policy_blocked" | "inconclusive";
+  violations: string[];
+  warnings: string[];
+  planDigest: string | null;
+};
 type PrepareStageOutput = {
   dependencies: Omit<PreparedDependencies, "wheelhouseDir"> | null;
   datasets: Array<AcquiredDataset["identity"]>;
@@ -217,9 +269,17 @@ type EngineerRecord = EngineerOutcome & {
   environment: EngineerLab["environment"];
   officialStdoutTail: string;
 };
-type ExecuteStageOutput = { engineers: EngineerRecord[]; failure: { code: string; outcome: PreparationFailure["outcome"]; message: string } | null };
+type ExecuteStageOutput = {
+  engineers: EngineerRecord[];
+  failure: { code: string; outcome: PreparationFailure["outcome"]; message: string } | null;
+};
 type ReviewStageOutput = { reviews: Array<{ engineerAgentId: string; reviewerAgentId: string; status: string; review: Review | null }> };
-type DecideStageOutput = { status: ResultStatus; computedStatus: ResultStatus; reasons: string[]; supervisor: { proposedStatus: ResultStatus; rationale: string; applied: boolean } | null };
+type DecideStageOutput = {
+  status: ResultStatus;
+  computedStatus: ResultStatus;
+  reasons: string[];
+  supervisor: { proposedStatus: ResultStatus; rationale: string; applied: boolean } | null;
+};
 
 function stableAgentId(...parts: Array<string | number>): string {
   return `agt_${createHash("sha256").update(parts.join("|")).digest("hex").slice(0, 32)}`;
@@ -349,21 +409,32 @@ export async function runMultiAgentStudy(
   async function runStage<T extends StageOutput>(stage: WorkStage, body: () => Promise<T>, options: { skip?: boolean } = {}): Promise<T> {
     if (study.signal.aborted) throw new StudyCancelled();
     const current = stages.stage(runId, stage);
-    const retryReason: StageRetryReason | undefined = current.attempt > 0 && current.status !== "completed" && current.status !== "skipped"
-      ? (current.retryReason ?? "process_restart")
-      : undefined;
+    const retryReason: StageRetryReason | undefined =
+      current.attempt > 0 && current.status !== "completed" && current.status !== "skipped"
+        ? (current.retryReason ?? "process_restart")
+        : undefined;
     const claim = stages.claim(runId, stage, owner, { leaseMs: STAGE_LEASE_MS, ...(retryReason ? { retryReason } : {}) });
     if (claim.completed) {
       event("stage_resumed", "progress", `The ${stage.replaceAll("_", " ")} stage already finished; its saved result is used`, { stage });
       return (claim.record.output ?? {}) as T;
     }
     advance(RUN_STATUS_FOR_STAGE[stage]);
-    board.post({ kind: "stage", authorAgentId: null, authorRole: "system", payload: { stage, status: "started", attempt: claim.record.attempt, retryReason: claim.record.retryReason } });
-    event("stage_started", "started", `Stage ${stage.replaceAll("_", " ")} started${claim.record.retryReason ? ` (retry: ${claim.record.retryReason.replaceAll("_", " ")})` : ""}`, {
-      stage,
-      attempt: claim.record.attempt,
-      retryReason: claim.record.retryReason,
+    board.post({
+      kind: "stage",
+      authorAgentId: null,
+      authorRole: "system",
+      payload: { stage, status: "started", attempt: claim.record.attempt, retryReason: claim.record.retryReason },
     });
+    event(
+      "stage_started",
+      "started",
+      `Stage ${stage.replaceAll("_", " ")} started${claim.record.retryReason ? ` (retry: ${claim.record.retryReason.replaceAll("_", " ")})` : ""}`,
+      {
+        stage,
+        attempt: claim.record.attempt,
+        retryReason: claim.record.retryReason,
+      },
+    );
     const renew = setInterval(() => {
       try {
         stages.renew(runId, stage, owner, STAGE_LEASE_MS);
@@ -376,7 +447,12 @@ export async function runMultiAgentStudy(
       const output = await body();
       if (options.skip) stages.skip(runId, stage, owner, output);
       else stages.complete(runId, stage, owner, output);
-      board.post({ kind: "stage", authorAgentId: null, authorRole: "system", payload: { stage, status: options.skip ? "skipped" : "completed" } });
+      board.post({
+        kind: "stage",
+        authorAgentId: null,
+        authorRole: "system",
+        payload: { stage, status: options.skip ? "skipped" : "completed" },
+      });
       return output;
     } catch (error) {
       try {
@@ -384,7 +460,12 @@ export async function runMultiAgentStudy(
       } catch {
         // Already ended.
       }
-      board.post({ kind: "stage", authorAgentId: null, authorRole: "system", payload: { stage, status: "failed", error: errorText(error).slice(0, 500) } });
+      board.post({
+        kind: "stage",
+        authorAgentId: null,
+        authorRole: "system",
+        payload: { stage, status: "failed", error: errorText(error).slice(0, 500) },
+      });
       throw error;
     } finally {
       clearInterval(renew);
@@ -407,15 +488,18 @@ export async function runMultiAgentStudy(
    * the label, so a resumed stage finds the same agent instead of starting a
    * duplicate.
    */
-  async function launch<T>(role: AgentRole, options: {
-    stage: WorkStage;
-    label: string;
-    objective: string;
-    inputs: Record<string, unknown>;
-    schema: z.ZodType<T>;
-    parentAgentId?: string | null;
-    idSalt?: string | number;
-  }): Promise<{ agentId: string; done: Promise<AgentOutcome<T>> }> {
+  async function launch<T>(
+    role: AgentRole,
+    options: {
+      stage: WorkStage;
+      label: string;
+      objective: string;
+      inputs: Record<string, unknown>;
+      schema: z.ZodType<T>;
+      parentAgentId?: string | null;
+      idSalt?: string | number;
+    },
+  ): Promise<{ agentId: string; done: Promise<AgentOutcome<T>> }> {
     const agentId = stableAgentId(runId, options.stage, generation(options.stage), options.label, options.idSalt ?? "");
     let existing = false;
     try {
@@ -490,7 +574,13 @@ export async function runMultiAgentStudy(
         const stored = await artifactStore.put({ runId, scope: lab.label, path: artifact.path, content: artifact.content });
         const hostPath = stored.uri;
         const text = artifact.content.subarray(0, 1024).includes(0) ? null : artifact.content.toString("utf8");
-        exported.push({ path: artifact.path, sha256: artifact.sha256, bytes: artifact.bytes, hostPath, text: text === null ? null : text.slice(0, 200_000) });
+        exported.push({
+          path: artifact.path,
+          sha256: artifact.sha256,
+          bytes: artifact.bytes,
+          hostPath,
+          text: text === null ? null : text.slice(0, 200_000),
+        });
       } catch {
         // Removed or oversized artifacts are simply not exported.
       }
@@ -520,7 +610,12 @@ export async function runMultiAgentStudy(
   let checkpointCount = 0;
 
   const usedReplans = (): Set<StageRetryReason> =>
-    new Set(stages.transitions(runId).filter((item) => item.stage === "reconciling" && item.to === "invalidated").map((item) => item.reason as StageRetryReason));
+    new Set(
+      stages
+        .transitions(runId)
+        .filter((item) => item.stage === "reconciling" && item.to === "invalidated")
+        .map((item) => item.reason as StageRetryReason),
+    );
   const canReplan = (reason: StageRetryReason): boolean => {
     const used = usedReplans();
     return !used.has(reason) && used.size < config.maxReplans;
@@ -529,7 +624,12 @@ export async function runMultiAgentStudy(
 
   async function replan(reason: StageRetryReason, guidance: string, evidence: Record<string, unknown>): Promise<void> {
     replanGuidance = [...replanGuidance, { reason, guidance, evidence }];
-    board.post({ kind: "note", authorAgentId: null, authorRole: "system", payload: { replan: reason, guidance: guidance.slice(0, 2_000), evidence } });
+    board.post({
+      kind: "note",
+      authorAgentId: null,
+      authorRole: "system",
+      payload: { replan: reason, guidance: guidance.slice(0, 2_000), evidence },
+    });
     await releasePrepared();
     stages.invalidate(runId, "reconciling", reason);
     ctx.contract = null;
@@ -537,7 +637,11 @@ export async function runMultiAgentStudy(
     event("replan", "warning", `Re-planning (${reason.replaceAll("_", " ")})`, { reason });
   }
 
-  async function checkpoint(name: string, evidence: Record<string, unknown>, allowed: StageRetryReason[]): Promise<SupervisorCheckpoint | null> {
+  async function checkpoint(
+    name: string,
+    evidence: Record<string, unknown>,
+    allowed: StageRetryReason[],
+  ): Promise<SupervisorCheckpoint | null> {
     checkpointCount += 1;
     const available = allowed.filter(canReplan);
     const handle = await launch("supervisor", {
@@ -554,7 +658,12 @@ export async function runMultiAgentStudy(
       kind: "supervisor_decision",
       authorAgentId: handle.agentId,
       authorRole: "supervisor",
-      payload: { checkpoint: name, action: decision?.action ?? "none", reason: decision?.reason ?? null, guidance: decision?.guidance ?? outcome.reason ?? "" },
+      payload: {
+        checkpoint: name,
+        action: decision?.action ?? "none",
+        reason: decision?.reason ?? null,
+        guidance: decision?.guidance ?? outcome.reason ?? "",
+      },
     });
     return decision;
   }
@@ -585,7 +694,13 @@ export async function runMultiAgentStudy(
         });
         const outcome = await handle.done;
         const result = outcome.status === "completed" ? (outcome.result ?? null) : null;
-        if (result) board.post({ kind: "paper_claim", authorAgentId: handle.agentId, authorRole: "paper_analyst", payload: { claim: result.claim, analysis: result } });
+        if (result)
+          board.post({
+            kind: "paper_claim",
+            authorAgentId: handle.agentId,
+            authorRole: "paper_analyst",
+            payload: { claim: result.claim, analysis: result },
+          });
         return { agentId: handle.agentId, status: outcome.status, reason: outcome.reason, result };
       }),
       runStage<RepositoryStageOutput>("analyzing_repository", async () => {
@@ -604,7 +719,8 @@ export async function runMultiAgentStudy(
         });
         const outcome = await handle.done;
         const result = outcome.status === "completed" ? (outcome.result ?? null) : null;
-        if (result) board.post({ kind: "repository_mapping", authorAgentId: handle.agentId, authorRole: "repository_analyst", payload: result });
+        if (result)
+          board.post({ kind: "repository_mapping", authorAgentId: handle.agentId, authorRole: "repository_analyst", payload: result });
         const receipt = ctx.repository?.receipt ?? null;
         return {
           agentId: handle.agentId,
@@ -612,7 +728,13 @@ export async function runMultiAgentStudy(
           reason: outcome.reason,
           result,
           repository: receipt
-            ? { url: receipt.repositoryUrl, commitSha: receipt.commitSha, manifestSha256: receipt.manifestSha256, fileCount: receipt.fileCount, totalBytes: receipt.totalBytes }
+            ? {
+                url: receipt.repositoryUrl,
+                commitSha: receipt.commitSha,
+                manifestSha256: receipt.manifestSha256,
+                fileCount: receipt.fileCount,
+                totalBytes: receipt.totalBytes,
+              }
             : null,
         };
       }),
@@ -668,7 +790,11 @@ export async function runMultiAgentStudy(
       return false;
     }
     if (result.plan.status === "inconclusive" || !result.contract) {
-      stopReasons.push(result.reconcileErrors.length ? `the plan is incomplete: ${result.reconcileErrors.join("; ")}` : `the plan is inconclusive: ${result.plan.summary}`);
+      stopReasons.push(
+        result.reconcileErrors.length
+          ? `the plan is incomplete: ${result.reconcileErrors.join("; ")}`
+          : `the plan is inconclusive: ${result.plan.summary}`,
+      );
       return false;
     }
     ctx.contract = result.contract;
@@ -685,13 +811,34 @@ export async function runMultiAgentStudy(
         trustedConstraints: config.trustedConstraints,
       });
       if (review.outcome === "approved") {
-        board.post({ kind: "claim_contract", authorAgentId: null, authorRole: "system", payload: { planDigest: review.planDigest, contract: result.contract!, adapter: result.plan!.adapter, warnings: review.warnings } });
-        event("plan_approved", "completed", `Policy review approved the plan (digest ${review.planDigest.slice(0, 12)})`, { planDigest: review.planDigest, warnings: review.warnings });
+        board.post({
+          kind: "claim_contract",
+          authorAgentId: null,
+          authorRole: "system",
+          payload: { planDigest: review.planDigest, contract: result.contract!, adapter: result.plan!.adapter, warnings: review.warnings },
+        });
+        event("plan_approved", "completed", `Policy review approved the plan (digest ${review.planDigest.slice(0, 12)})`, {
+          planDigest: review.planDigest,
+          warnings: review.warnings,
+        });
       } else {
-        board.post({ kind: "policy_block", authorAgentId: null, authorRole: "system", payload: { reason: review.violations.join("; "), outcome: review.outcome } });
-        event("plan_refused", "warning", `Policy review refused the plan: ${review.violations[0] ?? review.outcome}`, { outcome: review.outcome, violations: review.violations });
+        board.post({
+          kind: "policy_block",
+          authorAgentId: null,
+          authorRole: "system",
+          payload: { reason: review.violations.join("; "), outcome: review.outcome },
+        });
+        event("plan_refused", "warning", `Policy review refused the plan: ${review.violations[0] ?? review.outcome}`, {
+          outcome: review.outcome,
+          violations: review.violations,
+        });
       }
-      return { outcome: review.outcome, violations: review.violations, warnings: review.warnings, planDigest: review.outcome === "approved" ? review.planDigest : null };
+      return {
+        outcome: review.outcome,
+        violations: review.violations,
+        warnings: review.warnings,
+        planDigest: review.outcome === "approved" ? review.planDigest : null,
+      };
     });
     if (policyOut.outcome === "policy_blocked") {
       policyViolations.push(...policyOut.violations);
@@ -709,13 +856,21 @@ export async function runMultiAgentStudy(
     const contract = ctx.contract!;
     // On resume, a completed preparation whose files are gone is prepared again (it is hash-pinned and deterministic).
     const saved = stages.stage(runId, "preparing");
-    if (saved.status === "completed" && !ctx.prepared && ((saved.output as PrepareStageOutput | null)?.dependencies || (saved.output as PrepareStageOutput | null)?.datasets.length)) {
+    if (
+      saved.status === "completed" &&
+      !ctx.prepared &&
+      ((saved.output as PrepareStageOutput | null)?.dependencies || (saved.output as PrepareStageOutput | null)?.datasets.length)
+    ) {
       stages.invalidate(runId, "preparing", "process_restart");
     }
     prepOut = await runStage<PrepareStageOutput>("preparing", async () => {
       try {
         const labImage = await deps.images.ensure({ platform: contract.environment.platform, signal: study.signal });
-        event("lab_image_ready", "completed", `Lab image ready for ${labImage.containerPlatform}, Python ${labImage.python}`, { image: labImage.name, digest: labImage.digest, imageId: labImage.imageId });
+        event("lab_image_ready", "completed", `Lab image ready for ${labImage.containerPlatform}, Python ${labImage.python}`, {
+          image: labImage.name,
+          digest: labImage.digest,
+          imageId: labImage.imageId,
+        });
         if (contract.environment.requirements.length && deps.dependencies) {
           ctx.prepared = await deps.dependencies.prepare({
             runId,
@@ -726,15 +881,21 @@ export async function runMultiAgentStudy(
           });
           const { wheelhouseDir: _dir, ...recorded } = ctx.prepared;
           board.post({ kind: "dependency_manifest", authorAgentId: null, authorRole: "system", payload: recorded });
-          event("dependencies_prepared", "completed", `Prepared ${ctx.prepared.packages.length} verified wheels for ${ctx.prepared.containerPlatform}`, {
-            manifestSha256: ctx.prepared.manifestSha256,
-            packages: ctx.prepared.packages.length,
-            changes: ctx.prepared.changes,
-          });
+          event(
+            "dependencies_prepared",
+            "completed",
+            `Prepared ${ctx.prepared.packages.length} verified wheels for ${ctx.prepared.containerPlatform}`,
+            {
+              manifestSha256: ctx.prepared.manifestSha256,
+              packages: ctx.prepared.packages.length,
+              changes: ctx.prepared.changes,
+            },
+          );
         }
         const source = contract.dataset.source;
         if (source.kind === "download") {
-          if (!deps.datasets) throw new PreparationFailure("datasets_disabled", "dataset downloads are disabled on this server", "policy_blocked");
+          if (!deps.datasets)
+            throw new PreparationFailure("datasets_disabled", "dataset downloads are disabled on this server", "policy_blocked");
           const root = join(workDir, "datasets");
           await mkdir(root, { recursive: true, mode: 0o711 });
           const dataset = await deps.datasets.acquire({
@@ -747,15 +908,31 @@ export async function runMultiAgentStudy(
             signal: study.signal,
           });
           ctx.datasets.push(dataset);
-          board.post({ kind: "dataset_receipt", authorAgentId: null, authorRole: "system", payload: { ...dataset.identity, labPath: dataset.labPath } });
-          event("dataset_acquired", "completed", `Downloaded dataset ${contract.dataset.name} (${dataset.identity.bytes} bytes, checksum verified)`, { sha256: dataset.identity.sha256 });
+          board.post({
+            kind: "dataset_receipt",
+            authorAgentId: null,
+            authorRole: "system",
+            payload: { ...dataset.identity, labPath: dataset.labPath },
+          });
+          event(
+            "dataset_acquired",
+            "completed",
+            `Downloaded dataset ${contract.dataset.name} (${dataset.identity.bytes} bytes, checksum verified)`,
+            { sha256: dataset.identity.sha256 },
+          );
         }
         const datasets = ctx.datasets.map((item) => item.identity);
         if (source.kind === "package") {
           // The dataset's identity is the verified wheel that carries it.
           const normalized = source.package.toLowerCase().replace(/[-_.]+/gu, "-");
           const wheel = ctx.prepared?.packages.find((item) => item.name.toLowerCase().replace(/[-_.]+/gu, "-") === normalized);
-          if (!wheel) throw new PreparationFailure("dataset_package_missing", `the dataset package ${source.package} was not prepared`, "inconclusive", source.package);
+          if (!wheel)
+            throw new PreparationFailure(
+              "dataset_package_missing",
+              `the dataset package ${source.package} was not prepared`,
+              "inconclusive",
+              source.package,
+            );
           const identity = {
             name: contract.dataset.name,
             requestedUrl: `wheel:${wheel.filename}#${source.path}`,
@@ -767,22 +944,50 @@ export async function runMultiAgentStudy(
             fetchedAt: new Date().toISOString(),
           };
           datasets.push(identity);
-          board.post({ kind: "dataset_receipt", authorAgentId: null, authorRole: "system", payload: { ...identity, labPath: `${LAB_LAYOUT.venv} (${source.package} ${wheel.version})` } });
+          board.post({
+            kind: "dataset_receipt",
+            authorAgentId: null,
+            authorRole: "system",
+            payload: { ...identity, labPath: `${LAB_LAYOUT.venv} (${source.package} ${wheel.version})` },
+          });
         }
         const { wheelhouseDir: _dir, ...recorded } = ctx.prepared ?? { wheelhouseDir: "" };
-        return { dependencies: ctx.prepared ? (recorded as Omit<PreparedDependencies, "wheelhouseDir">) : null, datasets, labImage, failure: null };
+        return {
+          dependencies: ctx.prepared ? (recorded as Omit<PreparedDependencies, "wheelhouseDir">) : null,
+          datasets,
+          labImage,
+          failure: null,
+        };
       } catch (error) {
         if (!(error instanceof PreparationFailure)) throw error;
         await releasePrepared();
-        board.post({ kind: "note", authorAgentId: null, authorRole: "system", payload: { preparationFailure: error.code, message: error.message, requirement: error.requirement } });
-        event("preparation_failed", "warning", `Preparation failed: ${error.code}`, { code: error.code, requirement: error.requirement, outcome: error.outcome });
-        return { dependencies: null, datasets: [], labImage: null, failure: { code: error.code, outcome: error.outcome, message: error.message, requirement: error.requirement } };
+        board.post({
+          kind: "note",
+          authorAgentId: null,
+          authorRole: "system",
+          payload: { preparationFailure: error.code, message: error.message, requirement: error.requirement },
+        });
+        event("preparation_failed", "warning", `Preparation failed: ${error.code}`, {
+          code: error.code,
+          requirement: error.requirement,
+          outcome: error.outcome,
+        });
+        return {
+          dependencies: null,
+          datasets: [],
+          labImage: null,
+          failure: { code: error.code, outcome: error.outcome, message: error.message, requirement: error.requirement },
+        };
       }
     });
     const failure = prepOut.failure;
     if (!failure) return "ready";
     if (failure.outcome === "replan" && canReplan("dependency_failure_replan")) {
-      await replan("dependency_failure_replan", `Preparation failed with ${failure.code}${failure.requirement ? ` for ${failure.requirement}` : ""}: ${failure.message}`, { failure });
+      await replan(
+        "dependency_failure_replan",
+        `Preparation failed with ${failure.code}${failure.requirement ? ` for ${failure.requirement}` : ""}: ${failure.message}`,
+        { failure },
+      );
       return "replan";
     }
     if (failure.outcome === "failed") infrastructureFailure = `preparation failed: ${failure.message}`;
@@ -799,7 +1004,9 @@ export async function runMultiAgentStudy(
     execOut = await runStage<ExecuteStageOutput>("executing", async () => {
       const count = Math.max(1, Math.min(3, config.engineers));
       try {
-        const engineers = await Promise.all(Array.from({ length: count }, (_, index) => runEngineer(`engineer-${index + 1}`, attempt + 1, contract, adapter, labImage)));
+        const engineers = await Promise.all(
+          Array.from({ length: count }, (_, index) => runEngineer(`engineer-${index + 1}`, attempt + 1, contract, adapter, labImage)),
+        );
         return { engineers, failure: null };
       } catch (error) {
         if (!(error instanceof PreparationFailure)) throw error;
@@ -809,7 +1016,9 @@ export async function runMultiAgentStudy(
     restoreLabs(execOut.engineers);
     if (execOut.failure) {
       if (execOut.failure.outcome === "replan" && canReplan("dependency_failure_replan")) {
-        await replan("dependency_failure_replan", `Lab setup failed with ${execOut.failure.code}: ${execOut.failure.message}`, { failure: execOut.failure });
+        await replan("dependency_failure_replan", `Lab setup failed with ${execOut.failure.code}: ${execOut.failure.message}`, {
+          failure: execOut.failure,
+        });
         return "replan";
       }
       if (execOut.failure.outcome === "failed") infrastructureFailure = `lab setup failed: ${execOut.failure.message}`;
@@ -819,50 +1028,71 @@ export async function runMultiAgentStudy(
     const measured = execOut.engineers.filter((item) => item.official?.exitCode === 0 && item.metric?.ok);
     const requests = execOut.engineers.flatMap((item) => (item.dependencyRequest ? [item.dependencyRequest] : []));
     if (measured.length === 0) {
-      const decision = await checkpoint("after_execution", {
-        engineers: execOut.engineers.map((item) => ({
-          label: item.label,
-          status: item.submission?.status ?? item.agentStatus,
-          official: item.official ? { exitCode: item.official.exitCode, timedOut: item.official.timedOut } : null,
-          metric: item.metric,
-          failureReason: item.submission?.failureReason ?? item.agentReason,
-        })),
-        dependencyRequests: requests,
-      }, requests.length ? ["dependency_failure_replan", "execution_failed_replan"] : ["execution_failed_replan"]);
+      const decision = await checkpoint(
+        "after_execution",
+        {
+          engineers: execOut.engineers.map((item) => ({
+            label: item.label,
+            status: item.submission?.status ?? item.agentStatus,
+            official: item.official ? { exitCode: item.official.exitCode, timedOut: item.official.timedOut } : null,
+            metric: item.metric,
+            failureReason: item.submission?.failureReason ?? item.agentReason,
+          })),
+          dependencyRequests: requests,
+        },
+        requests.length ? ["dependency_failure_replan", "execution_failed_replan"] : ["execution_failed_replan"],
+      );
       if (decision?.action === "replan" && decision.reason !== "none" && canReplan(decision.reason)) {
         await replan(decision.reason, decision.guidance, { dependencyRequests: requests });
         return "replan";
       }
-      stopReasons.push(decision?.action === "stop" ? `the Supervisor stopped the study: ${decision.guidance.slice(0, 500)}` : "no engineer measured the claim with the approved command");
+      stopReasons.push(
+        decision?.action === "stop"
+          ? `the Supervisor stopped the study: ${decision.guidance.slice(0, 500)}`
+          : "no engineer measured the claim with the approved command",
+      );
       await skipThrough("deciding", "nothing was measured");
       return "stop";
     }
 
     reviewOut = await runStage<ReviewStageOutput>("reviewing", async () => {
-      const reviews = await Promise.all(measured.map(async (engineer) => {
-        const handle = await launch("independent_reviewer", {
-          stage: "reviewing",
-          label: `reviewer-${engineer.label}`,
-          objective: `Review ${engineer.label}'s measurement independently.`,
-          inputs: {
-            submissionKey: engineer.engineerAgentId,
-            contract,
-            planDigest: ctx.planDigest,
-            adapter,
-            officialReceiptId: engineer.official?.receiptId ?? null,
-            parsedMetric: engineer.metric,
-            valueInPaperUnit: engineer.value,
-            declaredDeviations: engineer.submission?.deviations ?? [],
-            exportedArtifacts: (ctx.exports.get(engineer.engineerAgentId) ?? []).map((item) => ({ path: item.path, sha256: item.sha256, bytes: item.bytes })),
-            hint: "Read board entries with key = submissionKey (command_receipt, artifact, metric, submission); use logs_read and artifact_read with engineerAgentId = submissionKey.",
-          },
-          schema: ReviewSchema,
-        });
-        const outcome = await handle.done;
-        const review = outcome.status === "completed" ? (outcome.result ?? null) : null;
-        if (review) board.post({ kind: "review", authorAgentId: handle.agentId, authorRole: "independent_reviewer", key: engineer.engineerAgentId, payload: review });
-        return { engineerAgentId: engineer.engineerAgentId, reviewerAgentId: handle.agentId, status: outcome.status, review };
-      }));
+      const reviews = await Promise.all(
+        measured.map(async (engineer) => {
+          const handle = await launch("independent_reviewer", {
+            stage: "reviewing",
+            label: `reviewer-${engineer.label}`,
+            objective: `Review ${engineer.label}'s measurement independently.`,
+            inputs: {
+              submissionKey: engineer.engineerAgentId,
+              contract,
+              planDigest: ctx.planDigest,
+              adapter,
+              officialReceiptId: engineer.official?.receiptId ?? null,
+              parsedMetric: engineer.metric,
+              valueInPaperUnit: engineer.value,
+              declaredDeviations: engineer.submission?.deviations ?? [],
+              exportedArtifacts: (ctx.exports.get(engineer.engineerAgentId) ?? []).map((item) => ({
+                path: item.path,
+                sha256: item.sha256,
+                bytes: item.bytes,
+              })),
+              hint: "Read board entries with key = submissionKey (command_receipt, artifact, metric, submission); use logs_read and artifact_read with engineerAgentId = submissionKey.",
+            },
+            schema: ReviewSchema,
+          });
+          const outcome = await handle.done;
+          const review = outcome.status === "completed" ? (outcome.result ?? null) : null;
+          if (review)
+            board.post({
+              kind: "review",
+              authorAgentId: handle.agentId,
+              authorRole: "independent_reviewer",
+              key: engineer.engineerAgentId,
+              payload: review,
+            });
+          return { engineerAgentId: engineer.engineerAgentId, reviewerAgentId: handle.agentId, status: outcome.status, review };
+        }),
+      );
       return { reviews };
     });
     for (const item of reviewOut.reviews) {
@@ -874,11 +1104,21 @@ export async function runMultiAgentStudy(
     }
     const approved = reviewOut.reviews.filter((item) => item.review?.verdict === "approve" && item.review.equivalence !== "not_equivalent");
     if (approved.length === 0) {
-      const decision = await checkpoint("after_review", {
-        reviews: reviewOut.reviews.map((item) => ({ verdict: item.review?.verdict ?? item.status, equivalence: item.review?.equivalence ?? null, concerns: item.review?.concerns ?? [] })),
-      }, ["reviewer_rejected_replan"]);
+      const decision = await checkpoint(
+        "after_review",
+        {
+          reviews: reviewOut.reviews.map((item) => ({
+            verdict: item.review?.verdict ?? item.status,
+            equivalence: item.review?.equivalence ?? null,
+            concerns: item.review?.concerns ?? [],
+          })),
+        },
+        ["reviewer_rejected_replan"],
+      );
       if (decision?.action === "replan" && decision.reason === "reviewer_rejected_replan" && canReplan("reviewer_rejected_replan")) {
-        await replan("reviewer_rejected_replan", decision.guidance, { reviews: reviewOut.reviews.map((item) => item.review?.concerns ?? []) });
+        await replan("reviewer_rejected_replan", decision.guidance, {
+          reviews: reviewOut.reviews.map((item) => item.review?.concerns ?? []),
+        });
         return "replan";
       }
     }
@@ -906,9 +1146,17 @@ export async function runMultiAgentStudy(
     }
   }
 
-  async function runEngineer(label: string, round: number, contract: ClaimContract, adapter: Plan["adapter"], labImage: LabImage): Promise<EngineerRecord> {
+  async function runEngineer(
+    label: string,
+    round: number,
+    contract: ClaimContract,
+    adapter: Plan["adapter"],
+    labImage: LabImage,
+  ): Promise<EngineerRecord> {
     const agentId = stableAgentId(runId, "executing", generation("executing"), label, round);
-    const inputs: Array<{ hostPath: string; containerPath: string }> = [{ hostPath: ctx.repository!.dir, containerPath: LAB_LAYOUT.repoDir }];
+    const inputs: Array<{ hostPath: string; containerPath: string }> = [
+      { hostPath: ctx.repository!.dir, containerPath: LAB_LAYOUT.repoDir },
+    ];
     if (ctx.prepared) inputs.push({ hostPath: ctx.prepared.wheelhouseDir, containerPath: LAB_LAYOUT.wheelsDir });
     if (ctx.datasets[0]) inputs.push({ hostPath: ctx.datasets[0].root, containerPath: LAB_LAYOUT.dataDir });
     const spec = LabSpecSchema.parse({
@@ -972,7 +1220,15 @@ export async function runMultiAgentStudy(
     const submission = outcome?.status === "completed" ? (outcome.result ?? null) : null;
     const exported = ctx.exports.get(agentId) ?? [];
     const official: OfficialRun | null = lab.official
-      ? { receiptId: lab.official.receiptId, argv: lab.official.argv, cwd: lab.official.cwd, exitCode: lab.official.exitCode, timedOut: lab.official.timedOut, durationMs: lab.official.durationMs, stdoutSha256: lab.official.stdoutSha256 }
+      ? {
+          receiptId: lab.official.receiptId,
+          argv: lab.official.argv,
+          cwd: lab.official.cwd,
+          exitCode: lab.official.exitCode,
+          timedOut: lab.official.timedOut,
+          durationMs: lab.official.durationMs,
+          stdoutSha256: lab.official.stdoutSha256,
+        }
       : null;
     let metric = null;
     let value: number | null = null;
@@ -987,16 +1243,40 @@ export async function runMultiAgentStudy(
         authorAgentId: null,
         authorRole: "system",
         key: agentId,
-        payload: { value, raw: metric.ok ? metric.value : null, unit: contract.metric.unit, receiptId: lab.official.receiptId, source: metric.ok ? metric.source : null, problem: metric.ok ? null : metric.reason },
+        payload: {
+          value,
+          raw: metric.ok ? metric.value : null,
+          unit: contract.metric.unit,
+          receiptId: lab.official.receiptId,
+          source: metric.ok ? metric.source : null,
+          problem: metric.ok ? null : metric.reason,
+        },
       });
     }
     for (const artifact of exported) {
-      board.post({ kind: "artifact", authorAgentId: null, authorRole: "system", key: agentId, payload: { path: artifact.path, sha256: artifact.sha256, bytes: artifact.bytes, engineer: label } });
+      board.post({
+        kind: "artifact",
+        authorAgentId: null,
+        authorRole: "system",
+        key: agentId,
+        payload: { path: artifact.path, sha256: artifact.sha256, bytes: artifact.bytes, engineer: label },
+      });
     }
-    board.post({ kind: "submission", authorAgentId: agentId, authorRole: "lab_engineer", key: agentId, payload: { engineer: label, agentStatus: outcome?.status ?? "failed", ...(submission ?? {}) } });
-    event("engineer_finished", metric?.ok ? "completed" : "warning", metric?.ok
-      ? `${label} measured ${String(value)} ${contract.metric.unit} with the approved command`
-      : `${label} produced no measurement (${official ? `exit ${String(official.exitCode)}` : outcome?.status ?? "failed"})`, { engineer: label, agentId });
+    board.post({
+      kind: "submission",
+      authorAgentId: agentId,
+      authorRole: "lab_engineer",
+      key: agentId,
+      payload: { engineer: label, agentStatus: outcome?.status ?? "failed", ...(submission ?? {}) },
+    });
+    event(
+      "engineer_finished",
+      metric?.ok ? "completed" : "warning",
+      metric?.ok
+        ? `${label} measured ${String(value)} ${contract.metric.unit} with the approved command`
+        : `${label} produced no measurement (${official ? `exit ${String(official.exitCode)}` : (outcome?.status ?? "failed")})`,
+      { engineer: label, agentId },
+    );
     return {
       engineerAgentId: agentId,
       label,
@@ -1011,7 +1291,11 @@ export async function runMultiAgentStudy(
       dependencyRequest: lab.dependencyRequest,
       labId: lab.labId,
       imageId: lab.imageId,
-      commands: lab.commands.slice(-60).map(({ stdoutFull: _full, ...command }) => ({ ...command, stdoutTail: command.stdoutTail.slice(-4_000), stderrTail: command.stderrTail.slice(-4_000) })),
+      commands: lab.commands.slice(-60).map(({ stdoutFull: _full, ...command }) => ({
+        ...command,
+        stdoutTail: command.stdoutTail.slice(-4_000),
+        stderrTail: command.stderrTail.slice(-4_000),
+      })),
       artifacts: exported.map((item) => ({ path: item.path, sha256: item.sha256, bytes: item.bytes })),
       environment: lab.environment,
       officialStdoutTail: lab.official?.stdoutTail.slice(-8_000) ?? "",
@@ -1023,35 +1307,76 @@ export async function runMultiAgentStudy(
     const actor = orchestratorActor;
     const must = async (argv: string[], what: string, outcome: PreparationFailure["outcome"], timeout = 600): Promise<void> => {
       const record = await runInLab(ctx, lab, actor(), argv, LAB_LAYOUT.workdir, {}, timeout);
-      if (record.exitCode !== 0) throw new PreparationFailure(`lab_${what.replaceAll(" ", "_")}_failed`, `${what} failed: ${record.stderrTail.slice(-800)}`, outcome);
+      if (record.exitCode !== 0)
+        throw new PreparationFailure(
+          `lab_${what.replaceAll(" ", "_")}_failed`,
+          `${what} failed: ${record.stderrTail.slice(-800)}`,
+          outcome,
+        );
     };
     if (contract.command.cwd === LAB_LAYOUT.workRepo) {
-      await must(["python", "-I", "-S", "-c", "import shutil, sys; shutil.copytree(sys.argv[1], sys.argv[2], symlinks=True)", LAB_LAYOUT.repoDir, LAB_LAYOUT.workRepo], "copy repository", "failed");
+      await must(
+        [
+          "python",
+          "-I",
+          "-S",
+          "-c",
+          "import shutil, sys; shutil.copytree(sys.argv[1], sys.argv[2], symlinks=True)",
+          LAB_LAYOUT.repoDir,
+          LAB_LAYOUT.workRepo,
+        ],
+        "copy repository",
+        "failed",
+      );
     }
     if (adapter) {
       await deps.labs.writeScratchFile(lab.labId, adapter.path, adapter.content, lab.commands.length + 1);
     }
     if (ctx.prepared?.installerWheel) {
       const { offlineInstallCommands } = await import("@dejaml/prep");
-      const commands = offlineInstallCommands({ wheelhouse: `${LAB_LAYOUT.workdir}/${LAB_LAYOUT.wheelsDir}`, venv: LAB_LAYOUT.venv, installerWheel: ctx.prepared.installerWheel });
+      const commands = offlineInstallCommands({
+        wheelhouse: `${LAB_LAYOUT.workdir}/${LAB_LAYOUT.wheelsDir}`,
+        venv: LAB_LAYOUT.venv,
+        installerWheel: ctx.prepared.installerWheel,
+      });
       for (const argv of commands) await must(argv, "offline install", "replan", 900);
     } else {
       await must(["python", "-m", "venv", "--without-pip", LAB_LAYOUT.venv], "create environment", "failed");
     }
-    const inspect = await runInLab(ctx, lab, actor(), [`${LAB_LAYOUT.venv}/bin/python`, "-c", "import json, platform; print(json.dumps({'python': platform.python_version()}))"], LAB_LAYOUT.workdir, {}, 60);
+    const inspect = await runInLab(
+      ctx,
+      lab,
+      actor(),
+      [`${LAB_LAYOUT.venv}/bin/python`, "-c", "import json, platform; print(json.dumps({'python': platform.python_version()}))"],
+      LAB_LAYOUT.workdir,
+      {},
+      60,
+    );
     try {
-      lab.environment = { python: (JSON.parse(inspect.stdoutTail) as { python: string }).python, distributions: (ctx.prepared?.packages ?? []).map((item) => ({ name: item.name, version: item.version })) };
+      lab.environment = {
+        python: (JSON.parse(inspect.stdoutTail) as { python: string }).python,
+        distributions: (ctx.prepared?.packages ?? []).map((item) => ({ name: item.name, version: item.version })),
+      };
     } catch {
       lab.environment = { python: null, distributions: [] };
     }
     if (lab.environment.python && !lab.environment.python.startsWith(`${contract.environment.platform.python.version}.`)) {
-      throw new PreparationFailure("python_mismatch", `the lab's Python ${lab.environment.python} does not match the approved ${contract.environment.platform.python.version}`, "failed");
+      throw new PreparationFailure(
+        "python_mismatch",
+        `the lab's Python ${lab.environment.python} does not match the approved ${contract.environment.platform.python.version}`,
+        "failed",
+      );
     }
     lab.integrity = await measureIntegrity(ctx, lab, contract.dataset.source.kind === "repository" ? contract.dataset.source.paths : []);
-    event("lab_ready", "completed", `${lab.label}'s lab is ready: repository, ${ctx.prepared ? `${ctx.prepared.packages.length} packages installed offline` : "standard library only"}, Python ${lab.environment.python ?? "unknown"}`, {
-      engineer: lab.label,
-      imageId: lab.imageId,
-    });
+    event(
+      "lab_ready",
+      "completed",
+      `${lab.label}'s lab is ready: repository, ${ctx.prepared ? `${ctx.prepared.packages.length} packages installed offline` : "standard library only"}, Python ${lab.environment.python ?? "unknown"}`,
+      {
+        engineer: lab.label,
+        imageId: lab.imageId,
+      },
+    );
   }
 
   // ---------------------------------------------------------------------------
@@ -1062,19 +1387,32 @@ export async function runMultiAgentStudy(
   let supervisorApplied = false;
   let finalStatus: ResultStatus = "failed";
   try {
-    event("study_team", "started", resumed ? "Resuming the study from its saved stages" : "Independent agents will run the study, stage by stage", {
-      runtime: "native autonomous agent runtime",
-      provider: provider.id,
-      model: provider.model,
-      platform: config.platform.containerPlatform,
-      resumed,
-    });
+    event(
+      "study_team",
+      "started",
+      resumed ? "Resuming the study from its saved stages" : "Independent agents will run the study, stage by stage",
+      {
+        runtime: "native autonomous agent runtime",
+        provider: provider.id,
+        model: provider.model,
+        platform: config.platform.containerPlatform,
+        resumed,
+      },
+    );
     await analysis();
     if (repoOut?.repository && !ctx.repository) await ensureRepository(repoOut.repository.url, repoOut.repository.commitSha);
     if (!paperOut?.result?.claim || paperOut.result.status !== "ready") {
-      stopReasons.push(paperOut?.result ? `no testable claim: ${paperOut.result.reasons.join("; ") || paperOut.result.summary}` : `the Paper Analyst did not finish (${paperOut?.status ?? "unknown"})`);
+      stopReasons.push(
+        paperOut?.result
+          ? `no testable claim: ${paperOut.result.reasons.join("; ") || paperOut.result.summary}`
+          : `the Paper Analyst did not finish (${paperOut?.status ?? "unknown"})`,
+      );
     } else if (!repoOut?.repository) {
-      stopReasons.push(repoOut?.result ? `the repository was not acquired: ${repoOut.result.summary}` : `the Repository Analyst did not finish (${repoOut?.status ?? "unknown"})`);
+      stopReasons.push(
+        repoOut?.result
+          ? `the repository was not acquired: ${repoOut.result.summary}`
+          : `the Repository Analyst did not finish (${repoOut?.status ?? "unknown"})`,
+      );
     } else {
       for (let round = 0; round <= config.maxReplans; round += 1) {
         if (!(await plan())) break;
@@ -1103,18 +1441,27 @@ export async function runMultiAgentStudy(
         const applied = applySupervisor(computed.status, proposal?.proposedStatus ?? null);
         const reasons = [...computed.reasons];
         if (applied.overridden) reasons.push(`the Supervisor made the result more cautious: ${proposal!.rationale.slice(0, 500)}`);
-        board.post({ kind: "status_decision", authorAgentId: null, authorRole: "system", payload: { status: applied.status, computedStatus: computed.status, reasons, supervisorProposal: proposal } });
+        board.post({
+          kind: "status_decision",
+          authorAgentId: null,
+          authorRole: "system",
+          payload: { status: applied.status, computedStatus: computed.status, reasons, supervisorProposal: proposal },
+        });
         return {
           status: applied.status,
           computedStatus: computed.status,
           reasons,
-          supervisor: proposal ? { proposedStatus: proposal.proposedStatus, rationale: proposal.rationale, applied: applied.overridden } : null,
+          supervisor: proposal
+            ? { proposedStatus: proposal.proposedStatus, rationale: proposal.rationale, applied: applied.overridden }
+            : null,
         };
       });
       decision = decide(false);
       decision.reasons = out.reasons;
       finalStatus = out.status;
-      supervisorProposal = out.supervisor ? { proposedStatus: out.supervisor.proposedStatus as SupervisorVerdict["proposedStatus"], rationale: out.supervisor.rationale } : null;
+      supervisorProposal = out.supervisor
+        ? { proposedStatus: out.supervisor.proposedStatus as SupervisorVerdict["proposedStatus"], rationale: out.supervisor.rationale }
+        : null;
       supervisorApplied = out.supervisor?.applied ?? false;
     }
   } catch (error) {
@@ -1150,18 +1497,27 @@ export async function runMultiAgentStudy(
   for (const agentId of runtime.liveAgents()) await runtime.cancelAgent(agentId).catch(() => undefined);
   for (const lab of ctx.labsByAgent.values()) if (!lab.destroyed) await finishLab(lab.agentId, "study finished");
   let dependenciesRemoved = true;
-  if (ctx.prepared && deps.dependencies) dependenciesRemoved = (await deps.dependencies.release(ctx.prepared).catch(() => ({ removed: false }))).removed;
+  if (ctx.prepared && deps.dependencies)
+    dependenciesRemoved = (await deps.dependencies.release(ctx.prepared).catch(() => ({ removed: false }))).removed;
   let datasetsRemoved = true;
   for (const dataset of ctx.datasets) {
     const released = await deps.datasets?.release(dataset).catch(() => ({ removed: false }));
     if (released && !released.removed) datasetsRemoved = false;
   }
   if (ctx.repository) {
-    await cleanupAcquiredRepository({ destination: ctx.repository.receipt.destination, destinationRoot: ctx.repository.root }).catch(() => undefined);
+    await cleanupAcquiredRepository({ destination: ctx.repository.receipt.destination, destinationRoot: ctx.repository.root }).catch(
+      () => undefined,
+    );
   }
   await rm(workDir, { recursive: true, force: true });
-  const workDirRemoved = !(await stat(workDir).then(() => true, () => false));
-  const leaks = await (deps.leakCheck ?? dockerLeakCheck)(runId).catch((error: unknown) => ({ containers: [`leak check failed: ${String(error)}`], networks: [] }));
+  const workDirRemoved = !(await stat(workDir).then(
+    () => true,
+    () => false,
+  ));
+  const leaks = await (deps.leakCheck ?? dockerLeakCheck)(runId).catch((error: unknown) => ({
+    containers: [`leak check failed: ${String(error)}`],
+    networks: [],
+  }));
   const liveAgents = runtime.liveAgents();
   const cleanup = {
     labs: labReceipts,
@@ -1180,9 +1536,14 @@ export async function runMultiAgentStudy(
       leaks.networks.length === 0 &&
       liveAgents.length === 0,
   };
-  event("study_cleanup", cleanup.verified ? "completed" : "failed", cleanup.verified
-    ? `Destroyed ${labReceipts.length} lab(s) and removed prepared files; nothing from this study is left running`
-    : "Some study resources could not be verified as removed", cleanup);
+  event(
+    "study_cleanup",
+    cleanup.verified ? "completed" : "failed",
+    cleanup.verified
+      ? `Destroyed ${labReceipts.length} lab(s) and removed prepared files; nothing from this study is left running`
+      : "Some study resources could not be verified as removed",
+    cleanup,
+  );
 
   // ---------------------------------------------------------------------------
   // Terminal state: the study state machine and the run both end, once.
@@ -1196,7 +1557,10 @@ export async function runMultiAgentStudy(
     }
     store.transitionRun(runId, target);
   }
-  event("study_result", finalStatus === "reproduced" ? "completed" : "warning", `Result: ${finalStatus.replaceAll("_", " ")}`, { status: finalStatus, reasons: decision.reasons });
+  event("study_result", finalStatus === "reproduced" ? "completed" : "warning", `Result: ${finalStatus.replaceAll("_", " ")}`, {
+    status: finalStatus,
+    reasons: decision.reasons,
+  });
 
   const report = buildReport();
   const representative = decision.representative;
@@ -1204,22 +1568,29 @@ export async function runMultiAgentStudy(
   return {
     report,
     repository: repoOut?.repository ? { url: repoOut.repository.url, commitSha: repoOut.repository.commitSha } : null,
-    metric: representative && contract && representative.value !== null && representative.official && representative.metric?.ok
-      ? {
-          name: contract.metric.name,
-          value: representative.value,
-          unit: contract.metric.unit,
-          split: contract.split,
-          attemptId: `${runId}:${representative.label}:${representative.official.receiptId}`,
-          extractionRule: representative.metric.source,
-          evidence: { kind: contract.metricParser.source === "stdout" ? "log_line" : "artifact", reference: representative.metric.source },
-        }
-      : null,
+    metric:
+      representative && contract && representative.value !== null && representative.official && representative.metric?.ok
+        ? {
+            name: contract.metric.name,
+            value: representative.value,
+            unit: contract.metric.unit,
+            split: contract.split,
+            attemptId: `${runId}:${representative.label}:${representative.official.receiptId}`,
+            extractionRule: representative.metric.source,
+            evidence: {
+              kind: contract.metricParser.source === "stdout" ? "log_line" : "artifact",
+              reference: representative.metric.source,
+            },
+          }
+        : null,
     assessment: contract ? assessmentFor(decision, contract) : null,
     attempt: representative?.official ? attemptFor(representative) : null,
     stdout: execOut?.engineers.find((item) => item.engineerAgentId === representative?.engineerAgentId)?.officialStdoutTail ?? "",
     imageId: prepOut?.labImage?.imageId ?? null,
-    failure: finalStatus === "reproduced" || finalStatus === "partially_reproduced" || finalStatus === "not_reproduced" ? null : decision.reasons.join("; ") || null,
+    failure:
+      finalStatus === "reproduced" || finalStatus === "partially_reproduced" || finalStatus === "not_reproduced"
+        ? null
+        : decision.reasons.join("; ") || null,
     cancelled: finalStatus === "cancelled",
   };
 
@@ -1275,7 +1646,15 @@ export async function runMultiAgentStudy(
         createdAt: agent.createdAt,
         finishedAt: ["created", "running", "waiting"].includes(agent.status) ? null : agent.updatedAt,
       })),
-      stages: stages.stages(runId).map(({ stage, status, attempt, retryReason, error, startedAt, endedAt }) => ({ stage, status, attempt, retryReason, error, startedAt, endedAt })),
+      stages: stages.stages(runId).map(({ stage, status, attempt, retryReason, error, startedAt, endedAt }) => ({
+        stage,
+        status,
+        attempt,
+        retryReason,
+        error,
+        startedAt,
+        endedAt,
+      })),
       transitions: stages.transitions(runId).map(({ stage, from, to, attempt, reason, at }) => ({ stage, from, to, attempt, reason, at })),
       board: board.list().map((entry) => ({
         id: entry.id,
@@ -1299,12 +1678,18 @@ export async function runMultiAgentStudy(
       })),
       messages: store.ledger.listMessages({ runId }).map((item) => ({ from: item.fromAgentId, to: item.toAgentId, at: item.createdAt })),
       paper: { name: input.paper.file.originalName, sha256: input.paper.file.sha256, pages: input.paper.pageCount },
-      repository: ctx.repository || repoOut?.repository
-        ? repoOut?.repository ?? null
-        : null,
+      repository: ctx.repository || repoOut?.repository ? (repoOut?.repository ?? null) : null,
       contract: ctx.contract,
       planDigest: ctx.planDigest,
-      adapter: adapter ? { path: adapter.path, sha256: createHash("sha256").update(adapter.content).digest("hex"), why: adapter.why, source: adapter.source, differences: adapter.differences } : null,
+      adapter: adapter
+        ? {
+            path: adapter.path,
+            sha256: createHash("sha256").update(adapter.content).digest("hex"),
+            why: adapter.why,
+            source: adapter.source,
+            differences: adapter.differences,
+          }
+        : null,
       policy: policyOut ? { outcome: policyOut.outcome, violations: policyOut.violations, warnings: policyOut.warnings } : null,
       platform: {
         containerPlatform: (ctx.contract?.environment.platform ?? config.platform).containerPlatform,
@@ -1315,11 +1700,15 @@ export async function runMultiAgentStudy(
       labImage: prepOut?.labImage ?? null,
       dependencies: prepOut?.dependencies ?? null,
       datasets: prepOut?.datasets ?? [],
-      engineers: (execOut?.engineers ?? []).map(({ commands: _commands, officialStdoutTail: _tail, labId: _lab, imageId: _image, environment: _environment, ...rest }) => rest),
+      engineers: (execOut?.engineers ?? []).map(
+        ({ commands: _commands, officialStdoutTail: _tail, labId: _lab, imageId: _image, environment: _environment, ...rest }) => rest,
+      ),
       result: {
         status: finalStatus,
         computedStatus: decision!.status,
-        supervisor: supervisorProposal ? { proposedStatus: supervisorProposal.proposedStatus, rationale: supervisorProposal.rationale, applied: supervisorApplied } : null,
+        supervisor: supervisorProposal
+          ? { proposedStatus: supervisorProposal.proposedStatus, rationale: supervisorProposal.rationale, applied: supervisorApplied }
+          : null,
         reasons: decision!.reasons,
         paperValue: ctx.contract?.reportedValue ?? null,
         observedValue: representative?.value ?? null,
@@ -1345,9 +1734,21 @@ function assessmentFor(decision: StatusDecision, contract: ClaimContract): Asses
   return {
     comparable,
     checks: [
-      { name: "approved command", passed: decision.representative?.official?.exitCode === 0, explanation: "The approved official command ran in the sealed lab and exited 0." },
-      { name: "metric parsed by code", passed: decision.representative?.metric?.ok === true, explanation: "The metric was parsed from the official run with the contract's parser." },
-      { name: "independent review", passed: decision.representative?.review?.verdict === "approve", explanation: decision.representative?.review?.summary ?? "No approved review." },
+      {
+        name: "approved command",
+        passed: decision.representative?.official?.exitCode === 0,
+        explanation: "The approved official command ran in the sealed lab and exited 0.",
+      },
+      {
+        name: "metric parsed by code",
+        passed: decision.representative?.metric?.ok === true,
+        explanation: "The metric was parsed from the official run with the contract's parser.",
+      },
+      {
+        name: "independent review",
+        passed: decision.representative?.review?.verdict === "approve",
+        explanation: decision.representative?.review?.summary ?? "No approved review.",
+      },
     ],
     paperValue: contract.reportedValue,
     observedValue: observed,
@@ -1356,7 +1757,13 @@ function assessmentFor(decision: StatusDecision, contract: ClaimContract): Asses
     tolerance: contract.tolerance,
     verdict: !comparable ? "inconclusive" : decision.status === "not_reproduced" ? "different_result" : "reproduced_within_tolerance",
     discrepancyHypotheses: decision.status === "not_reproduced" ? decision.reasons : [],
-    evidence: [{ kind: "paper_page", reference: `page ${contract.paperReference.page}, ${contract.paperReference.location}`, excerpt: contract.paperReference.excerpt }],
+    evidence: [
+      {
+        kind: "paper_page",
+        reference: `page ${contract.paperReference.page}, ${contract.paperReference.location}`,
+        excerpt: contract.paperReference.excerpt,
+      },
+    ],
     limitations: decision.status === "partially_reproduced" ? decision.reasons : [],
   };
 }

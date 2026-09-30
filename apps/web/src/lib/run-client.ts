@@ -23,9 +23,7 @@ export type ProviderOption = { id: string; label: string; models: string[] };
 export type ServerConfig = { providers: ProviderOption[] };
 
 /** Where replayed events came from, so the UI can label them honestly. */
-export type ReplaySource =
-  | { kind: "prepared" }
-  | { kind: "recorded"; runId: string; recordedAt: string };
+export type ReplaySource = { kind: "prepared" } | { kind: "recorded"; runId: string; recordedAt: string };
 
 export function replaySourceFrom(meta: unknown): ReplaySource {
   const value = (meta ?? {}) as Record<string, unknown>;
@@ -86,9 +84,7 @@ export class HttpRunClient implements RunClient {
   }
 
   subscribe(runId: string, afterSequence: number, subscription: RunSubscription): () => void {
-    const source = new EventSource(
-      `${this.#base}/runs/${encodeURIComponent(runId)}/events?after=${afterSequence}`,
-    );
+    const source = new EventSource(`${this.#base}/runs/${encodeURIComponent(runId)}/events?after=${afterSequence}`);
     source.onmessage = (message: MessageEvent<string>) => {
       const parsed = RunEventSchema.safeParse(JSON.parse(message.data));
       if (parsed.success) subscription.onEvent(parsed.data);

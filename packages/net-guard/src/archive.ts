@@ -115,6 +115,7 @@ function fail(code: DatasetErrorCode, message: string, cause?: unknown): never {
 // ---------------------------------------------------------------------------
 // Entry paths
 
+// eslint-disable-next-line no-control-regex -- rejects control characters
 const FORBIDDEN_PATH_CHARS = /[\u0000-\u001f\u007f\\:]/u;
 const MAX_SEGMENT_BYTES = 255;
 
@@ -233,10 +234,7 @@ class Plan {
 
 function checkRatio(uncompressed: number, compressed: number, limits: ArchiveLimits, what: string): void {
   if (uncompressed >= limits.ratioFloorBytes && uncompressed > compressed * limits.maxRatio) {
-    fail(
-      "archive_ratio_exceeded",
-      `${what} expands ${uncompressed} bytes from ${compressed} (ratio limit ${limits.maxRatio})`,
-    );
+    fail("archive_ratio_exceeded", `${what} expands ${uncompressed} bytes from ${compressed} (ratio limit ${limits.maxRatio})`);
   }
 }
 

@@ -37,7 +37,10 @@ const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../..")
 const acceptance = JSON.parse(await readFile(join(projectRoot, "acceptance/cases/pyts-boss-gunpoint.json"), "utf8"));
 const ADAPTER = await readFile(join(projectRoot, "acceptance/proof/pyts_run_boss_notebook.py"), "utf8");
 const REPOSITORY = acceptance.repository.url;
-const TRUSTED = (await loadCompatibilityConstraints(join(projectRoot, "config/compatibility-constraints.txt"))).map((item) => ({ requirement: item.spec, reason: item.reason }));
+const TRUSTED = (await loadCompatibilityConstraints(join(projectRoot, "config/compatibility-constraints.txt"))).map((item) => ({
+  requirement: item.spec,
+  reason: item.reason,
+}));
 const PIP = TRUSTED.find((item) => item.requirement.startsWith("pip"));
 
 /** Plays each role from a fixed script; every step still goes through the real tools. */
@@ -65,7 +68,12 @@ class ScriptedProofProvider {
       provider: this.id,
       model: request.model,
       text: null,
-      toolCalls: calls.map((call, index) => ({ id: `call_${this.calls}_${index}`, name: call.name, input: call.input, rawInput: JSON.stringify(call.input) })),
+      toolCalls: calls.map((call, index) => ({
+        id: `call_${this.calls}_${index}`,
+        name: call.name,
+        input: call.input,
+        rawInput: JSON.stringify(call.input),
+      })),
       stopReason: "tool_use",
       usage: { inputTokens: 0, outputTokens: 0 },
       costUsd: null,
@@ -77,7 +85,8 @@ class ScriptedProofProvider {
     const finish = (input) => [{ name: "finish", input }];
     switch (role) {
       case "Supervisor":
-        if (inputs.resultKind === "verdict") return finish({ proposedStatus: inputs.computedStatus, rationale: "Scripted infrastructure proof: keeps the computed status." });
+        if (inputs.resultKind === "verdict")
+          return finish({ proposedStatus: inputs.computedStatus, rationale: "Scripted infrastructure proof: keeps the computed status." });
         return finish({ action: "continue", reason: "none", guidance: "" });
       case "Paper Analyst":
         if (turn === 0) return [{ name: "paper_read_page", input: { page: 4 } }];
@@ -117,7 +126,8 @@ class ScriptedProofProvider {
         if (turn === 0) return [{ name: "board_read", input: { kinds: ["paper_claim", "repository_mapping"] } }];
         return finish({
           status: "ready",
-          summary: "Run the official notebook's code cells unchanged, keeping only GunPoint (the other datasets need downloads the offline lab cannot make).",
+          summary:
+            "Run the official notebook's code cells unchanged, keeping only GunPoint (the other datasets need downloads the offline lab cannot make).",
           blockedReason: null,
           entrypoint: "0.10.0/BOSS.ipynb",
           command: { argv: ["python", "../work/adapter/run_boss_notebook.py", "0.10.0/BOSS.ipynb", "GunPoint"], cwd: "repo" },
@@ -145,12 +155,30 @@ class ScriptedProofProvider {
         }
         if (typeof last.diagnosis === "string") return [{ name: "lab_run_official", input: {} }];
         if (typeof last.receiptId === "string" && last.exitCode === 0) {
-          return finish({ status: "measured", summary: "Ran the approved command.", officialReceiptId: last.receiptId, deviations: [], failureReason: null });
+          return finish({
+            status: "measured",
+            summary: "Ran the approved command.",
+            officialReceiptId: last.receiptId,
+            deviations: [],
+            failureReason: null,
+          });
         }
-        return finish({ status: "not_measured", summary: "The approved command did not succeed.", officialReceiptId: null, deviations: [], failureReason: "the approved command did not succeed" });
+        return finish({
+          status: "not_measured",
+          summary: "The approved command did not succeed.",
+          officialReceiptId: null,
+          deviations: [],
+          failureReason: "the approved command did not succeed",
+        });
       case "Debugger":
         if (turn === 0) return [{ name: "lab_logs", input: {} }];
-        return finish({ diagnosis: "See the logs.", rootCause: "unknown", suggestedFix: "Run the approved command again.", fixableWithoutChangingThePlan: true, changesMethodology: false });
+        return finish({
+          diagnosis: "See the logs.",
+          rootCause: "unknown",
+          suggestedFix: "Run the approved command again.",
+          fixableWithoutChangingThePlan: true,
+          changesMethodology: false,
+        });
       case "Independent Reviewer":
         if (turn === 0) return [{ name: "board_read", input: { key: String(inputs.submissionKey ?? "") } }];
         return finish({
@@ -183,26 +211,44 @@ const prepEnv = { ...process.env };
 if (!prepEnv.DEJAML_PREP_CA_BUNDLE && existsSync("/root/.ccr/ca-bundle.crt")) prepEnv.DEJAML_PREP_CA_BUNDLE = "/root/.ccr/ca-bundle.crt";
 const platform = platformFromEnv(process.env, process.arch);
 const readiness = new ImageReadiness();
-const preparer = new DependencyPreparer({ cacheDir: join(root, "prep-cache"), policy: loadPrepPolicy(prepEnv), workRoot: join(root, "prep-tmp"), imageProvider: readiness });
+const preparer = new DependencyPreparer({
+  cacheDir: join(root, "prep-cache"),
+  policy: loadPrepPolicy(prepEnv),
+  workRoot: join(root, "prep-tmp"),
+  imageProvider: readiness,
+});
 const run = store.createRun({ fileName: "pyts-jmlr-2020-19-763.pdf", bytes: 1 });
 store.transitionRun(run.id, "ingesting");
 store.transitionRun(run.id, "discovering_repository");
-const paper = await ingestPdf({ fileName: "pyts-jmlr-2020-19-763.pdf", data: new Uint8Array(await readFile(join(projectRoot, acceptance.paper.file))) });
-check("paper ingested from the real PDF", paper.file.sha256 === acceptance.paper.sha256, `sha256 ${paper.file.sha256}, ${paper.pageCount} pages`);
+const paper = await ingestPdf({
+  fileName: "pyts-jmlr-2020-19-763.pdf",
+  data: new Uint8Array(await readFile(join(projectRoot, acceptance.paper.file))),
+});
+check(
+  "paper ingested from the real PDF",
+  paper.file.sha256 === acceptance.paper.sha256,
+  `sha256 ${paper.file.sha256}, ${paper.pageCount} pages`,
+);
 
 const started = Date.now();
 const result = await runMultiAgentStudy(
   {
     runId: run.id,
     paper,
-    candidates: [{ repositoryUrl: REPOSITORY, owner: "johannfaouzi", name: "pyts-repro", occurrences: [{ pageNumber: 1, rawUrl: REPOSITORY }] }],
+    candidates: [
+      { repositoryUrl: REPOSITORY, owner: "johannfaouzi", name: "pyts-repro", occurrences: [{ pageNumber: 1, rawUrl: REPOSITORY }] },
+    ],
     signal: new AbortController().signal,
   },
   {
     store,
     labs,
     dependencies: preparerPort(preparer),
-    images: readinessLabImagePort({ readiness, lock: await loadBaseImageLock(join(projectRoot, "lab-images/python-base/bases.lock.json")), contextDir: join(projectRoot, "lab-images/python-base") }),
+    images: readinessLabImagePort({
+      readiness,
+      lock: await loadBaseImageLock(join(projectRoot, "lab-images/python-base/bases.lock.json")),
+      contextDir: join(projectRoot, "lab-images/python-base"),
+    }),
     datasets: null,
     config: {
       platform,
@@ -220,43 +266,111 @@ const result = await runMultiAgentStudy(
   },
 );
 const study = result.report;
-console.log(`run ${run.id} finished in ${Math.round((Date.now() - started) / 1000)} s; result ${study.result.status} (computed ${study.result.computedStatus}); run status ${store.getRun(run.id).status}`);
+console.log(
+  `run ${run.id} finished in ${Math.round((Date.now() - started) / 1000)} s; result ${study.result.status} (computed ${study.result.computedStatus}); run status ${store.getRun(run.id).status}`,
+);
 
 const agents = study.agents;
 const roles = new Set(agents.map((agent) => agent.role));
-check("separate agent instances for every role",
-  new Set(agents.map((agent) => agent.agentId)).size === agents.length && ["paper_analyst", "repository_analyst", "reproduction_planner", "lab_engineer", "independent_reviewer", "supervisor"].every((role) => roles.has(role)),
-  agents.map((agent) => `${agent.roleLabel}${agent.label ? ` (${agent.label})` : ""} ${agent.agentId} ${agent.status}`).join("\n      "));
-check("stages ran in order, once each",
-  ["analyzing_paper", "analyzing_repository", "reconciling", "policy_review", "preparing", "executing", "reviewing"].every((stage) => study.stages.find((item) => item.stage === stage)?.status === "completed"),
-  study.stages.map((item) => `${item.stage}:${item.status}#${item.attempt}`).join(" "));
-check("repository cloned and pinned", study.repository?.commitSha === acceptance.repository.commitSha, `${study.repository?.url ?? study.repository?.repositoryUrl}@${study.repository?.commitSha}`);
-check("claim contract reconciled and policy-approved", study.policy?.outcome === "approved" && /^[a-f0-9]{64}$/u.test(study.planDigest ?? ""), `plan digest ${study.planDigest}; warnings: ${study.policy?.warnings.join(" | ")}`);
-check("lab image ready for the platform", study.labImage?.containerPlatform === platform.containerPlatform && study.labImage?.python === "3.11", `${study.labImage?.name} ${study.labImage?.imageId} digest ${study.labImage?.digest}`);
+check(
+  "separate agent instances for every role",
+  new Set(agents.map((agent) => agent.agentId)).size === agents.length &&
+    ["paper_analyst", "repository_analyst", "reproduction_planner", "lab_engineer", "independent_reviewer", "supervisor"].every((role) =>
+      roles.has(role),
+    ),
+  agents.map((agent) => `${agent.roleLabel}${agent.label ? ` (${agent.label})` : ""} ${agent.agentId} ${agent.status}`).join("\n      "),
+);
+check(
+  "stages ran in order, once each",
+  ["analyzing_paper", "analyzing_repository", "reconciling", "policy_review", "preparing", "executing", "reviewing"].every(
+    (stage) => study.stages.find((item) => item.stage === stage)?.status === "completed",
+  ),
+  study.stages.map((item) => `${item.stage}:${item.status}#${item.attempt}`).join(" "),
+);
+check(
+  "repository cloned and pinned",
+  study.repository?.commitSha === acceptance.repository.commitSha,
+  `${study.repository?.url ?? study.repository?.repositoryUrl}@${study.repository?.commitSha}`,
+);
+check(
+  "claim contract reconciled and policy-approved",
+  study.policy?.outcome === "approved" && /^[a-f0-9]{64}$/u.test(study.planDigest ?? ""),
+  `plan digest ${study.planDigest}; warnings: ${study.policy?.warnings.join(" | ")}`,
+);
+check(
+  "lab image ready for the platform",
+  study.labImage?.containerPlatform === platform.containerPlatform && study.labImage?.python === "3.11",
+  `${study.labImage?.name} ${study.labImage?.imageId} digest ${study.labImage?.digest}`,
+);
 const packages = study.dependencies?.packages ?? [];
 const arch = platform.architecture === "amd64" ? "x86_64" : "aarch64";
-check("wheels prepared, hashed and matched to the platform",
-  acceptance.environment.wheels.every((pin) => packages.some((item) => `${item.name}==${item.version}`.toLowerCase() === pin.toLowerCase())) &&
-    packages.every((item) => /^[a-f0-9]{64}$/u.test(item.sha256) && (item.tags.includes(arch) || item.tags.endsWith("-any"))),
-  packages.map((item) => `${item.name}==${item.version} ${item.tags} ${item.sha256.slice(0, 12)}`).join("\n      "));
-check("dataset identified by its wheel", study.datasets.some((item) => item.requestedUrl.startsWith("wheel:pyts-0.10.0") && item.checksumVerified), JSON.stringify(study.datasets));
+check(
+  "wheels prepared, hashed and matched to the platform",
+  acceptance.environment.wheels.every((pin) =>
+    packages.some((item) => `${item.name}==${item.version}`.toLowerCase() === pin.toLowerCase()),
+  ) && packages.every((item) => /^[a-f0-9]{64}$/u.test(item.sha256) && (item.tags.includes(arch) || item.tags.endsWith("-any"))),
+  packages.map((item) => `${item.name}==${item.version} ${item.tags} ${item.sha256.slice(0, 12)}`).join("\n      "),
+);
+check(
+  "dataset identified by its wheel",
+  study.datasets.some((item) => item.requestedUrl.startsWith("wheel:pyts-0.10.0") && item.checksumVerified),
+  JSON.stringify(study.datasets),
+);
 const engineer = study.engineers[0];
-check("official notebook ran offline and exited 0", engineer?.official?.exitCode === 0, `${engineer?.official?.argv.join(" ")} in ${engineer?.official?.cwd}: exit ${engineer?.official?.exitCode}, ${engineer?.official?.durationMs} ms`);
-check("metric parsed by the lab from stdout", engineer?.value === 1, `parsed ${engineer?.value} (paper ${study.result.paperValue}, delta ${study.result.absoluteDifference})`);
-check("independent review ran", engineer?.review?.verdict === "approve", `${engineer?.reviewerAgentId}: ${engineer?.review?.verdict} (${engineer?.review?.equivalence})`);
-check("status computed from evidence, capped by the adapter", study.result.status === "partially_reproduced" && study.result.computedStatus === "partially_reproduced", study.result.reasons.join(" | "));
-const leftovers = spawnSync("docker", ["ps", "-a", "--filter", `label=dejaml.run=${run.id}`, "--format", "{{.Names}}"], { encoding: "utf8" }).stdout.trim();
-const prepLeft = spawnSync("docker", ["ps", "-a", "--filter", "label=dejaml.prep", "--format", "{{.Names}}"], { encoding: "utf8" }).stdout.trim();
-const networks = spawnSync("docker", ["network", "ls", "--filter", "label=dejaml.prep", "--format", "{{.Name}}"], { encoding: "utf8" }).stdout.trim();
+check(
+  "official notebook ran offline and exited 0",
+  engineer?.official?.exitCode === 0,
+  `${engineer?.official?.argv.join(" ")} in ${engineer?.official?.cwd}: exit ${engineer?.official?.exitCode}, ${engineer?.official?.durationMs} ms`,
+);
+check(
+  "metric parsed by the lab from stdout",
+  engineer?.value === 1,
+  `parsed ${engineer?.value} (paper ${study.result.paperValue}, delta ${study.result.absoluteDifference})`,
+);
+check(
+  "independent review ran",
+  engineer?.review?.verdict === "approve",
+  `${engineer?.reviewerAgentId}: ${engineer?.review?.verdict} (${engineer?.review?.equivalence})`,
+);
+check(
+  "status computed from evidence, capped by the adapter",
+  study.result.status === "partially_reproduced" && study.result.computedStatus === "partially_reproduced",
+  study.result.reasons.join(" | "),
+);
+const leftovers = spawnSync("docker", ["ps", "-a", "--filter", `label=dejaml.run=${run.id}`, "--format", "{{.Names}}"], {
+  encoding: "utf8",
+}).stdout.trim();
+const prepLeft = spawnSync("docker", ["ps", "-a", "--filter", "label=dejaml.prep", "--format", "{{.Names}}"], {
+  encoding: "utf8",
+}).stdout.trim();
+const networks = spawnSync("docker", ["network", "ls", "--filter", "label=dejaml.prep", "--format", "{{.Name}}"], {
+  encoding: "utf8",
+}).stdout.trim();
 const labDirs = await readdir(join(root, "labs")).catch(() => []);
 const prepTmp = await readdir(join(root, "prep-tmp")).catch(() => []);
 const workLeft = (await readdir(join(root, "work")).catch(() => [])).filter((name) => name !== "exports");
-check("verified destruction", study.cleanup.verified && leftovers === "" && prepLeft === "" && networks === "" && labDirs.length === 0 && prepTmp.length === 0 && workLeft.length === 0,
-  `labs=${study.cleanup.labs.map((item) => item.verifiedAbsent).join(",")} dependenciesRemoved=${study.cleanup.dependenciesRemoved} containers="${leftovers}${prepLeft}" networks="${networks}" labDirs=${labDirs.length} prepTmp=${prepTmp.length} work=${workLeft.join(",")}`);
-check("no live agents", study.cleanup.liveAgents.length === 0 && agents.every((agent) => !["created", "running", "waiting"].includes(agent.status)));
+check(
+  "verified destruction",
+  study.cleanup.verified &&
+    leftovers === "" &&
+    prepLeft === "" &&
+    networks === "" &&
+    labDirs.length === 0 &&
+    prepTmp.length === 0 &&
+    workLeft.length === 0,
+  `labs=${study.cleanup.labs.map((item) => item.verifiedAbsent).join(",")} dependenciesRemoved=${study.cleanup.dependenciesRemoved} containers="${leftovers}${prepLeft}" networks="${networks}" labDirs=${labDirs.length} prepTmp=${prepTmp.length} work=${workLeft.join(",")}`,
+);
+check(
+  "no live agents",
+  study.cleanup.liveAgents.length === 0 && agents.every((agent) => !["created", "running", "waiting"].includes(agent.status)),
+);
 
 store.close();
 await rm(root, { recursive: true, force: true });
 const failed = results.filter((item) => !item.pass);
-console.log(failed.length === 0 ? `\nAll ${results.length} checks passed (scripted agents; infrastructure proof only, not acceptance).` : `\n${failed.length} check(s) failed.`);
+console.log(
+  failed.length === 0
+    ? `\nAll ${results.length} checks passed (scripted agents; infrastructure proof only, not acceptance).`
+    : `\n${failed.length} check(s) failed.`,
+);
 process.exit(failed.length === 0 ? 0 : 1);

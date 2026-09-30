@@ -6,7 +6,6 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { buildPaperEvidenceBundle, snapshotRepositoryForAnalysis } from "./evidence.js";
 
-
 const tempRoots: string[] = [];
 async function tempRoot(prefix: string): Promise<string> {
   const root = await mkdtemp(join(tmpdir(), prefix));
@@ -22,10 +21,7 @@ describe("repository evidence snapshot", () => {
     await mkdir(join(root, "src"));
     await writeFile(join(root, "README.md"), "Run python src/train.py");
     const syntheticToken = ["sk", "abcdefghijklmnopqrstuvwxyz1234"].join("-");
-    await writeFile(
-      join(root, "src", "train.py"),
-      `TOKEN = '${syntheticToken}'\nprint('accuracy=80')`,
-    );
+    await writeFile(join(root, "src", "train.py"), `TOKEN = '${syntheticToken}'\nprint('accuracy=80')`);
     await writeFile(join(root, ".env"), "OPENAI_API_KEY=do-not-read");
     await writeFile(
       join(root, "Experiment.ipynb"),
@@ -39,9 +35,7 @@ describe("repository evidence snapshot", () => {
     await symlink("/etc/passwd", join(root, "src", "external.py"));
 
     const snapshot = await snapshotRepositoryForAnalysis(root);
-    expect(snapshot.files.map((file) => file.path)).toEqual(
-      expect.arrayContaining(["README.md", "src/train.py", "Experiment.ipynb"]),
-    );
+    expect(snapshot.files.map((file) => file.path)).toEqual(expect.arrayContaining(["README.md", "src/train.py", "Experiment.ipynb"]));
     expect(snapshot.files.map((file) => file.path)).not.toContain(".env");
     expect(snapshot.files.map((file) => file.path)).not.toContain("src/external.py");
     const source = snapshot.files.find((file) => file.path === "src/train.py");

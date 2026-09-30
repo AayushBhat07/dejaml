@@ -86,7 +86,12 @@ export type ArtifactStore = {
 export class LocalArtifactStore implements ArtifactStore {
   constructor(private readonly root: string) {}
 
-  async put(input: { runId: string; scope: string; path: string; content: Buffer }): Promise<{ uri: string; sha256: string; bytes: number }> {
+  async put(input: {
+    runId: string;
+    scope: string;
+    path: string;
+    content: Buffer;
+  }): Promise<{ uri: string; sha256: string; bytes: number }> {
     const base = resolve(this.root, input.runId, input.scope);
     const target = resolve(base, normalize(input.path));
     if (target !== base && !target.startsWith(`${base}${sep}`)) throw new Error(`artifact path ${input.path} escapes its directory`);
@@ -119,4 +124,3 @@ export function withSecrets(env: Record<string, string | undefined>, secrets: Se
   }
   return merged;
 }
-

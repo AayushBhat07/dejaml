@@ -67,10 +67,7 @@ export class DockerCliRuntime implements ContainerRuntime {
     this.#binary = binary;
   }
 
-  docker(
-    args: readonly string[],
-    options: RuntimeCommandOptions = {},
-  ): Promise<RuntimeCommandResult> {
+  docker(args: readonly string[], options: RuntimeCommandOptions = {}): Promise<RuntimeCommandResult> {
     const limit = options.maxOutputBytes ?? DEFAULT_MAX_OUTPUT_BYTES;
     return new Promise((resolvePromise, rejectPromise) => {
       const child = spawn(this.#binary, [...args], {

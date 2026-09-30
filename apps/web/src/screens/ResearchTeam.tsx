@@ -102,9 +102,7 @@ export function ResearchTeam({ events }: { events: readonly RunEvent[] }) {
       <div className="row space-between">
         <div className="stack-tight">
           <h2 id="research-title">Research Team</h2>
-          <p className="muted small">
-            {intake[0]?.summary ?? "Setting up the study…"}
-          </p>
+          <p className="muted small">{intake[0]?.summary ?? "Setting up the study…"}</p>
         </div>
         {parallel ? <Badge tone="accent">Analysts working in parallel</Badge> : null}
       </div>
@@ -120,7 +118,9 @@ export function ResearchTeam({ events }: { events: readonly RunEvent[] }) {
 /** Lanes for a study run by separate agents; each lane is one role, possibly several instances. */
 function AgentTeam({ events }: { events: readonly RunEvent[] }) {
   const agentEvents = events.filter((event) => event.type.startsWith("agent_") || TEAM.includes(event.actor));
-  const instances = new Set(events.filter((event) => event.type === "agent_started").map((event) => String(event.publicPayload.agentId ?? event.id))).size;
+  const instances = new Set(
+    events.filter((event) => event.type === "agent_started").map((event) => String(event.publicPayload.agentId ?? event.id)),
+  ).size;
   return (
     <section className="stack" aria-labelledby="research-title">
       <div className="row space-between">

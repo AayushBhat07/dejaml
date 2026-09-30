@@ -12,8 +12,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-const BASE_IMAGE =
-  "python:3.13.15-slim-trixie@sha256:7c61056e61ac89e852de05f3dc6fa51a6dd2181797bceed46aa725dd7cb2cd3b";
+const BASE_IMAGE = "python:3.13.15-slim-trixie@sha256:7c61056e61ac89e852de05f3dc6fa51a6dd2181797bceed46aa725dd7cb2cd3b";
 const PROOF_IMAGE = "dejaml/api-failure-proof:local";
 const RUNNER = String.raw`
 import json, pathlib, sys, time
@@ -62,7 +61,11 @@ async function serve([projectRoot, workRoot, dbPath, imageId, timeoutSeconds]) {
     store,
     labs,
     // Stand-ins only: a scripted provider behind a placeholder server key; no model is called.
-    providers: loadProviderConfig({ DEJAML_OPENAI_API_KEY: "stand-in-key-not-used", DEJAML_OPENAI_MODELS: "stand-in", DEJAML_ALLOW_UPLOADER_KEYS: "0" }),
+    providers: loadProviderConfig({
+      DEJAML_OPENAI_API_KEY: "stand-in-key-not-used",
+      DEJAML_OPENAI_MODELS: "stand-in",
+      DEJAML_ALLOW_UPLOADER_KEYS: "0",
+    }),
     providerFactory: () => new ScriptedStudyProvider(cases[0].policy.repository.url),
     structuredModel: () => new ScriptedModel(cases[0], Number(timeoutSeconds)),
     cases,
@@ -71,9 +74,7 @@ async function serve([projectRoot, workRoot, dbPath, imageId, timeoutSeconds]) {
     image: { name: PROOF_IMAGE, expectedImageId: imageId },
     acquire: standInAcquire(cases[0]),
   });
-  api.server.listen(0, "127.0.0.1", () =>
-    process.stdout.write(`${JSON.stringify({ port: api.server.address().port, recovery })}\n`),
-  );
+  api.server.listen(0, "127.0.0.1", () => process.stdout.write(`${JSON.stringify({ port: api.server.address().port, recovery })}\n`));
   process.once("SIGTERM", () => void api.close().finally(() => (store.close(), process.exit(0))));
 }
 
@@ -118,11 +119,9 @@ async function main() {
 
     const start = (env, timeoutSeconds = 60) =>
       new Promise((resolve, reject) => {
-        const child = spawn(
-          process.execPath,
-          [self, "serve", env.project, env.work, env.db, imageId, String(timeoutSeconds)],
-          { stdio: ["ignore", "pipe", "inherit"] },
-        );
+        const child = spawn(process.execPath, [self, "serve", env.project, env.work, env.db, imageId, String(timeoutSeconds)], {
+          stdio: ["ignore", "pipe", "inherit"],
+        });
         let buffer = "";
         child.stdout.on("data", (chunk) => {
           buffer += chunk;
@@ -180,9 +179,7 @@ async function main() {
       status: report.status,
       verdict: report.assessment?.verdict ?? null,
       exitCode: report.lab?.attempt?.exitCode ?? null,
-      durationMs: report.lab?.attempt?.endedAt
-        ? Date.parse(report.lab.attempt.endedAt) - Date.parse(report.lab.attempt.startedAt)
-        : null,
+      durationMs: report.lab?.attempt?.endedAt ? Date.parse(report.lab.attempt.endedAt) - Date.parse(report.lab.attempt.startedAt) : null,
       cleanupVerified: report.lab?.cleanup?.verifiedAbsent ?? null,
       failure: report.failure,
     });

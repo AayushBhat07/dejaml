@@ -34,8 +34,7 @@ export type LabView = {
 /** Maximum terminal lines kept on screen; the full bounded log is in the report. */
 export const MAX_TERMINAL_LINES = 500;
 
-const record = (value: unknown): Record<string, unknown> =>
-  value && typeof value === "object" ? (value as Record<string, unknown>) : {};
+const record = (value: unknown): Record<string, unknown> => (value && typeof value === "object" ? (value as Record<string, unknown>) : {});
 const num = (value: unknown): number | null => (typeof value === "number" && Number.isFinite(value) ? value : null);
 
 export function labViewFor(events: readonly RunEvent[]): LabView {
@@ -165,18 +164,14 @@ export type Findings = {
 };
 
 export function findingsFor(events: readonly RunEvent[]): Findings | null {
-  const completed = [...events]
-    .reverse()
-    .find((event) => event.actor === "result_verifier" && event.type === "comparison_completed");
+  const completed = [...events].reverse().find((event) => event.actor === "result_verifier" && event.type === "comparison_completed");
   if (!completed) return null;
   const payload = record(completed.publicPayload);
   const parsed = AssessmentSchema.safeParse(payload.assessment);
   if (!parsed.success) return null;
   const unit = payload.unit === "fraction" || payload.unit === "score" ? payload.unit : "percent";
 
-  const auditEvent = [...events]
-    .reverse()
-    .find((event) => event.actor === "audit_agent" && event.type === "audit_completed");
+  const auditEvent = [...events].reverse().find((event) => event.actor === "audit_agent" && event.type === "audit_completed");
   let audit: AuditSummary | null = null;
   if (auditEvent) {
     const ap = record(auditEvent.publicPayload);

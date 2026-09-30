@@ -2,10 +2,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import {
-  acquireGithubRepository,
-  cleanupAcquiredRepository,
-} from "../dist/index.js";
+import { acquireGithubRepository, cleanupAcquiredRepository } from "../dist/index.js";
 
 const expectedCommit = "49ece7ff4cc43fd4cb258678d44854f1cb2a417d";
 const destinationRoot = await mkdtemp(join(tmpdir(), "dejaml-curated-verification-"));
@@ -18,9 +15,7 @@ try {
   });
   destination = acquisition.destination;
   if (acquisition.commitSha !== expectedCommit) {
-    throw new Error(
-      `curated repository moved: expected ${expectedCommit}, received ${acquisition.commitSha}`,
-    );
+    throw new Error(`curated repository moved: expected ${expectedCommit}, received ${acquisition.commitSha}`);
   }
   process.stdout.write(
     `${JSON.stringify(

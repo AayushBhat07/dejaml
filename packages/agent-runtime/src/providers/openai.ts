@@ -283,7 +283,11 @@ class OpenAIWireProvider implements ChatProvider {
         }),
       { ...this.#retry, signal: request.signal },
     );
-    return { ...value, attempts, costUsd: estimateCostUsd(value.usage, priceFor(value.model, this.#prices) ?? priceFor(request.model, this.#prices)) };
+    return {
+      ...value,
+      attempts,
+      costUsd: estimateCostUsd(value.usage, priceFor(value.model, this.#prices) ?? priceFor(request.model, this.#prices)),
+    };
   }
 
   #parseCompletion(json: unknown, requestModel: string): Omit<ChatResponse, "attempts" | "costUsd"> {
@@ -402,7 +406,6 @@ class OpenAIWireProvider implements ChatProvider {
     }
     return { id, provider: this.id, model, text: finalText, toolCalls, stopReason, usage };
   }
-
 }
 
 /**
@@ -433,7 +436,9 @@ export class OpenAICompatibleChatProvider extends OpenAIWireProvider {
       validateEndpointUrl(options.baseUrl, { access, allowHttp });
     } catch (err) {
       if (err instanceof NetGuardError) {
-        throw new ProviderError("blocked_endpoint", `${label} base URL is refused by the network policy (${err.code})`, { retryable: false });
+        throw new ProviderError("blocked_endpoint", `${label} base URL is refused by the network policy (${err.code})`, {
+          retryable: false,
+        });
       }
       throw err;
     }

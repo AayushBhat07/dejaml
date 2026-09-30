@@ -15,12 +15,8 @@ const projectRoot = fileURLToPath(new URL("../../../", import.meta.url));
 const policy = ExperimentPolicySchema.parse(
   JSON.parse(await readFile(new URL("cases/urban-land-cover/policy.json", `file://${projectRoot}`), "utf8")),
 );
-const caseManifest = JSON.parse(
-  await readFile(new URL("cases/urban-land-cover/case.json", `file://${projectRoot}`), "utf8"),
-);
-const imageLock = JSON.parse(
-  await readFile(new URL("lab-images/python-cpu/image-lock.json", `file://${projectRoot}`), "utf8"),
-);
+const caseManifest = JSON.parse(await readFile(new URL("cases/urban-land-cover/case.json", `file://${projectRoot}`), "utf8"));
+const imageLock = JSON.parse(await readFile(new URL("lab-images/python-cpu/image-lock.json", `file://${projectRoot}`), "utf8"));
 // The lab runs on the configured platform (DEJAML_PLATFORM, default: this host).
 const platform = platformFromEnv(process.env, process.arch).containerPlatform;
 // The lock records the image ID verified on its build platform. Another

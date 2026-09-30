@@ -129,7 +129,6 @@ function preparedRun(store: RunStore, runId: string): void {
   store.transitionRun(runId, "discovering_repository");
 }
 
-
 const tempRoots: string[] = [];
 async function tempRoot(prefix: string): Promise<string> {
   const root = await mkdtemp(join(tmpdir(), prefix));
@@ -156,10 +155,7 @@ describe("parallel research analysis", () => {
         maxActive = Math.max(maxActive, active);
         if (calls === 2) release?.();
         await barrier;
-        const value =
-          request.role === "paper_analyst"
-            ? paperAnalysis()
-            : codeAnalysis(fixture.readmeSha, fixture.notebookSha);
+        const value = request.role === "paper_analyst" ? paperAnalysis() : codeAnalysis(fixture.readmeSha, fixture.notebookSha);
         active -= 1;
         return { value: request.schema.parse(value), provider: "test", model: "test-model" };
       },

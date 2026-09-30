@@ -52,11 +52,7 @@ describe("labSpecFromPlan", () => {
     expect(spec.limits.labTimeoutSeconds).toBe(DEFAULT_LAB_LIMITS.labTimeoutSeconds);
     expect(spec.workdir).toBe("/workspace/case");
     expect(spec.artifactsDir).toBe("artifacts");
-    expect(spec.inputs.map((input) => input.containerPath)).toEqual([
-      "runner.py",
-      "data/training.csv",
-      "data/testing.csv",
-    ]);
+    expect(spec.inputs.map((input) => input.containerPath)).toEqual(["runner.py", "data/training.csv", "data/testing.csv"]);
     expect(spec.inputs[0]?.sha256).toBe(policy.trustedExecutionAdapter.sha256);
     expect(spec.inputs[1]?.hostPath).toMatch(/cases\/urban-land-cover\/data\/training\.csv$/u);
     expect(spec.resources).toEqual(policy.maximumResources);

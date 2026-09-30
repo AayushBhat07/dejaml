@@ -40,9 +40,7 @@ export type ParsedRequirement = {
   source?: { file: string; line: number };
 };
 
-export type RequirementParseResult =
-  | { ok: true; requirement: ParsedRequirement | null }
-  | { ok: false; reason: string };
+export type RequirementParseResult = { ok: true; requirement: ParsedRequirement | null } | { ok: false; reason: string };
 
 /** PEP 503 name normalization: lower-case, runs of `-_.` collapse to `-`. */
 export function normalizePackageName(name: string): string {
@@ -73,7 +71,9 @@ const OPTION_REASONS: Record<string, string> = {
 
 /** Index URLs that serve accelerator builds (PyTorch CUDA/ROCm indexes, NVIDIA's index, JAX CUDA releases). */
 export function isAcceleratorIndexUrl(url: string): boolean {
-  return /download\.pytorch\.org\/whl\/(nightly\/)?(cu\d|rocm|xpu)|pypi\.(ngc\.)?nvidia\.com|developer\.download\.nvidia|jax_cuda|jax-releases\/cuda|repo\.radeon\.com|rocm/iu.test(url);
+  return /download\.pytorch\.org\/whl\/(nightly\/)?(cu\d|rocm|xpu)|pypi\.(ngc\.)?nvidia\.com|developer\.download\.nvidia|jax_cuda|jax-releases\/cuda|repo\.radeon\.com|rocm/iu.test(
+    url,
+  );
 }
 
 const INDEX_OPTIONS = new Set(["-i", "--index-url", "--extra-index-url", "-f", "--find-links", "--trusted-host"]);

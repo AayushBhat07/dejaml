@@ -88,7 +88,12 @@ describe("AnthropicChatProvider (non-streaming)", () => {
     expect(res.stopReason).toBe("tool_use");
     expect(res.text).toBe("I'll run the evaluation script and read the metrics.");
     expect(res.toolCalls).toEqual([
-      { id: "toolu_fixture_01A", name: "run_command", input: { command: "python eval.py", timeout_s: 900 }, rawInput: '{"command":"python eval.py","timeout_s":900}' },
+      {
+        id: "toolu_fixture_01A",
+        name: "run_command",
+        input: { command: "python eval.py", timeout_s: 900 },
+        rawInput: '{"command":"python eval.py","timeout_s":900}',
+      },
       { id: "toolu_fixture_01B", name: "read_file", input: { path: "results/metrics.json" }, rawInput: '{"path":"results/metrics.json"}' },
     ]);
     expect(res.usage).toEqual({ inputTokens: 1500, outputTokens: 120, cacheWriteTokens: 1200 });
@@ -212,7 +217,10 @@ describe("AnthropicChatProvider (non-streaming)", () => {
 
   it("maps pause_turn and other stop reasons to other", async () => {
     const body = fixtureJson("anthropic/message-text.json") as Record<string, unknown>;
-    const { fetchImpl } = fakeFetch([() => jsonResponse({ ...body, stop_reason: "pause_turn" }), () => jsonResponse({ ...body, stop_reason: "max_tokens" })]);
+    const { fetchImpl } = fakeFetch([
+      () => jsonResponse({ ...body, stop_reason: "pause_turn" }),
+      () => jsonResponse({ ...body, stop_reason: "max_tokens" }),
+    ]);
     const provider = new AnthropicChatProvider({ apiKey: KEY, prices: PRICES, fetchImpl });
     expect((await provider.chat(baseRequest())).stopReason).toBe("other");
     expect((await provider.chat(baseRequest())).stopReason).toBe("max_tokens");
@@ -240,7 +248,12 @@ describe("AnthropicChatProvider (streaming)", () => {
       model: MODEL,
       text: "Reading the metrics.",
       toolCalls: [
-        { id: "toolu_fixture_03A", name: "read_file", input: { path: "results/metrics.json" }, rawInput: '{"path": "results/metrics.json"}' },
+        {
+          id: "toolu_fixture_03A",
+          name: "read_file",
+          input: { path: "results/metrics.json" },
+          rawInput: '{"path": "results/metrics.json"}',
+        },
       ],
       stopReason: "tool_use",
       usage: { inputTokens: 1800, outputTokens: 87, cacheReadTokens: 2048 },
@@ -286,19 +299,23 @@ describe("AnthropicChatProvider (streaming)", () => {
       () => sseResponse(fixture("anthropic/stream-text-tool-thinking.sse")),
     ]);
     const { sleep } = recordingSleep();
-    const res = await new AnthropicChatProvider({ apiKey: KEY, prices: PRICES, fetchImpl, retry: { sleep } }).chat(baseRequest({ stream: true }));
+    const res = await new AnthropicChatProvider({ apiKey: KEY, prices: PRICES, fetchImpl, retry: { sleep } }).chat(
+      baseRequest({ stream: true }),
+    );
     expect(calls).toHaveLength(2);
     expect(res.attempts).toBe(2);
   });
 
   it("does not retry a stream failure after text reached the caller", async () => {
     const full = fixture("anthropic/stream-text-tool-thinking.sse");
-    const cut = full.slice(0, full.indexOf("event: content_block_stop\ndata: {\"type\":\"content_block_stop\",\"index\":1}"));
+    const cut = full.slice(0, full.indexOf('event: content_block_stop\ndata: {"type":"content_block_stop","index":1}'));
     const withError = `${cut}event: error\ndata: {"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}\n\n`;
     const { fetchImpl, calls } = fakeFetch([() => sseResponse(withError), () => sseResponse(full)]);
     const { sleep } = recordingSleep();
     const err = await catchError(
-      new AnthropicChatProvider({ apiKey: KEY, prices: PRICES, fetchImpl, retry: { sleep } }).chat(baseRequest({ stream: true, onText: () => {} })),
+      new AnthropicChatProvider({ apiKey: KEY, prices: PRICES, fetchImpl, retry: { sleep } }).chat(
+        baseRequest({ stream: true, onText: () => {} }),
+      ),
     );
     expect(calls).toHaveLength(1);
     expect(err.code).toBe("overloaded");
@@ -341,7 +358,9 @@ describe("AnthropicChatProvider (errors, retries, timeouts, cancellation)", () =
     const err = await catchError(new AnthropicChatProvider({ apiKey: KEY, prices: PRICES, fetchImpl }).chat(baseRequest()));
     expect(calls).toHaveLength(1);
     expect(err.code).toBe("invalid_request");
-    expect(err.message).toBe('Anthropic HTTP 400 invalid_request_error: tool_choice: type "tool" and "any" are not supported for this model.');
+    expect(err.message).toBe(
+      'Anthropic HTTP 400 invalid_request_error: tool_choice: type "tool" and "any" are not supported for this model.',
+    );
   });
 
   it("maps 401/403/404 without retrying", async () => {
@@ -362,7 +381,9 @@ describe("AnthropicChatProvider (errors, retries, timeouts, cancellation)", () =
     const { fetchImpl, calls } = fakeFetch([hang, hang]);
     const { sleep } = recordingSleep();
     const err = await catchError(
-      new AnthropicChatProvider({ apiKey: KEY, prices: PRICES, fetchImpl, timeoutMs: 20, retry: { sleep, maxAttempts: 2 } }).chat(baseRequest()),
+      new AnthropicChatProvider({ apiKey: KEY, prices: PRICES, fetchImpl, timeoutMs: 20, retry: { sleep, maxAttempts: 2 } }).chat(
+        baseRequest(),
+      ),
     );
     expect(err.code).toBe("timeout");
     expect(err.details.attempts).toBe(2);
@@ -378,7 +399,9 @@ describe("AnthropicChatProvider (errors, retries, timeouts, cancellation)", () =
       },
     ]);
     const err = await catchError(
-      new AnthropicChatProvider({ apiKey: KEY, prices: PRICES, fetchImpl, timeoutMs: 10_000 }).chat(baseRequest({ signal: controller.signal })),
+      new AnthropicChatProvider({ apiKey: KEY, prices: PRICES, fetchImpl, timeoutMs: 10_000 }).chat(
+        baseRequest({ signal: controller.signal }),
+      ),
     );
     expect(err.code).toBe("cancelled");
     expect(err.details.retryable).toBe(false);
@@ -387,10 +410,14 @@ describe("AnthropicChatProvider (errors, retries, timeouts, cancellation)", () =
 
   it("aborts promptly while sleeping between retries", async () => {
     const controller = new AbortController();
-    const { fetchImpl, calls } = fakeFetch([() => jsonResponse(fixture("anthropic/error-529-overloaded.json"), 529, { "retry-after": "10" })]);
+    const { fetchImpl, calls } = fakeFetch([
+      () => jsonResponse(fixture("anthropic/error-529-overloaded.json"), 529, { "retry-after": "10" }),
+    ]);
     const started = Date.now();
     setTimeout(() => controller.abort(), 10);
-    const err = await catchError(new AnthropicChatProvider({ apiKey: KEY, prices: PRICES, fetchImpl }).chat(baseRequest({ signal: controller.signal })));
+    const err = await catchError(
+      new AnthropicChatProvider({ apiKey: KEY, prices: PRICES, fetchImpl }).chat(baseRequest({ signal: controller.signal })),
+    );
     expect(err.code).toBe("cancelled");
     expect(Date.now() - started).toBeLessThan(2000);
     expect(calls).toHaveLength(1);

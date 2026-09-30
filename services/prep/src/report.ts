@@ -22,26 +22,27 @@ const PipReportSchema = z.object({
   environment: z.record(z.string(), z.unknown()).optional(),
   install: z
     .array(
-      z.object({
-        metadata: z.object({ name: z.string().min(1).max(200), version: z.string().min(1).max(64) }).passthrough(),
-        download_info: z
-          .object({
-            url: z.string().min(1).max(2048),
-            archive_info: z
-              .object({
-                hash: z.string().optional(),
-                hashes: z.record(z.string(), z.string()).optional(),
-              })
-              .passthrough()
-              .optional(),
-            dir_info: z.unknown().optional(),
-            vcs_info: z.unknown().optional(),
-          })
-          .passthrough(),
-        is_direct: z.boolean().optional(),
-        requested: z.boolean().optional(),
-      })
-      .passthrough(),
+      z
+        .object({
+          metadata: z.object({ name: z.string().min(1).max(200), version: z.string().min(1).max(64) }).passthrough(),
+          download_info: z
+            .object({
+              url: z.string().min(1).max(2048),
+              archive_info: z
+                .object({
+                  hash: z.string().optional(),
+                  hashes: z.record(z.string(), z.string()).optional(),
+                })
+                .passthrough()
+                .optional(),
+              dir_info: z.unknown().optional(),
+              vcs_info: z.unknown().optional(),
+            })
+            .passthrough(),
+          is_direct: z.boolean().optional(),
+          requested: z.boolean().optional(),
+        })
+        .passthrough(),
     )
     .max(10_000),
 });
@@ -106,7 +107,10 @@ export function parsePipReport(raw: unknown, policy: Pick<PrepPolicy, "allowedHo
     }
     const filename = decodeURIComponent(url.pathname.split("/").at(-1) ?? "");
     if (!filename.endsWith(".whl")) {
-      reject(`${label} resolved to ${filename || "a non-wheel"}; only binary wheels are accepted (sdists are never built)`, "no_compatible_wheel");
+      reject(
+        `${label} resolved to ${filename || "a non-wheel"}; only binary wheels are accepted (sdists are never built)`,
+        "no_compatible_wheel",
+      );
     }
     const wheel = parseWheelFilename(filename);
     if (!wheel || wheel.name !== name || !sameVersion(wheel.version, item.metadata.version)) {
@@ -202,7 +206,9 @@ export function classifyPipFailure(context: PipFailureContext): PrepError {
       { detail, requirement: name },
     );
   }
-  if (/ResolutionImpossible|conflicting dependencies|Cannot install .* because these package versions have conflicting/u.test(context.stderr)) {
+  if (
+    /ResolutionImpossible|conflicting dependencies|Cannot install .* because these package versions have conflicting/u.test(context.stderr)
+  ) {
     return new PrepError("resolution_conflict", "the requirements have conflicting dependencies", { detail });
   }
   const denied = context.proxyLog.filter((entry) => entry.event === "connect" && entry.allowed === false);

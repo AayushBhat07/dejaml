@@ -387,12 +387,21 @@ export class DependencyPreparer {
     if (specs.length === 0 && !includeInstaller) throw new PrepError("invalid_requirement", "no requirements to resolve");
     const constraints: ValidatedConstraint[] = validateConstraints(input.constraints ?? []);
     for (const constraint of constraints) {
-      records.push({ spec: constraint.spec, name: constraint.name, source: "compatibility_constraint", reason: constraint.reason, origin: constraint.source ?? null });
+      records.push({
+        spec: constraint.spec,
+        name: constraint.name,
+        source: "compatibility_constraint",
+        reason: constraint.reason,
+        origin: constraint.source ?? null,
+      });
     }
     // CPU-only policy, before anything is downloaded.
     const refused = [
       ...findAcceleratorRequirements(parsedRequirements),
-      ...findAcceleratorRequirements(constraints.map((constraint) => constraint.requirement), "constraint"),
+      ...findAcceleratorRequirements(
+        constraints.map((constraint) => constraint.requirement),
+        "constraint",
+      ),
     ];
     if (refused.length > 0) throw acceleratorError(refused);
     const lines = includeInstaller && !specs.some((spec) => /^pip(\[|[<>=!~;]|$)/u.test(spec)) ? [...specs, "pip"] : specs;
@@ -402,19 +411,33 @@ export class DependencyPreparer {
       const image = topology.image as PrepImageIdentity;
       await writeFile(join(topology.tempDir, "in", "requirements.in"), `${lines.join("\n")}\n`, { mode: 0o444 });
       if (constraints.length > 0) {
-        await writeFile(join(topology.tempDir, "in", "constraints.txt"), `${constraints.map((constraint) => constraint.spec).join("\n")}\n`, { mode: 0o444 });
+        await writeFile(
+          join(topology.tempDir, "in", "constraints.txt"),
+          `${constraints.map((constraint) => constraint.spec).join("\n")}\n`,
+          { mode: 0o444 },
+        );
       }
-      const run = await this.#runWorker(topology, signals, "resolve", [
-        "-m", "pip", "install",
-        "--dry-run",
-        "--ignore-installed",
-        "--only-binary=:all:",
-        "--progress-bar=off",
-        ...resolver.targetArgs,
-        "--report", "/out/report.json",
-        ...(constraints.length > 0 ? ["-c", "/in/constraints.txt"] : []),
-        "-r", "/in/requirements.in",
-      ], "/out");
+      const run = await this.#runWorker(
+        topology,
+        signals,
+        "resolve",
+        [
+          "-m",
+          "pip",
+          "install",
+          "--dry-run",
+          "--ignore-installed",
+          "--only-binary=:all:",
+          "--progress-bar=off",
+          ...resolver.targetArgs,
+          "--report",
+          "/out/report.json",
+          ...(constraints.length > 0 ? ["-c", "/in/constraints.txt"] : []),
+          "-r",
+          "/in/requirements.in",
+        ],
+        "/out",
+      );
       const proxyLog = await this.#proxyLog(topology);
       if (run.result.exitCode !== 0) {
         throw classifyPipFailure({ stderr: run.stderrTail, proxyLog, exitCode: run.result.exitCode, oomKilled: run.oomKilled });
@@ -432,7 +455,10 @@ export class DependencyPreparer {
       }
       const report = parsePipReport(raw, { allowedHosts: index.allowedHosts, maxPackages: this.policy.maxPackages });
       if (report.pythonMinor !== null && report.pythonMinor !== platform.python.version) {
-        throw new PrepError("platform_mismatch", `the preparation image runs Python ${report.pythonMinor}, but the platform requires ${platform.python.version}`);
+        throw new PrepError(
+          "platform_mismatch",
+          `the preparation image runs Python ${report.pythonMinor}, but the platform requires ${platform.python.version}`,
+        );
       }
       if (resolver.mode !== "cross" && report.platform !== null && report.platform !== wheelMachine(platform.architecture)) {
         throw new PrepError("platform_mismatch", `the resolver ran on ${report.platform}, not ${wheelMachine(platform.architecture)}`);
@@ -456,7 +482,9 @@ export class DependencyPreparer {
           name: constraint.name,
           constraint: constraint.spec,
           reason: constraint.reason,
-          repository: records.filter((record) => record.source === "repository" && record.name === constraint.name).map((record) => record.spec),
+          repository: records
+            .filter((record) => record.source === "repository" && record.name === constraint.name)
+            .map((record) => record.spec),
           resolved: report.packages.find((pkg) => pkg.name === constraint.name)?.version ?? null,
           origin: constraint.source ?? null,
         })),
@@ -486,7 +514,8 @@ export class DependencyPreparer {
     if (!PREP_ID_PATTERN.test(resolution.resolutionId)) throw new PrepError("invalid_requirement", "invalid resolution id");
     const platform = assertPlatform(resolution.platform);
     const platformKey = cacheKeyFor(platform);
-    if (resolution.platformKey !== platformKey) throw new PrepError("platform_mismatch", "the resolution's platform key does not match its platform");
+    if (resolution.platformKey !== platformKey)
+      throw new PrepError("platform_mismatch", "the resolution's platform key does not match its platform");
     if (options.platform && cacheKeyFor(assertPlatform(options.platform)) !== platformKey) {
       throw new PrepError("platform_mismatch", `the resolution is for ${platformKey}, not ${platformCacheKey(options.platform)}`);
     }
@@ -531,31 +560,51 @@ export class DependencyPreparer {
     let downloadDisk: DiskReceipt | null = null;
     if (missing.length > 0) {
       const reserve = Math.min(this.policy.maxTotalBytes, this.policy.maxTempBytes);
-      const outcome = await this.#withTopology(resolution.runId, platform, index, options.signal, reserve, "downloading wheels", async (topology, signals) => {
-        const resolver = topology.resolver as ResolverInfo;
-        const pinned = missing.map((pkg) => `${pkg.name}==${pkg.version} --hash=sha256:${pkg.sha256}`).join("\n");
-        await writeFile(join(topology.tempDir, "in", "pinned.txt"), `${pinned}\n`, { mode: 0o444 });
-        const run = await this.#runWorker(topology, signals, "download", [
-          "-m", "pip", "download",
-          "--no-deps",
-          "--only-binary=:all:",
-          "--require-hashes",
-          "--progress-bar=off",
-          ...resolver.targetArgs,
-          "--dest", "/wheels",
-          "-r", "/in/pinned.txt",
-        ], "/wheels");
-        const proxyLog = await this.#proxyLog(topology);
-        if (run.result.exitCode !== 0) {
-          if (/DO NOT MATCH THE HASHES/u.test(run.stderrTail)) {
-            throw new PrepError("integrity_error", "a downloaded wheel did not match its resolved sha256", { detail: tail(run.stderrTail) });
+      const outcome = await this.#withTopology(
+        resolution.runId,
+        platform,
+        index,
+        options.signal,
+        reserve,
+        "downloading wheels",
+        async (topology, signals) => {
+          const resolver = topology.resolver as ResolverInfo;
+          const pinned = missing.map((pkg) => `${pkg.name}==${pkg.version} --hash=sha256:${pkg.sha256}`).join("\n");
+          await writeFile(join(topology.tempDir, "in", "pinned.txt"), `${pinned}\n`, { mode: 0o444 });
+          const run = await this.#runWorker(
+            topology,
+            signals,
+            "download",
+            [
+              "-m",
+              "pip",
+              "download",
+              "--no-deps",
+              "--only-binary=:all:",
+              "--require-hashes",
+              "--progress-bar=off",
+              ...resolver.targetArgs,
+              "--dest",
+              "/wheels",
+              "-r",
+              "/in/pinned.txt",
+            ],
+            "/wheels",
+          );
+          const proxyLog = await this.#proxyLog(topology);
+          if (run.result.exitCode !== 0) {
+            if (/DO NOT MATCH THE HASHES/u.test(run.stderrTail)) {
+              throw new PrepError("integrity_error", "a downloaded wheel did not match its resolved sha256", {
+                detail: tail(run.stderrTail),
+              });
+            }
+            throw classifyPipFailure({ stderr: run.stderrTail, proxyLog, exitCode: run.result.exitCode, oomKilled: run.oomKilled });
           }
-          throw classifyPipFailure({ stderr: run.stderrTail, proxyLog, exitCode: run.result.exitCode, oomKilled: run.oomKilled });
-        }
-        const verified = await this.#verifyDownloads(join(topology.tempDir, "out"), platformKey, platform, missing, all, sizes, signals);
-        for (const [name, bytes] of verified) sizes.set(name, bytes);
-        return { proxyLog, disk: topology.disk };
-      });
+          const verified = await this.#verifyDownloads(join(topology.tempDir, "out"), platformKey, platform, missing, all, sizes, signals);
+          for (const [name, bytes] of verified) sizes.set(name, bytes);
+          return { proxyLog, disk: topology.disk };
+        },
+      );
       downloadLog = outcome.proxyLog;
       downloadDisk = outcome.disk;
       downloadCleanup = outcome.cleanup;
@@ -707,7 +756,12 @@ export class DependencyPreparer {
     return this.#enginePlatform;
   }
 
-  async #ensureImage(pinned: PinnedReference, version: PythonVersion, platform: ContainerPlatform, signals: CallSignals): Promise<PrepImageIdentity> {
+  async #ensureImage(
+    pinned: PinnedReference,
+    version: PythonVersion,
+    platform: ContainerPlatform,
+    signals: CallSignals,
+  ): Promise<PrepImageIdentity> {
     let found: PrepImage;
     try {
       found = await this.#images.ensure(
@@ -727,7 +781,10 @@ export class DependencyPreparer {
       const code = errorCode(error);
       const message = error instanceof Error ? error.message : String(error);
       if (code === "platform_mismatch") throw new PrepError("platform_mismatch", message);
-      throw new PrepError("image_unavailable", `preparation image for Python ${version} on ${platform} is not ready (${code ?? "error"}): ${message}`);
+      throw new PrepError(
+        "image_unavailable",
+        `preparation image for Python ${version} on ${platform} is not ready (${code ?? "error"}): ${message}`,
+      );
     }
     this.#checkAborted(signals);
     if (!/^sha256:[a-f0-9]{64}$/u.test(found.imageId)) throw new PrepError("runtime_error", "unexpected image ID format");
@@ -760,11 +817,30 @@ export class DependencyPreparer {
     topology.containers.push(name);
     const result = await this.#runtime.docker(
       [
-        "run", "--rm", "--name", name, "--pull", "never", ...this.#labels(topology),
-        "--platform", platform.containerPlatform, "--network", "none", ...this.#hardening(),
-        "--pids-limit", "32", "--memory", "256m", "--memory-swap", "256m",
-        "--entrypoint", "python", image.digestReference,
-        "-I", "-c", "import platform, sys; print(platform.machine(), '%d.%d' % sys.version_info[:2])",
+        "run",
+        "--rm",
+        "--name",
+        name,
+        "--pull",
+        "never",
+        ...this.#labels(topology),
+        "--platform",
+        platform.containerPlatform,
+        "--network",
+        "none",
+        ...this.#hardening(),
+        "--pids-limit",
+        "32",
+        "--memory",
+        "256m",
+        "--memory-swap",
+        "256m",
+        "--entrypoint",
+        "python",
+        image.digestReference,
+        "-I",
+        "-c",
+        "import platform, sys; print(platform.machine(), '%d.%d' % sys.version_info[:2])",
       ],
       { signal: signals.signal, maxOutputBytes: 4096 },
     );
@@ -801,7 +877,10 @@ export class DependencyPreparer {
       return;
     }
     if (this.policy.resolverMode === "native") {
-      throw new PrepError("platform_mismatch", `the Docker engine (${engine ?? "unknown"}) cannot execute ${target} and the policy requires native resolution`);
+      throw new PrepError(
+        "platform_mismatch",
+        `the Docker engine (${engine ?? "unknown"}) cannot execute ${target} and the policy requires native resolution`,
+      );
     }
     if (!engine) throw new PrepError("platform_mismatch", "the Docker engine's platform is not linux/amd64 or linux/arm64");
     // Cross resolution: the same Python on the engine's platform, pip told exactly which platform to target.
@@ -854,7 +933,13 @@ export class DependencyPreparer {
     try {
       this.#checkAborted(signals);
       await mkdir(this.#workRoot, { recursive: true, mode: 0o700 });
-      topology.disk.freeBytesAtStart = await assertFreeSpace(this.#freeSpace, this.#workRoot, reserveBytes, this.policy.minFreeBytes, phase);
+      topology.disk.freeBytesAtStart = await assertFreeSpace(
+        this.#freeSpace,
+        this.#workRoot,
+        reserveBytes,
+        this.policy.minFreeBytes,
+        phase,
+      );
       topology.tempDir = await mkdtemp(join(this.#workRoot, `${prepId}-`));
       await this.#selectResolver(topology, platform, signals);
       await this.#prepareTempDir(topology);
@@ -937,11 +1022,7 @@ export class DependencyPreparer {
     const scriptStat = script ? await lstat(script) : null;
     if (!script || !scriptStat?.isFile()) throw new PrepError("runtime_error", "egress proxy script not found");
 
-    await this.#docker(
-      ["network", "create", "--internal", ...this.#labels(topology), topology.network],
-      signals,
-      "network create",
-    );
+    await this.#docker(["network", "create", "--internal", ...this.#labels(topology), topology.network], signals, "network create");
     topology.networkCreated = true;
 
     const budget = this.policy.maxTotalBytes + PROXY_OVERHEAD_BYTES;
@@ -949,24 +1030,39 @@ export class DependencyPreparer {
     await this.#docker(
       [
         "create",
-        "--name", topology.proxy,
-        "--pull", "never",
-        "--platform", image.platform,
+        "--name",
+        topology.proxy,
+        "--pull",
+        "never",
+        "--platform",
+        image.platform,
         ...this.#labels(topology),
-        "--network", "bridge",
+        "--network",
+        "bridge",
         ...this.#hardening(),
-        "--pids-limit", "64",
-        "--memory", "128m",
-        "--memory-swap", "128m",
-        "--cpus", "0.5",
-        "--mount", mountArgument(script, PROXY_SCRIPT_TARGET, true),
-        "--entrypoint", "python",
+        "--pids-limit",
+        "64",
+        "--memory",
+        "128m",
+        "--memory-swap",
+        "128m",
+        "--cpus",
+        "0.5",
+        "--mount",
+        mountArgument(script, PROXY_SCRIPT_TARGET, true),
+        "--entrypoint",
+        "python",
         image.digestReference,
-        "-I", "-u", PROXY_SCRIPT_TARGET,
-        "--listen", `0.0.0.0:${PROXY_PORT}`,
+        "-I",
+        "-u",
+        PROXY_SCRIPT_TARGET,
+        "--listen",
+        `0.0.0.0:${PROXY_PORT}`,
         ...topology.index.allowedHosts.flatMap((host) => ["--allow", host]),
-        "--budget-bytes", String(budget),
-        "--idle-timeout", String(PROXY_IDLE_TIMEOUT_S),
+        "--budget-bytes",
+        String(budget),
+        "--idle-timeout",
+        String(PROXY_IDLE_TIMEOUT_S),
       ],
       signals,
       "egress proxy create",
@@ -1001,13 +1097,20 @@ export class DependencyPreparer {
       role === "probe"
         ? ["--env", "HOME=/tmp", "--env", "TMPDIR=/tmp"]
         : [
-            "--env", "HOME=/tmp",
-            "--env", "TMPDIR=/tmp",
-            "--env", `HTTPS_PROXY=http://${PROXY_ALIAS}:${PROXY_PORT}`,
-            "--env", `PIP_INDEX_URL=${topology.index.indexUrl}`,
-            "--env", "PIP_DISABLE_PIP_VERSION_CHECK=1",
-            "--env", "PIP_NO_INPUT=1",
-            "--env", "PIP_NO_CACHE_DIR=1",
+            "--env",
+            "HOME=/tmp",
+            "--env",
+            "TMPDIR=/tmp",
+            "--env",
+            `HTTPS_PROXY=http://${PROXY_ALIAS}:${PROXY_PORT}`,
+            "--env",
+            `PIP_INDEX_URL=${topology.index.indexUrl}`,
+            "--env",
+            "PIP_DISABLE_PIP_VERSION_CHECK=1",
+            "--env",
+            "PIP_NO_INPUT=1",
+            "--env",
+            "PIP_NO_CACHE_DIR=1",
             ...(this.policy.caBundlePath ? ["--env", `PIP_CERT=${CA_TARGET}`] : []),
           ];
     const mounts: string[] = [];
@@ -1042,20 +1145,30 @@ export class DependencyPreparer {
       result = await this.#runtime.docker(
         [
           "run",
-          "--name", name,
-          "--pull", "never",
-          "--platform", image.platform,
+          "--name",
+          name,
+          "--pull",
+          "never",
+          "--platform",
+          image.platform,
           ...this.#labels(topology),
-          "--network", topology.network,
+          "--network",
+          topology.network,
           ...this.#hardening(),
-          "--cpus", String(this.policy.cpus),
-          "--memory", `${this.policy.memoryMb}m`,
-          "--memory-swap", `${this.policy.memoryMb}m`,
-          "--pids-limit", String(this.policy.pids),
+          "--cpus",
+          String(this.policy.cpus),
+          "--memory",
+          `${this.policy.memoryMb}m`,
+          "--memory-swap",
+          `${this.policy.memoryMb}m`,
+          "--pids-limit",
+          String(this.policy.pids),
           ...env,
           ...mounts,
-          "--workdir", "/tmp",
-          "--entrypoint", "python",
+          "--workdir",
+          "/tmp",
+          "--entrypoint",
+          "python",
           image.digestReference,
           ...command,
         ],
@@ -1094,7 +1207,10 @@ export class DependencyPreparer {
   async #listLabelled(args: string[]): Promise<string[]> {
     const result = await this.#runtime.docker(args, { maxOutputBytes: CLEANUP_OUTPUT_BYTES });
     if (result.exitCode !== 0) throw new PrepError("runtime_error", `docker ${args.slice(0, 2).join(" ")} failed`);
-    return result.stdout.text.split("\n").map((line) => line.trim()).filter((line) => line !== "");
+    return result.stdout.text
+      .split("\n")
+      .map((line) => line.trim())
+      .filter((line) => line !== "");
   }
 
   /** Always runs, on every exit path, without the (possibly aborted) call signal. */
@@ -1128,8 +1244,22 @@ export class DependencyPreparer {
     }
     let verifiedAbsent = false;
     try {
-      const containers = await this.#listLabelled(["ps", "--all", "--filter", `label=${PREP_LABEL}=${topology.prepId}`, "--format", "{{.Names}}"]);
-      const networks = await this.#listLabelled(["network", "ls", "--filter", `label=${PREP_LABEL}=${topology.prepId}`, "--format", "{{.Name}}"]);
+      const containers = await this.#listLabelled([
+        "ps",
+        "--all",
+        "--filter",
+        `label=${PREP_LABEL}=${topology.prepId}`,
+        "--format",
+        "{{.Names}}",
+      ]);
+      const networks = await this.#listLabelled([
+        "network",
+        "ls",
+        "--filter",
+        `label=${PREP_LABEL}=${topology.prepId}`,
+        "--format",
+        "{{.Name}}",
+      ]);
       verifiedAbsent = containers.length === 0 && networks.length === 0;
     } catch {
       verifiedAbsent = false;
@@ -1185,14 +1315,21 @@ export class DependencyPreparer {
         throw new PrepError("limit_exceeded", `wheels exceed the ${this.policy.maxTotalBytes}-byte total limit`);
       }
       const digest = await sha256File(path);
-      if (digest !== pkg.sha256) throw new PrepError("integrity_error", `${entry} sha256 ${digest} does not match the resolved ${pkg.sha256}`);
+      if (digest !== pkg.sha256)
+        throw new PrepError("integrity_error", `${entry} sha256 ${digest} does not match the resolved ${pkg.sha256}`);
       sizes.set(pkg.name, stat.size);
     }
     for (const pkg of expected) {
       if (!sizes.has(pkg.name)) throw new PrepError("integrity_error", `${pkg.filename} was not downloaded`);
     }
     const incoming = [...sizes.values()].reduce((sum, bytes) => sum + bytes, 0);
-    await assertFreeSpace(this.#freeSpace, join(this.#cacheDir, "wheels", platformKey), incoming, this.policy.minFreeBytes, "adding wheels to the cache");
+    await assertFreeSpace(
+      this.#freeSpace,
+      join(this.#cacheDir, "wheels", platformKey),
+      incoming,
+      this.policy.minFreeBytes,
+      "adding wheels to the cache",
+    );
     // Only fully verified files enter the write-once cache.
     for (const pkg of expected) {
       this.#checkAborted(signals);
@@ -1207,7 +1344,8 @@ export class DependencyPreparer {
       try {
         await copyFile(join(dir, pkg.filename), staging, fsConstants.COPYFILE_EXCL);
         await chmod(staging, 0o444);
-        if ((await sha256File(staging)) !== pkg.sha256) throw new PrepError("integrity_error", `${pkg.filename} changed while entering the cache`);
+        if ((await sha256File(staging)) !== pkg.sha256)
+          throw new PrepError("integrity_error", `${pkg.filename} changed while entering the cache`);
         await rename(staging, target);
       } finally {
         await rm(staging, { force: true });

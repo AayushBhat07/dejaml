@@ -92,7 +92,9 @@ describe("preparer port", () => {
           packages: [wheel],
           installer: { ...wheel, name: "pip", filename: "pip-24.0-py3-none-any.whl" },
           requested: ["numpy"],
-          compatibilityChanges: [{ name: "numpy", constraint: "numpy<2", reason: "np.float", repository: ["numpy"], resolved: "1.26.4", origin: null }],
+          compatibilityChanges: [
+            { name: "numpy", constraint: "numpy<2", reason: "np.float", repository: ["numpy"], resolved: "1.26.4", origin: null },
+          ],
           resolver: { mode: "cross" },
           cache: {},
           disk: {},
@@ -103,7 +105,13 @@ describe("preparer port", () => {
       },
     } as unknown as DependencyPreparer;
     const port = preparerPort(preparer);
-    const prepared = await port.prepare({ runId: "run_x", platform, requirements: ["numpy"], constraints: [{ requirement: "numpy<2", reason: "np.float" }], signal });
+    const prepared = await port.prepare({
+      runId: "run_x",
+      platform,
+      requirements: ["numpy"],
+      constraints: [{ requirement: "numpy<2", reason: "np.float" }],
+      signal,
+    });
     expect(calls[0]).toMatchObject({ platform, includeInstaller: true, constraints: [{ spec: "numpy<2", reason: "np.float" }] });
     expect(calls[1]).toMatchObject({ platform });
     expect(prepared).toMatchObject({
@@ -134,7 +142,13 @@ describe("lab image port", () => {
     const readiness = {
       ensure: async (request: Record<string, unknown>) => {
         requests.push(request);
-        return { reference: request.reference, imageId: "sha256:" + "d".repeat(64), digest: "sha256:" + "e".repeat(64), platform: request.platform, python: "3.11" };
+        return {
+          reference: request.reference,
+          imageId: "sha256:" + "d".repeat(64),
+          digest: "sha256:" + "e".repeat(64),
+          platform: request.platform,
+          python: "3.11",
+        };
       },
     } as unknown as ImageReadiness;
     const image = await readinessLabImagePort({ readiness, lock, contextDir: "/ctx" }).ensure({ platform, signal });
@@ -161,7 +175,20 @@ describe("deployment boundaries", () => {
     const jobs = new InProcessJobDispatcher();
     let release!: () => void;
     const seen: string[] = [];
-    expect(jobs.submit({ runId: "run_a", kind: "study", run: (signal) => new Promise<void>((resolve) => { release = resolve; signal.addEventListener("abort", () => { seen.push("aborted"); resolve(); }); }) })).toBe(true);
+    expect(
+      jobs.submit({
+        runId: "run_a",
+        kind: "study",
+        run: (signal) =>
+          new Promise<void>((resolve) => {
+            release = resolve;
+            signal.addEventListener("abort", () => {
+              seen.push("aborted");
+              resolve();
+            });
+          }),
+      }),
+    ).toBe(true);
     expect(jobs.submit({ runId: "run_b", kind: "study", run: async () => undefined })).toBe(false);
     const queued = jobs.enqueue({ runId: "run_c", kind: "resume", run: async () => void seen.push("c") });
     expect(jobs.cancel("run_a")).toBe(true);
@@ -176,7 +203,10 @@ describe("deployment boundaries", () => {
     expect(put).toMatchObject({ bytes: 2, sha256: expect.stringMatching(/^[a-f0-9]{64}$/u) });
     await expect(store.put({ runId: "run_a", scope: "e", path: "../../x", content: Buffer.from("") })).rejects.toThrow(/escapes/u);
 
-    const env = withSecrets({ DEJAML_OPENAI_MODELS: "m", DEJAML_OPENAI_API_KEY: "from-env" }, { get: (name) => (name === "DEJAML_ANTHROPIC_API_KEY" ? "from-vault" : undefined) });
+    const env = withSecrets(
+      { DEJAML_OPENAI_MODELS: "m", DEJAML_OPENAI_API_KEY: "from-env" },
+      { get: (name) => (name === "DEJAML_ANTHROPIC_API_KEY" ? "from-vault" : undefined) },
+    );
     expect(env).toEqual({ DEJAML_OPENAI_MODELS: "m", DEJAML_ANTHROPIC_API_KEY: "from-vault" });
     expect(environmentSecrets({ A: "1" }).get("A")).toBe("1");
   });

@@ -61,8 +61,11 @@ const finish = (answer: string): ScriptedTurn => ({ calls: [{ name: "finish", in
 describe("agent independence", () => {
   it("1. gives every agent a unique id and its own persisted history", async () => {
     const { runtime, runId, store } = harness({ a: [finish("A")], b: [finish("B")], c: [finish("C")] });
-    const handles = await Promise.all(["a", "b", "c"].map((model, index) =>
-      runtime.startAgent(task(runId, model, { role: (["reproduction_planner", "debugger", "supervisor"] as const)[index]! }))));
+    const handles = await Promise.all(
+      ["a", "b", "c"].map((model, index) =>
+        runtime.startAgent(task(runId, model, { role: (["reproduction_planner", "debugger", "supervisor"] as const)[index]! })),
+      ),
+    );
     await Promise.all(handles.map((handle) => handle.done));
     const ids = handles.map((handle) => handle.agentId);
     expect(new Set(ids).size).toBe(3);
@@ -83,8 +86,20 @@ describe("agent independence", () => {
     // Each agent's first model call blocks until the other agent has also made its first call.
     // Run sequentially, this would deadlock and the test would time out.
     const { runtime, runId } = harness({
-      a: [async () => { releaseA(); await bStarted; return finish("A") as { calls: Array<{ name: string; input: unknown }> }; }],
-      b: [async () => { releaseB(); await aStarted; return finish("B") as { calls: Array<{ name: string; input: unknown }> }; }],
+      a: [
+        async () => {
+          releaseA();
+          await bStarted;
+          return finish("A") as { calls: Array<{ name: string; input: unknown }> };
+        },
+      ],
+      b: [
+        async () => {
+          releaseB();
+          await aStarted;
+          return finish("B") as { calls: Array<{ name: string; input: unknown }> };
+        },
+      ],
     });
     const [a, b] = await Promise.all([runtime.startAgent(task(runId, "a")), runtime.startAgent(task(runId, "b", { role: "debugger" }))]);
     const outcomes = await Promise.race([
@@ -95,7 +110,8 @@ describe("agent independence", () => {
   });
 
   it("3. isolates tools per role: capability sets differ and an ungranted call is denied", async () => {
-    const hostTool = (name: string) => defineTool({ name, description: name, input: z.object({}), run: async () => ({ content: `${name} ran`, summary: name }) });
+    const hostTool = (name: string) =>
+      defineTool({ name, description: name, input: z.object({}), run: async () => ({ content: `${name} ran`, summary: name }) });
     const tools = ["lab_run", "paper_read_page", "delegate"].map(hostTool);
     const { runtime, runId, store } = harness(
       { a: [{ calls: [{ name: "lab_run", input: {} }] }, { calls: [{ name: "paper_read_page", input: {} }] }, finish("done")] },
@@ -121,16 +137,25 @@ describe("agent independence", () => {
   it("4. delivers an explicit message only to its addressee, persisted in the ledger", async () => {
     let deliver!: () => void;
     const gate = new Promise<void>((resolve) => (deliver = resolve));
-    const { runtime, runId, store, providers } = harness({
-      target: [
-        async () => { await gate; return { calls: [{ name: "board_read", input: {} }] }; },
-        (request) => ({ calls: [{ name: "finish", input: { answer: lastUser(request) } }] }),
-      ],
-      bystander: [{ calls: [{ name: "board_read", input: {} }] }, finish("bystander done")],
-    }, [defineTool({ name: "board_read", description: "b", input: z.object({}), run: async () => ({ content: "[]", summary: "read" }) })]);
+    const { runtime, runId, store, providers } = harness(
+      {
+        target: [
+          async () => {
+            await gate;
+            return { calls: [{ name: "board_read", input: {} }] };
+          },
+          (request) => ({ calls: [{ name: "finish", input: { answer: lastUser(request) } }] }),
+        ],
+        bystander: [{ calls: [{ name: "board_read", input: {} }] }, finish("bystander done")],
+      },
+      [defineTool({ name: "board_read", description: "b", input: z.object({}), run: async () => ({ content: "[]", summary: "read" }) })],
+    );
     const target = await runtime.startAgent(task(runId, "target", { grants: ["board_read"] }));
     const bystander = await runtime.startAgent(task(runId, "bystander", { role: "debugger", grants: ["board_read"] }));
-    await runtime.sendMessage(target.agentId, { from: { agentId: bystander.agentId, role: "debugger" }, text: "typed finding: entry point is run.py" });
+    await runtime.sendMessage(target.agentId, {
+      from: { agentId: bystander.agentId, role: "debugger" },
+      text: "typed finding: entry point is run.py",
+    });
     deliver();
     const [outcome] = await Promise.all([target.done, bystander.done]);
     expect(outcome.result?.answer).toContain("typed finding: entry point is run.py");
@@ -144,15 +169,22 @@ describe("agent independence", () => {
       name: "lab_list",
       description: "slow",
       input: z.object({}),
-      run: (_input, context) => new Promise((resolve, reject) => {
-        const timer = setTimeout(() => resolve({ content: "listed", summary: "listed" }), 150);
-        context.signal.addEventListener("abort", () => { clearTimeout(timer); reject(new Error("aborted")); });
-      }),
+      run: (_input, context) =>
+        new Promise((resolve, reject) => {
+          const timer = setTimeout(() => resolve({ content: "listed", summary: "listed" }), 150);
+          context.signal.addEventListener("abort", () => {
+            clearTimeout(timer);
+            reject(new Error("aborted"));
+          });
+        }),
     });
-    const { runtime, runId, store } = harness({
-      doomed: [{ calls: [{ name: "lab_list", input: {} }] }, finish("never")],
-      survivor: [{ calls: [{ name: "lab_list", input: {} }] }, finish("survived")],
-    }, [slow]);
+    const { runtime, runId, store } = harness(
+      {
+        doomed: [{ calls: [{ name: "lab_list", input: {} }] }, finish("never")],
+        survivor: [{ calls: [{ name: "lab_list", input: {} }] }, finish("survived")],
+      },
+      [slow],
+    );
     const doomed = await runtime.startAgent(task(runId, "doomed", { role: "debugger", grants: ["lab_list"] }));
     const survivor = await runtime.startAgent(task(runId, "survivor", { role: "debugger", grants: ["lab_list"] }));
     await new Promise((resolve) => setTimeout(resolve, 30));
@@ -169,9 +201,18 @@ describe("agent independence", () => {
     stores.push(store);
     const runId = store.createRun({}).id;
     const healthy = new ScriptedChatProvider([finish("fine")]);
-    const broken: ChatProvider = { id: "broken", kind: "scripted", chat: async () => { throw new Error("upstream 500"); } };
+    const broken: ChatProvider = {
+      id: "broken",
+      kind: "scripted",
+      chat: async () => {
+        throw new Error("upstream 500");
+      },
+    };
     const runtime = new BoundedAgentRuntime({ store, provider: ({ model }) => (model === "broken" ? broken : healthy), tools: () => [] });
-    const [a, b] = await Promise.all([runtime.startAgent(task(runId, "broken")), runtime.startAgent(task(runId, "healthy", { role: "debugger" }))]);
+    const [a, b] = await Promise.all([
+      runtime.startAgent(task(runId, "broken")),
+      runtime.startAgent(task(runId, "healthy", { role: "debugger" })),
+    ]);
     const [failed, ok] = await Promise.all([a.done, b.done]);
     expect(failed).toMatchObject({ status: "failed", reason: "upstream 500" });
     expect(ok).toMatchObject({ status: "completed" });
@@ -181,7 +222,12 @@ describe("agent independence", () => {
 
   it("keeps budgets per agent: one exhausting its budget leaves the other's counters untouched", async () => {
     const loop = Array.from({ length: 5 }, () => ({ calls: [{ name: "board_read", input: {} }] }));
-    const board = defineTool({ name: "board_read", description: "b", input: z.object({}), run: async () => ({ content: "[]", summary: "read" }) });
+    const board = defineTool({
+      name: "board_read",
+      description: "b",
+      input: z.object({}),
+      run: async () => ({ content: "[]", summary: "read" }),
+    });
     const { runtime, runId } = harness({ tight: loop, loose: [{ calls: [{ name: "board_read", input: {} }] }, finish("ok")] }, [board]);
     const [tight, loose] = await Promise.all([
       runtime.startAgent(task(runId, "tight", { grants: ["board_read"], limits: { maxIterations: 2 } })),
@@ -193,7 +239,12 @@ describe("agent independence", () => {
   });
 
   it("emits observable lifecycle and tool events per agent", async () => {
-    const board = defineTool({ name: "board_read", description: "b", input: z.object({}), run: async () => ({ content: "[]", summary: "read" }) });
+    const board = defineTool({
+      name: "board_read",
+      description: "b",
+      input: z.object({}),
+      run: async () => ({ content: "[]", summary: "read" }),
+    });
     const { runtime, runId, store } = harness({ a: [{ calls: [{ name: "board_read", input: {} }] }, finish("A")] }, [board]);
     const events: AgentEvent[] = [];
     // Subscribing to a pre-assigned id sees the agent's whole life, from its first turn.
@@ -213,23 +264,49 @@ describe("agent independence", () => {
       input: z.object({}),
       run: async (_input, context) => ({ content: JSON.stringify(context.board.visibleTo(context.role)), summary: "read" }),
     });
-    const { runtime, runId, store } = harness({
-      engineer: [{ text: "PRIVATE-ENGINEER-THOUGHT: maybe tweak the seed", calls: [{ name: "board_read", input: {} }] }, finish("submitted")],
-      reviewer: [{ calls: [{ name: "board_read", input: {} }] }, finish("reviewed")],
-    }, [read]);
+    const { runtime, runId, store } = harness(
+      {
+        engineer: [
+          { text: "PRIVATE-ENGINEER-THOUGHT: maybe tweak the seed", calls: [{ name: "board_read", input: {} }] },
+          finish("submitted"),
+        ],
+        reviewer: [{ calls: [{ name: "board_read", input: {} }] }, finish("reviewed")],
+      },
+      [read],
+    );
     const engineer = await runtime.startAgent(task(runId, "engineer", { role: "lab_engineer", grants: ["board_read"] }));
     await engineer.done;
     const board = runtime.board(runId);
-    board.post({ kind: "diagnosis", authorAgentId: "agt_dbg", authorRole: "debugger", key: engineer.agentId, payload: { diagnosis: "PRIVATE-DEBUGGER-NOTE" } });
+    board.post({
+      kind: "diagnosis",
+      authorAgentId: "agt_dbg",
+      authorRole: "debugger",
+      key: engineer.agentId,
+      payload: { diagnosis: "PRIVATE-DEBUGGER-NOTE" },
+    });
     board.post({ kind: "note", authorAgentId: engineer.agentId, authorRole: "lab_engineer", payload: { text: "PRIVATE-NOTE" } });
     board.post({
       kind: "submission",
       authorAgentId: engineer.agentId,
       authorRole: "lab_engineer",
       key: engineer.agentId,
-      payload: { submission: { status: "measured", summary: "PRIVATE-SUMMARY", failureReason: "PRIVATE-FAILURE", producingReceiptId: "rcpt_1", deviations: ["numpy 2.1 instead of 1.19"] } },
+      payload: {
+        submission: {
+          status: "measured",
+          summary: "PRIVATE-SUMMARY",
+          failureReason: "PRIVATE-FAILURE",
+          producingReceiptId: "rcpt_1",
+          deviations: ["numpy 2.1 instead of 1.19"],
+        },
+      },
     });
-    board.post({ kind: "command_receipt", authorAgentId: engineer.agentId, authorRole: "lab_engineer", key: engineer.agentId, payload: { receiptId: "rcpt_1", exitCode: 0 } });
+    board.post({
+      kind: "command_receipt",
+      authorAgentId: engineer.agentId,
+      authorRole: "lab_engineer",
+      key: engineer.agentId,
+      payload: { receiptId: "rcpt_1", exitCode: 0 },
+    });
     const reviewer = await runtime.startAgent(task(runId, "reviewer", { role: "independent_reviewer", grants: ["board_read"] }));
     await reviewer.done;
     const seen = JSON.stringify(store.ledger.listTurns(reviewer.agentId));

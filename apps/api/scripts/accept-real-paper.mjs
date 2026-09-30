@@ -51,7 +51,9 @@ let config;
 try {
   config = await (await fetch(`${api}/config`)).json();
 } catch (error) {
-  console.error(`The API at ${api} is not reachable (${error instanceof Error ? error.message : String(error)}). Start it first: npm run start:local`);
+  console.error(
+    `The API at ${api} is not reachable (${error instanceof Error ? error.message : String(error)}). Start it first: npm run start:local`,
+  );
   process.exit(2);
 }
 const provider = config.providers.find((item) => item.id === (process.env.DEJAML_ACCEPT_PROVIDER ?? config.providers[0]?.id));
@@ -68,7 +70,9 @@ if (!provider) {
   process.exit(3);
 }
 if (!["openai", "anthropic", "custom"].includes(provider.id)) {
-  console.error(`Provider ${provider.id} is not a real model provider; acceptance needs openai, anthropic, or the configured custom endpoint.`);
+  console.error(
+    `Provider ${provider.id} is not a real model provider; acceptance needs openai, anthropic, or the configured custom endpoint.`,
+  );
   process.exit(2);
 }
 const model = process.env.DEJAML_ACCEPT_MODEL ?? provider.models[0];
@@ -141,7 +145,13 @@ const acceptanceReport = {
   sourceCommit: spawnSync("git", ["rev-parse", "HEAD"], { cwd: projectRoot, encoding: "utf8" }).stdout.trim() || null,
   runtime: study?.runtime ?? null,
   provider: study?.provider ?? { id: provider.id, model },
-  agents: (study?.agents ?? []).map((agent) => ({ agentId: agent.agentId, role: agent.role, label: agent.label, status: agent.status, usage: agent.usage })),
+  agents: (study?.agents ?? []).map((agent) => ({
+    agentId: agent.agentId,
+    role: agent.role,
+    label: agent.label,
+    status: agent.status,
+    usage: agent.usage,
+  })),
   lifecycle: report.events
     .filter((event) => /^agent_(started|resumed|finished)$/u.test(event.type) || event.type.startsWith("stage_"))
     .map((event) => ({ at: event.timestamp, type: event.type, status: event.status, summary: event.summary })),
@@ -153,9 +163,20 @@ const acceptanceReport = {
   labImage: study?.labImage ?? null,
   preparationImage: study?.dependencies?.prepImage ?? null,
   datasets: study?.datasets ?? [],
-  wheels: (study?.dependencies?.packages ?? []).map((item) => ({ name: item.name, version: item.version, filename: item.filename, tags: item.tags, sha256: item.sha256 })),
+  wheels: (study?.dependencies?.packages ?? []).map((item) => ({
+    name: item.name,
+    version: item.version,
+    filename: item.filename,
+    tags: item.tags,
+    sha256: item.sha256,
+  })),
   compatibilityChanges: study?.dependencies?.changes ?? [],
-  plan: { contract: study?.contract ?? null, planDigest: study?.planDigest ?? null, adapter: study?.adapter ?? null, policy: study?.policy ?? null },
+  plan: {
+    contract: study?.contract ?? null,
+    planDigest: study?.planDigest ?? null,
+    adapter: study?.adapter ?? null,
+    policy: study?.policy ?? null,
+  },
   command: study?.contract?.command ?? null,
   officialRun: officialReceipt
     ? {
@@ -172,7 +193,10 @@ const acceptanceReport = {
     : null,
   resources: {
     limits: study?.contract ? { expectedRuntimeSeconds: study.contract.expectedRuntimeSeconds } : null,
-    telemetry: report.events.filter((event) => event.type === "lab_telemetry").slice(-5).map((event) => ({ at: event.timestamp, ...event.publicPayload })),
+    telemetry: report.events
+      .filter((event) => event.type === "lab_telemetry")
+      .slice(-5)
+      .map((event) => ({ at: event.timestamp, ...event.publicPayload })),
     usage: study?.usage ?? null,
   },
   metric: {
@@ -182,7 +206,12 @@ const acceptanceReport = {
     delta: study?.result?.absoluteDifference ?? null,
     tolerance: study?.result?.tolerance ?? null,
   },
-  reviews: engineers.map((item) => ({ engineerAgentId: item.engineerAgentId, reviewerAgentId: item.reviewerAgentId, verdict: item.review?.verdict ?? null, equivalence: item.review?.equivalence ?? null })),
+  reviews: engineers.map((item) => ({
+    engineerAgentId: item.engineerAgentId,
+    reviewerAgentId: item.reviewerAgentId,
+    verdict: item.review?.verdict ?? null,
+    equivalence: item.review?.equivalence ?? null,
+  })),
   status: {
     final: study?.result?.status ?? report.status,
     computed: study?.result?.computedStatus ?? null,
@@ -197,25 +226,82 @@ if (!study) {
   check("the native multi-agent study ran", false, report.failure ?? "the report has no study section");
 } else {
   const roles = new Set(study.agents.map((agent) => agent.role));
-  check("real provider through DéjàML's own adapter", ["openai", "anthropic", "custom"].includes(study.provider.id) && study.runtime === "native autonomous agent runtime", `${study.provider.id}/${study.provider.model}; ${study.runtime}`);
-  check("independent native agents", ["paper_analyst", "repository_analyst", "reproduction_planner", "supervisor"].every((role) => roles.has(role)) && new Set(study.agents.map((agent) => agent.agentId)).size === study.agents.length, study.agents.map((agent) => `${agent.role} ${agent.agentId} ${agent.status}`).join("; "));
-  check("real tool calls with receipts", study.receipts.length > 0 && study.receipts.every((item) => /^[a-f0-9]{64}$/u.test(item.inputSha256)), `${study.receipts.length} receipts`);
-  check("repository cloned and pinned", /^[a-f0-9]{40}$/u.test(String(study.repository?.commitSha ?? "")), `${study.repository?.url ?? study.repository?.repositoryUrl}@${study.repository?.commitSha}`);
-  check(`status in ${acceptanceCase.expected.statuses.join(" / ")}`, statusOk, `${acceptanceReport.status.final}: ${acceptanceReport.status.reasons.join(" | ")}`);
+  check(
+    "real provider through DéjàML's own adapter",
+    ["openai", "anthropic", "custom"].includes(study.provider.id) && study.runtime === "native autonomous agent runtime",
+    `${study.provider.id}/${study.provider.model}; ${study.runtime}`,
+  );
+  check(
+    "independent native agents",
+    ["paper_analyst", "repository_analyst", "reproduction_planner", "supervisor"].every((role) => roles.has(role)) &&
+      new Set(study.agents.map((agent) => agent.agentId)).size === study.agents.length,
+    study.agents.map((agent) => `${agent.role} ${agent.agentId} ${agent.status}`).join("; "),
+  );
+  check(
+    "real tool calls with receipts",
+    study.receipts.length > 0 && study.receipts.every((item) => /^[a-f0-9]{64}$/u.test(item.inputSha256)),
+    `${study.receipts.length} receipts`,
+  );
+  check(
+    "repository cloned and pinned",
+    /^[a-f0-9]{40}$/u.test(String(study.repository?.commitSha ?? "")),
+    `${study.repository?.url ?? study.repository?.repositoryUrl}@${study.repository?.commitSha}`,
+  );
+  check(
+    `status in ${acceptanceCase.expected.statuses.join(" / ")}`,
+    statusOk,
+    `${acceptanceReport.status.final}: ${acceptanceReport.status.reasons.join(" | ")}`,
+  );
   if (acceptanceCase.kind === "positive") {
-    check("dependencies prepared as verified wheels", acceptanceReport.wheels.length > 0 && acceptanceReport.wheels.every((item) => /^[a-f0-9]{64}$/u.test(item.sha256)), `${acceptanceReport.wheels.length} wheels`);
-    check("reached a real offline lab", report.events.some((event) => event.type === "lab_create" && event.status === "completed"));
-    check("official experiment exited 0", officialReceipt?.exitCode === 0, officialReceipt ? `${officialReceipt.argv.join(" ")} -> ${officialReceipt.exitCode}` : "no official run");
-    check("metric produced and parsed", typeof acceptanceReport.metric.observedValue === "number", `paper ${acceptanceReport.metric.paperValue}, observed ${acceptanceReport.metric.observedValue}, delta ${acceptanceReport.metric.delta}`);
-    check("independent review ran", acceptanceReport.reviews.some((item) => item.verdict !== null), acceptanceReport.reviews.map((item) => `${item.reviewerAgentId}: ${item.verdict} (${item.equivalence})`).join("; "));
-    check("verdict computed from evidence", acceptanceReport.status.computed !== null && (acceptanceReport.status.supervisor === null || ["reproduced", "partially_reproduced", "not_reproduced", "inconclusive"].includes(acceptanceReport.status.final)));
+    check(
+      "dependencies prepared as verified wheels",
+      acceptanceReport.wheels.length > 0 && acceptanceReport.wheels.every((item) => /^[a-f0-9]{64}$/u.test(item.sha256)),
+      `${acceptanceReport.wheels.length} wheels`,
+    );
+    check(
+      "reached a real offline lab",
+      report.events.some((event) => event.type === "lab_create" && event.status === "completed"),
+    );
+    check(
+      "official experiment exited 0",
+      officialReceipt?.exitCode === 0,
+      officialReceipt ? `${officialReceipt.argv.join(" ")} -> ${officialReceipt.exitCode}` : "no official run",
+    );
+    check(
+      "metric produced and parsed",
+      typeof acceptanceReport.metric.observedValue === "number",
+      `paper ${acceptanceReport.metric.paperValue}, observed ${acceptanceReport.metric.observedValue}, delta ${acceptanceReport.metric.delta}`,
+    );
+    check(
+      "independent review ran",
+      acceptanceReport.reviews.some((item) => item.verdict !== null),
+      acceptanceReport.reviews.map((item) => `${item.reviewerAgentId}: ${item.verdict} (${item.equivalence})`).join("; "),
+    );
+    check(
+      "verdict computed from evidence",
+      acceptanceReport.status.computed !== null &&
+        (acceptanceReport.status.supervisor === null ||
+          ["reproduced", "partially_reproduced", "not_reproduced", "inconclusive"].includes(acceptanceReport.status.final)),
+    );
   }
-  const leftovers = spawnSync("docker", ["ps", "-a", "--filter", `label=dejaml.run=${runId}`, "--format", "{{.Names}}"], { encoding: "utf8" });
-  check("verified cleanup", study.cleanup.verified && leftovers.status === 0 && leftovers.stdout.trim() === "", `labs ${study.cleanup.labs.length}; containers left "${leftovers.stdout.trim()}"`);
+  const leftovers = spawnSync("docker", ["ps", "-a", "--filter", `label=dejaml.run=${runId}`, "--format", "{{.Names}}"], {
+    encoding: "utf8",
+  });
+  check(
+    "verified cleanup",
+    study.cleanup.verified && leftovers.status === 0 && leftovers.stdout.trim() === "",
+    `labs ${study.cleanup.labs.length}; containers left "${leftovers.stdout.trim()}"`,
+  );
 }
 const reportText = JSON.stringify(report) + JSON.stringify(acceptanceReport);
 // Keys are never read here; the report is scanned for anything shaped like one.
-const secretShapes = [/sk-ant-[A-Za-z0-9_-]{10,}/u, /sk-(proj-)?[A-Za-z0-9_-]{20,}/u, /authorization["']?\s*[:=]/iu, /x-api-key/iu, /DEJAML_(OPENAI|ANTHROPIC|CUSTOM)_API_KEY\s*[=:]\s*\S/u];
+const secretShapes = [
+  /sk-ant-[A-Za-z0-9_-]{10,}/u,
+  /sk-(proj-)?[A-Za-z0-9_-]{20,}/u,
+  /authorization["']?\s*[:=]/iu,
+  /x-api-key/iu,
+  /DEJAML_(OPENAI|ANTHROPIC|CUSTOM)_API_KEY\s*[=:]\s*\S/u,
+];
 check("no secret in the report", !secretShapes.some((shape) => shape.test(reportText)));
 check("no OpenClaw on the path", !/openclaw/iu.test(reportText));
 

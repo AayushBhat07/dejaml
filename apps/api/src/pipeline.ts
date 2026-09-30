@@ -17,32 +17,24 @@ import type {
 } from "@dejaml/contracts";
 import type { ChatProvider } from "@dejaml/agent-runtime";
 import { type ContainerPlatform, containerPlatformFor, hostArchitecture, type ResourceBudgetSchema } from "@dejaml/contracts";
-import {
-  type ArtifactContent,
-  type AttemptOutcome,
-  type CleanupReceipt,
-  type LabManager,
-  labSpecFromPlan,
-} from "@dejaml/lab-manager";
+import { type ArtifactContent, type AttemptOutcome, type CleanupReceipt, type LabManager, labSpecFromPlan } from "@dejaml/lab-manager";
 import { ingestPdf, PaperIntakeError } from "@dejaml/paper-intake";
-import {
-  acquireGithubRepository,
-  cleanupAcquiredRepository,
-  discoverGithubRepositories,
-} from "@dejaml/repository-intake";
-import {
-  runAudit,
-  runLabAgent,
-  runLeadResearch,
-  runParallelAnalysis,
-  type StructuredModelClient,
-} from "@dejaml/research-runtime";
+import { acquireGithubRepository, cleanupAcquiredRepository, discoverGithubRepositories } from "@dejaml/repository-intake";
+import { runAudit, runLabAgent, runLeadResearch, runParallelAnalysis, type StructuredModelClient } from "@dejaml/research-runtime";
 import { verifyResult } from "@dejaml/result-verifier";
 import type { z } from "zod";
 import type { RunStore } from "@dejaml/run-store";
 
 import type { CuratedCase } from "./cases.js";
-import { type DatasetPort, type DependencyPort, type LabImagePort, type LeakCheck, type MultiAgentReport, runMultiAgentStudy, type StudyConfig } from "./study/index.js";
+import {
+  type DatasetPort,
+  type DependencyPort,
+  type LabImagePort,
+  type LeakCheck,
+  type MultiAgentReport,
+  runMultiAgentStudy,
+  type StudyConfig,
+} from "./study/index.js";
 
 type ResourceBudget = z.infer<typeof ResourceBudgetSchema>;
 
@@ -251,9 +243,7 @@ export async function runStudy(
         ...(input.agents ? { provider: input.agents.selection.id, model: input.agents.selection.model } : {}),
       });
     }
-    const match = deps.cases.find((curated) =>
-      candidates.some((candidate) => candidate.repositoryUrl === curated.policy.repository.url),
-    );
+    const match = deps.cases.find((curated) => candidates.some((candidate) => candidate.repositoryUrl === curated.policy.repository.url));
     if (!match && deps.multiAgent?.enabled && candidates[0]) {
       return await multiAgentStudy(paper, candidates, deps.multiAgent);
     }
@@ -381,8 +371,14 @@ export async function runStudy(
         checkCancelled();
         try {
           const auditResult = await runAudit({
-            runId, runStore: store, paperAnalysis, metric: verification.metric,
-            assessment: verification.assessment, plan, modelClient: deps.model, signal,
+            runId,
+            runStore: store,
+            paperAnalysis,
+            metric: verification.metric,
+            assessment: verification.assessment,
+            plan,
+            modelClient: deps.model,
+            signal,
           });
           report.audit = auditResult.decision.value;
         } catch {
@@ -394,17 +390,28 @@ export async function runStudy(
 
     if (deps.labAgentEnabled) {
       const agent = await runLabAgent({
-        runId, plan, spec, labs: deps.labs, model: deps.model, store, signal,
-        onLabCreated: (id) => { activeLabId = id; },
-        onLabDestroyed: () => { activeLabId = null; },
+        runId,
+        plan,
+        spec,
+        labs: deps.labs,
+        model: deps.model,
+        store,
+        signal,
+        onLabCreated: (id) => {
+          activeLabId = id;
+        },
+        onLabDestroyed: () => {
+          activeLabId = null;
+        },
       });
       lab.imageId = agent.imageId;
       try {
         const path = plan.metricExtraction.path;
         const digest = path ? agent.outcome.attempt.artifactDigests[path] : undefined;
-        const artifact = path && digest && agent.metricArtifact
-          ? { path, sha256: digest, bytes: agent.metricArtifact.length, content: agent.metricArtifact }
-          : undefined;
+        const artifact =
+          path && digest && agent.metricArtifact
+            ? { path, sha256: digest, bytes: agent.metricArtifact.length, content: agent.metricArtifact }
+            : undefined;
         await verifyAndAudit(agent.outcome, artifact);
       } finally {
         activeLabId = null;
@@ -429,9 +436,8 @@ export async function runStudy(
         observe: true,
       });
       const path = plan.metricExtraction.path;
-      const artifact = path && outcome.attempt.artifactDigests[path]
-        ? await deps.labs.readArtifact(handle.labId, path).catch(() => undefined)
-        : undefined;
+      const artifact =
+        path && outcome.attempt.artifactDigests[path] ? await deps.labs.readArtifact(handle.labId, path).catch(() => undefined) : undefined;
       await verifyAndAudit(outcome, artifact);
     } catch (error) {
       labFailure = error;
@@ -457,9 +463,7 @@ export async function runStudy(
   } finally {
     signal.removeEventListener("abort", onAbort);
     if (acquisition) {
-      await cleanupAcquiredRepository({ destination: acquisition.destination, destinationRoot: acquisitionRoot }).catch(
-        () => undefined,
-      );
+      await cleanupAcquiredRepository({ destination: acquisition.destination, destinationRoot: acquisitionRoot }).catch(() => undefined);
     }
     await rm(acquisitionRoot, { recursive: true, force: true });
   }
@@ -468,7 +472,11 @@ export async function runStudy(
    * No reviewed case covers this paper: independent agents run the study
    * under a Supervisor (see ./study), and the report records their evidence.
    */
-  async function multiAgentStudy(paper: PaperDocument, candidates: RepositoryCandidate[], options: MultiAgentOptions): Promise<StudyReport> {
+  async function multiAgentStudy(
+    paper: PaperDocument,
+    candidates: RepositoryCandidate[],
+    options: MultiAgentOptions,
+  ): Promise<StudyReport> {
     const agents = input.agents;
     if (!agents) {
       report.failure = "No model provider was selected for the agents";
@@ -476,10 +484,15 @@ export async function runStudy(
       finish("inconclusive");
       return await finalize();
     }
-    event("repository_found", "completed", "Found repository candidates; no reviewed case exists, so independent agents will run the study", {
-      candidates: candidates.map((candidate) => candidate.repositoryUrl),
-      autonomous: true,
-    });
+    event(
+      "repository_found",
+      "completed",
+      "Found repository candidates; no reviewed case exists, so independent agents will run the study",
+      {
+        candidates: candidates.map((candidate) => candidate.repositoryUrl),
+        autonomous: true,
+      },
+    );
     const result = await runMultiAgentStudy(
       { runId, paper, candidates, signal },
       {
@@ -509,7 +522,8 @@ export async function runStudy(
       logsTruncated: false,
       cleanup: result.report.cleanup.labs.find((receipt) => !receipt.verifiedAbsent) ?? result.report.cleanup.labs.at(-1) ?? null,
     };
-    if (!result.report.cleanup.verified) report.failure = [report.failure, "study cleanup could not be verified"].filter(Boolean).join("; ");
+    if (!result.report.cleanup.verified)
+      report.failure = [report.failure, "study cleanup could not be verified"].filter(Boolean).join("; ");
     return await finalize();
   }
 

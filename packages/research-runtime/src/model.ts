@@ -1,6 +1,7 @@
 import { z } from "zod";
 
-export type ResearchRole = "paper_analyst" | "code_analyst" | "lead_researcher" | "lab_agent" | "lab_planner" | "lab_debugger" | "lab_reviewer" | "audit_agent";
+export type ResearchRole =
+  "paper_analyst" | "code_analyst" | "lead_researcher" | "lab_agent" | "lab_planner" | "lab_debugger" | "lab_reviewer" | "audit_agent";
 
 export type StructuredCompletion<T> = {
   value: T;
@@ -30,9 +31,7 @@ export function parseStructuredJson<T>(text: string, schema: z.ZodType<T>): T {
   try {
     parsed = JSON.parse(candidate);
   } catch (error) {
-    throw new Error(
-      `model response was not valid JSON: ${error instanceof Error ? error.message : String(error)}`,
-    );
+    throw new Error(`model response was not valid JSON: ${error instanceof Error ? error.message : String(error)}`, { cause: error });
   }
   return schema.parse(parsed);
 }

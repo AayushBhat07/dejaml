@@ -53,10 +53,7 @@ export async function resolvePublic(
       throw new NetGuardError("dns_failed", `DNS returned a malformed address for ${hostname}`);
     }
     if (!addressPolicy(answer.address)) {
-      throw new NetGuardError(
-        "private_address",
-        `${hostname} resolves to a non-public address (${answer.address})`,
-      );
+      throw new NetGuardError("private_address", `${hostname} resolves to a non-public address (${answer.address})`);
     }
     addresses.push({ address: answer.address, family: parsed.family });
   }

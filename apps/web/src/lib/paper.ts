@@ -1,9 +1,7 @@
 /** Mirrors the server-side limit in @dejaml/paper-intake; the server stays authoritative. */
 export const MAX_PAPER_BYTES = 20 * 1024 * 1024;
 
-export type PaperCheck =
-  | { ok: true; file: File; bytes: number; sha256: string }
-  | { ok: false; reason: string };
+export type PaperCheck = { ok: true; file: File; bytes: number; sha256: string } | { ok: false; reason: string };
 
 const PDF_MAGIC = [0x25, 0x50, 0x44, 0x46, 0x2d]; // "%PDF-"
 

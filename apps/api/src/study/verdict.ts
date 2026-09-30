@@ -46,10 +46,12 @@ export type StatusDecision = {
 };
 
 export function rejection(outcome: EngineerOutcome): string | null {
-  if (!outcome.official) return `the approved command never ran (${outcome.agentStatus}${outcome.agentReason ? `: ${outcome.agentReason}` : ""})`;
+  if (!outcome.official)
+    return `the approved command never ran (${outcome.agentStatus}${outcome.agentReason ? `: ${outcome.agentReason}` : ""})`;
   if (outcome.official.timedOut) return "the approved command timed out";
   if (outcome.official.exitCode !== 0) return `the approved command exited with ${String(outcome.official.exitCode)}`;
-  if (!outcome.metric?.ok) return `the metric could not be parsed from the official run: ${outcome.metric && !outcome.metric.ok ? outcome.metric.reason : "not parsed"}`;
+  if (!outcome.metric?.ok)
+    return `the metric could not be parsed from the official run: ${outcome.metric && !outcome.metric.ok ? outcome.metric.reason : "not parsed"}`;
   if (outcome.value === null) return "the metric could not be converted to the paper's unit";
   if (!outcome.review) return "not reviewed";
   if (outcome.review.verdict !== "approve") return `rejected by the Independent Reviewer: ${outcome.review.summary}`;
@@ -70,7 +72,14 @@ export function decideStatus(input: {
   engineersLaunched: number;
 }): StatusDecision {
   const reasons: string[] = [];
-  const empty = (status: ResultStatus): StatusDecision => ({ status, reasons, consensus: null, representative: null, absoluteDifference: null, equivalence: null });
+  const empty = (status: ResultStatus): StatusDecision => ({
+    status,
+    reasons,
+    consensus: null,
+    representative: null,
+    absoluteDifference: null,
+    equivalence: null,
+  });
   if (input.cancelled) {
     reasons.push("the study was cancelled before it finished");
     return empty("cancelled");
@@ -100,7 +109,11 @@ export function decideStatus(input: {
   }
   const launched = Math.max(input.engineersLaunched, approved.length);
   const required = launched === 1 ? 1 : Math.floor(launched / 2) + 1;
-  const consensus = findConsensus(approved.map((outcome) => ({ agentName: outcome.label, value: outcome.value! })), contract.tolerance, required);
+  const consensus = findConsensus(
+    approved.map((outcome) => ({ agentName: outcome.label, value: outcome.value! })),
+    contract.tolerance,
+    required,
+  );
   if (consensus.status !== "agreed") {
     reasons.push(
       consensus.status === "disagreed"
@@ -118,7 +131,9 @@ export function decideStatus(input: {
   const equivalence = deviations ? "minor_deviations" : "equivalent";
   const absoluteDifference = Math.abs(representative.value! - contract.reportedValue);
   if (absoluteDifference > contract.tolerance + 1e-9) {
-    reasons.push(`the measured value ${representative.value} differs from the paper's ${contract.reportedValue} by ${round(absoluteDifference)} ${contract.metric.unit} (tolerance ${contract.tolerance})`);
+    reasons.push(
+      `the measured value ${representative.value} differs from the paper's ${contract.reportedValue} by ${round(absoluteDifference)} ${contract.metric.unit} (tolerance ${contract.tolerance})`,
+    );
     return { status: "not_reproduced", reasons, consensus, representative, absoluteDifference, equivalence };
   }
   if (deviations) {

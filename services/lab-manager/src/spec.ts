@@ -10,9 +10,7 @@ import {
 } from "@dejaml/contracts";
 import { z } from "zod";
 
-export const ImageIdSchema = z
-  .string()
-  .regex(/^sha256:[a-f0-9]{64}$/u, "expected a local image ID such as sha256:<64 hex>");
+export const ImageIdSchema = z.string().regex(/^sha256:[a-f0-9]{64}$/u, "expected a local image ID such as sha256:<64 hex>");
 
 /** A path inside the lab workspace, written relative to the lab working directory. */
 export const WorkspaceRelativePathSchema = z
@@ -33,20 +31,40 @@ export const WorkspaceRelativePathSchema = z
 export const LabInputSchema = z.object({
   hostPath: z.string().refine(isAbsolute, { message: "input host path must be absolute" }),
   containerPath: WorkspaceRelativePathSchema,
-  sha256: z.string().regex(/^[a-f0-9]{64}$/u).optional(),
+  sha256: z
+    .string()
+    .regex(/^[a-f0-9]{64}$/u)
+    .optional(),
 });
 
 export const LabLimitsSchema = z.object({
-  maxLogBytes: z.number().int().positive().max(8 * 1024 * 1024),
-  maxArtifactBytes: z.number().int().positive().max(64 * 1024 * 1024),
-  maxArtifactTotalBytes: z.number().int().positive().max(256 * 1024 * 1024),
+  maxLogBytes: z
+    .number()
+    .int()
+    .positive()
+    .max(8 * 1024 * 1024),
+  maxArtifactBytes: z
+    .number()
+    .int()
+    .positive()
+    .max(64 * 1024 * 1024),
+  maxArtifactTotalBytes: z
+    .number()
+    .int()
+    .positive()
+    .max(256 * 1024 * 1024),
   maxArtifactFiles: z.number().int().positive().max(1_000),
   /** Size of the lab's in-memory, noexec `/tmp`; it counts against the container's memory limit. */
   tmpfsMb: z.number().int().positive().max(4_096),
   /** Largest the writable scratch directory may grow (a prepared Python environment lives there). */
   maxScratchMb: z.number().int().positive().max(20_480).optional(),
   /** Longest the whole lab may exist; afterwards it is killed whatever it is doing. */
-  labTimeoutSeconds: z.number().int().positive().max(24 * 3_600).optional(),
+  labTimeoutSeconds: z
+    .number()
+    .int()
+    .positive()
+    .max(24 * 3_600)
+    .optional(),
 });
 
 export const LabSpecSchema = z
@@ -56,9 +74,7 @@ export const LabSpecSchema = z
     expectedImageId: ImageIdSchema,
     /** The container platform the lab runs on; the image must be built for exactly this platform. */
     platform: ContainerPlatformSchema,
-    workdir: z
-      .string()
-      .regex(/^\/workspace(?:\/[A-Za-z0-9._-]+)+$/u, "workdir must be beneath /workspace"),
+    workdir: z.string().regex(/^\/workspace(?:\/[A-Za-z0-9._-]+)+$/u, "workdir must be beneath /workspace"),
     artifactsDir: WorkspaceRelativePathSchema,
     /** Optional writable directory for agent-authored scripts; created empty for every lab. */
     scratchDir: WorkspaceRelativePathSchema.optional(),

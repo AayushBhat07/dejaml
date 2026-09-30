@@ -9,7 +9,10 @@ const RepoPath = z
   .string()
   .min(1)
   .max(300)
-  .refine((value) => !value.startsWith("/") && !value.includes("\\") && !value.split("/").includes(".."), "expected a path inside the repository");
+  .refine(
+    (value) => !value.startsWith("/") && !value.includes("\\") && !value.split("/").includes(".."),
+    "expected a path inside the repository",
+  );
 
 /**
  * The stages of a study. The orchestrator is a persisted state machine over
@@ -34,7 +37,13 @@ export const StudyStageSchema = z.enum([
 ]);
 export type StudyStage = z.infer<typeof StudyStageSchema>;
 
-export const TERMINAL_STUDY_STAGES = ["completed", "inconclusive", "policy_blocked", "failed", "cancelled"] as const satisfies readonly StudyStage[];
+export const TERMINAL_STUDY_STAGES = [
+  "completed",
+  "inconclusive",
+  "policy_blocked",
+  "failed",
+  "cancelled",
+] as const satisfies readonly StudyStage[];
 export type TerminalStudyStage = (typeof TERMINAL_STUDY_STAGES)[number];
 
 /** Work stages in dependency order. `debugging` runs inside `executing`, on request. */
@@ -111,7 +120,10 @@ export const MetricParserSchema = z.discriminatedUnion("source", [
   z.object({
     source: z.literal("json"),
     /** File under `artifacts/` written by the official run. */
-    path: z.string().regex(/^artifacts\/[A-Za-z0-9._/-]{1,200}$/u).refine((value) => !value.split("/").includes(".."), "no `..`"),
+    path: z
+      .string()
+      .regex(/^artifacts\/[A-Za-z0-9._/-]{1,200}$/u)
+      .refine((value) => !value.split("/").includes(".."), "no `..`"),
     /** Dot path to the number, such as `metrics.accuracy`. */
     key: z.string().regex(/^[A-Za-z0-9_-]+(\.[A-Za-z0-9_-]+){0,9}$/u),
     /** The unit the code writes, when it differs from the paper's (fraction vs percent). */
@@ -142,7 +154,11 @@ export const ClaimContractSchema = z.object({
       z.object({ kind: z.literal("repository"), paths: z.array(RepoPath).min(1).max(20) }),
       z.object({ kind: z.literal("download"), url: z.url(), sha256: Sha256.nullable(), extract: z.boolean() }),
       /** Data shipped inside an exactly pinned, hash-verified wheel from the prepared environment. */
-      z.object({ kind: z.literal("package"), package: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/u), path: z.string().min(1).max(300) }),
+      z.object({
+        kind: z.literal("package"),
+        package: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/u),
+        path: z.string().min(1).max(300),
+      }),
     ]),
   }),
   split: z.string().min(1).max(300),
@@ -150,7 +166,11 @@ export const ClaimContractSchema = z.object({
   seedPolicy: z.string().min(1).max(500),
   metric: z.object({ name: z.string().min(1).max(200), unit: z.enum(["fraction", "percent", "score"]) }),
   reportedValue: z.number().finite(),
-  paperReference: z.object({ page: z.number().int().positive(), location: z.string().min(1).max(200), excerpt: z.string().min(1).max(1_000) }),
+  paperReference: z.object({
+    page: z.number().int().positive(),
+    location: z.string().min(1).max(200),
+    excerpt: z.string().min(1).max(1_000),
+  }),
   repository: z.object({ url: z.string().min(1), commitSha: CommitSha }),
   entrypoint: RepoPath,
   /** The exact command, run from `cwd` (relative to the lab workspace). */
@@ -161,7 +181,11 @@ export const ClaimContractSchema = z.object({
     /** Project-owned compatibility constraints, each shown in the report. */
     compatibilityConstraints: z.array(z.object({ requirement: z.string().max(300), reason: z.string().min(1).max(500) })).max(30),
   }),
-  expectedRuntimeSeconds: z.number().int().positive().max(24 * 3_600),
+  expectedRuntimeSeconds: z
+    .number()
+    .int()
+    .positive()
+    .max(24 * 3_600),
   metricParser: MetricParserSchema,
   tolerance: z.number().nonnegative(),
   stopConditions: z.array(z.string().min(1).max(300)).min(1).max(10),

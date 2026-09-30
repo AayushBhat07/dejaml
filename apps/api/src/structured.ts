@@ -39,13 +39,25 @@ export class ChatStructuredClient implements StructuredModelClient {
     const value = parseStructuredJson(response.text ?? "", request.schema);
     this.#sessions.set(request.sessionId, {
       system: session.system,
-      messages: [...messages, { role: "assistant", text: response.text, toolCalls: [], ...(response.providerContent ? { providerContent: response.providerContent } : {}) }],
+      messages: [
+        ...messages,
+        {
+          role: "assistant",
+          text: response.text,
+          toolCalls: [],
+          ...(response.providerContent ? { providerContent: response.providerContent } : {}),
+        },
+      ],
     });
     return {
       value,
       provider: this.#provider.id,
       model: response.model,
-      usage: { input: response.usage.inputTokens, output: response.usage.outputTokens, total: response.usage.inputTokens + response.usage.outputTokens },
+      usage: {
+        input: response.usage.inputTokens,
+        output: response.usage.outputTokens,
+        total: response.usage.inputTokens + response.usage.outputTokens,
+      },
     };
   }
 }

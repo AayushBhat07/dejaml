@@ -66,7 +66,10 @@ function toNumber(raw: string | null | undefined): number | null {
  * Parses the metric. For stdout, the last match counts (training scripts often
  * print intermediate values first); the number of matches is reported.
  */
-export async function parseMetric(parser: MetricParser, output: { stdout: string; artifacts: ReadonlyMap<string, string | null> }): Promise<ParsedMetric> {
+export async function parseMetric(
+  parser: MetricParser,
+  output: { stdout: string; artifacts: ReadonlyMap<string, string | null> },
+): Promise<ParsedMetric> {
   const unit = parser.unit ?? null;
   if (parser.source === "stdout") {
     let found: Array<string | null>;

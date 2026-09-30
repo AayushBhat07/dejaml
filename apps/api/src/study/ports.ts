@@ -55,7 +55,11 @@ export function localDatasetPort(policy: FetchPolicy): DatasetPort {
             bytes: identity.bytes,
             checksumVerified: identity.checksumVerified,
             extracted: identity.extracted
-              ? { fileCount: identity.extracted.fileCount, totalBytes: identity.extracted.totalBytes, listingDigest: identity.extracted.listingDigest }
+              ? {
+                  fileCount: identity.extracted.fileCount,
+                  totalBytes: identity.extracted.totalBytes,
+                  listingDigest: identity.extracted.listingDigest,
+                }
               : null,
             fetchedAt: identity.fetchedAt,
           },
@@ -109,7 +113,11 @@ export function screenRequirements(requirements: string[]): DependencyScreen {
   const parsed: ParsedRequirement[] = [];
   for (const line of requirements) {
     if (/^\s*-/u.test(line) && isAcceleratorIndexUrl(line)) {
-      refused.push({ requirement: line, code: "accelerator_package_refused", reason: "accelerator package indexes are refused under the CPU-only policy" });
+      refused.push({
+        requirement: line,
+        code: "accelerator_package_refused",
+        reason: "accelerator package indexes are refused under the CPU-only policy",
+      });
       continue;
     }
     const result = parseRequirementLine(line);
@@ -117,7 +125,11 @@ export function screenRequirements(requirements: string[]): DependencyScreen {
     else if (result.requirement) parsed.push(result.requirement);
   }
   for (const finding of findAcceleratorRequirements(parsed)) {
-    refused.push({ requirement: finding.spec, code: "accelerator_package_refused", reason: `${finding.reason}; only CPU packages are prepared` });
+    refused.push({
+      requirement: finding.spec,
+      code: "accelerator_package_refused",
+      reason: `${finding.reason}; only CPU packages are prepared`,
+    });
   }
   return { refused };
 }
@@ -135,7 +147,11 @@ export function preparerPort(preparer: DependencyPreparer): DependencyPort {
         const resolution = await preparer.resolvePython({ runId, platform, requirements, signal });
         return {
           ok: true,
-          detail: { packages: resolution.packages.map((pkg) => `${pkg.name}==${pkg.version}`), resolver: resolution.resolver.mode, platform: platform.containerPlatform },
+          detail: {
+            packages: resolution.packages.map((pkg) => `${pkg.name}==${pkg.version}`),
+            resolver: resolution.resolver.mode,
+            platform: platform.containerPlatform,
+          },
         };
       } catch (error) {
         if (error instanceof PrepError && (error.code === "no_compatible_wheel" || error.code === "resolution_conflict")) {
@@ -196,7 +212,13 @@ export function preparedFromManifest(manifest: DependencyManifest, manifestSha25
       (change) =>
         `${change.name}: repository asked for ${change.repository.join(", ") || "nothing (transitive)"}; constraint ${change.constraint} resolved ${change.resolved ?? "not needed"} (${change.reason})`,
     ),
-    receipts: { resolver: manifest.resolver, cache: manifest.cache, disk: manifest.disk, cleanup: manifest.cleanup, rejected: manifest.rejected },
+    receipts: {
+      resolver: manifest.resolver,
+      cache: manifest.cache,
+      disk: manifest.disk,
+      cleanup: manifest.cleanup,
+      rejected: manifest.rejected,
+    },
   };
 }
 
@@ -210,9 +232,20 @@ export function readinessLabImagePort(input: { readiness: ImageReadiness; lock: 
   return {
     async ensure({ platform, signal }) {
       try {
-        const request = pythonBaseImageRequest({ lock: input.lock, python: platform.python.version, platform: platform.containerPlatform, contextDir: input.contextDir });
+        const request = pythonBaseImageRequest({
+          lock: input.lock,
+          python: platform.python.version,
+          platform: platform.containerPlatform,
+          contextDir: input.contextDir,
+        });
         const ready = await input.readiness.ensure(request, signal);
-        return { name: ready.reference, imageId: ready.imageId, digest: ready.digest, containerPlatform: ready.platform, python: ready.python ?? platform.python.version };
+        return {
+          name: ready.reference,
+          imageId: ready.imageId,
+          digest: ready.digest,
+          containerPlatform: ready.platform,
+          python: ready.python ?? platform.python.version,
+        };
       } catch (error) {
         if (error instanceof ImageNotReadyError) throw new PreparationFailure(`lab_image_${error.code}`, error.message, "failed");
         throw error;
@@ -229,7 +262,13 @@ export function readinessLabImagePort(input: { readiness: ImageReadiness; lock: 
 export function fixedLabImagePort(image: { name: string; expectedImageId: string }): LabImagePort {
   return {
     async ensure({ platform }) {
-      return { name: image.name, imageId: image.expectedImageId, digest: null, containerPlatform: platform.containerPlatform, python: platform.python.version };
+      return {
+        name: image.name,
+        imageId: image.expectedImageId,
+        digest: null,
+        containerPlatform: platform.containerPlatform,
+        python: platform.python.version,
+      };
     },
   };
 }

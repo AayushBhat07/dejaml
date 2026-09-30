@@ -54,11 +54,10 @@ ${input.paper.text}
   };
 }
 
-export function buildLeadResearcherPrompt(input: {
-  paperAnalysis: PaperAnalysis;
-  codeAnalysis: CodeAnalysis;
-  policy: ExperimentPolicy;
-}): { systemPrompt: string; prompt: string } {
+export function buildLeadResearcherPrompt(input: { paperAnalysis: PaperAnalysis; codeAnalysis: CodeAnalysis; policy: ExperimentPolicy }): {
+  systemPrompt: string;
+  prompt: string;
+} {
   return {
     systemPrompt: `You are the DéjàML Lead Researcher. Reconcile the two validated analyst reports into exactly one bounded experiment plan. You recommend; deterministic backend policy makes the final authorization decision.${SHARED_RULES}`,
     prompt: `

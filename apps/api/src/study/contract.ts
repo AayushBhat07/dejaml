@@ -86,13 +86,17 @@ function normalizeText(text: string): string {
 }
 
 /** The claim's excerpt must be copied from its page and contain the reported value as a number. */
-export function checkExcerpt(claim: Pick<PaperClaim, "page" | "excerpt" | "reportedValue">, pages: ReadonlyArray<{ pageNumber: number; text: string }>): string | null {
+export function checkExcerpt(
+  claim: Pick<PaperClaim, "page" | "excerpt" | "reportedValue">,
+  pages: ReadonlyArray<{ pageNumber: number; text: string }>,
+): string | null {
   const page = pages.find((item) => item.pageNumber === claim.page);
   if (!page) return `the claim cites page ${claim.page}, which the paper does not have`;
   const excerpt = normalizeText(claim.excerpt);
   if (!normalizeText(page.text).includes(excerpt)) return `the claim's excerpt is not on page ${claim.page} verbatim`;
   const numbers = excerpt.match(/-?\d+(?:\.\d+)?/gu) ?? [];
-  if (!numbers.some((item) => Number(item) === claim.reportedValue)) return `the claim's excerpt does not contain the reported value ${claim.reportedValue}`;
+  if (!numbers.some((item) => Number(item) === claim.reportedValue))
+    return `the claim's excerpt does not contain the reported value ${claim.reportedValue}`;
   return null;
 }
 
@@ -138,8 +142,10 @@ export function reviewPolicy(input: {
   const exists = (path: string): boolean =>
     input.repository.files.has(path) || [...input.repository.files].some((file) => file.startsWith(`${path.replace(/\/$/u, "")}/`));
 
-  if (contract.repository.commitSha !== input.repository.commitSha) unusable.push("the contract names a different commit than the pinned checkout");
-  if (!input.repository.files.has(contract.entrypoint)) unusable.push(`the entry point ${contract.entrypoint} is not a file in the pinned checkout`);
+  if (contract.repository.commitSha !== input.repository.commitSha)
+    unusable.push("the contract names a different commit than the pinned checkout");
+  if (!input.repository.files.has(contract.entrypoint))
+    unusable.push(`the entry point ${contract.entrypoint} is not a file in the pinned checkout`);
 
   // The command: `python <script> [args]`, where the script resolves to the entry point or the declared adapter.
   const [program, script] = contract.command.argv;
@@ -149,7 +155,9 @@ export function reviewPolicy(input: {
   if (script === undefined || script.startsWith("-")) {
     unusable.push("the command must name a script file (no `-c` or `-m`)");
   } else {
-    const resolved = posix.isAbsolute(script) ? posix.normalize(script).replace(/^\/workspace\/case\//u, "") : posix.normalize(posix.join(cwd, script));
+    const resolved = posix.isAbsolute(script)
+      ? posix.normalize(script).replace(/^\/workspace\/case\//u, "")
+      : posix.normalize(posix.join(cwd, script));
     const allowed = new Set([posix.join(cwd, contract.entrypoint), ...(adapter ? [adapter.path] : [])]);
     if (!allowed.has(resolved)) unusable.push(`the command runs ${script}, which is neither the entry point nor the declared adapter`);
   }
@@ -174,8 +182,10 @@ export function reviewPolicy(input: {
       const match = /^\s*([A-Za-z0-9][A-Za-z0-9._-]*)\s*===?\s*[A-Za-z0-9.+!_-]+\s*$/u.exec(line);
       return match !== null && packageName(match[1] ?? "") === name;
     });
-    if (!pinned) unusable.push(`the dataset comes from package ${source.package}, which the plan must pin exactly (${source.package}==<version>)`);
-    if (source.path.split("/").includes("..") || source.path.startsWith("/")) unusable.push("the dataset path inside the package must be relative");
+    if (!pinned)
+      unusable.push(`the dataset comes from package ${source.package}, which the plan must pin exactly (${source.package}==<version>)`);
+    if (source.path.split("/").includes("..") || source.path.startsWith("/"))
+      unusable.push("the dataset path inside the package must be relative");
   } else {
     let host = "";
     try {
@@ -213,7 +223,9 @@ export function reviewPolicy(input: {
   }
 
   if (contract.expectedRuntimeSeconds > input.commandTimeoutSeconds) {
-    blocked.push(`the expected runtime (${contract.expectedRuntimeSeconds} s) exceeds the lab's command limit (${input.commandTimeoutSeconds} s)`);
+    blocked.push(
+      `the expected runtime (${contract.expectedRuntimeSeconds} s) exceeds the lab's command limit (${input.commandTimeoutSeconds} s)`,
+    );
   }
   if (contract.metricParser.source === "stdout") {
     const problem = checkMetricPattern(contract.metricParser.pattern);

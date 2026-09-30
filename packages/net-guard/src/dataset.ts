@@ -278,6 +278,7 @@ export async function acquireLabDataset(options: LabDatasetOptions): Promise<Lab
     typeof options.name !== "string" ||
     options.name.trim() === "" ||
     options.name.length > MAX_NAME_LENGTH ||
+    // eslint-disable-next-line no-control-regex -- rejects control characters
     /[\u0000-\u001f\u007f]/u.test(options.name)
   ) {
     throw new DatasetError("invalid_policy", "Dataset name must be 1-200 printable characters");
@@ -319,15 +320,11 @@ export async function acquireLabDataset(options: LabDatasetOptions): Promise<Lab
 
     let extracted: DatasetExtraction | null = null;
     if (options.extract === true) {
-      const result = await extractArchive(
-        await readFile(receipt.path),
-        join(destinationDir, LAB_DATASET_EXTRACTED_DIR),
-        {
-          gzipMemberName: gzipMemberName(receipt.fileName),
-          ...(options.archiveLimits === undefined ? {} : { limits: options.archiveLimits }),
-          ...(signal === undefined ? {} : { signal }),
-        },
-      );
+      const result = await extractArchive(await readFile(receipt.path), join(destinationDir, LAB_DATASET_EXTRACTED_DIR), {
+        gzipMemberName: gzipMemberName(receipt.fileName),
+        ...(options.archiveLimits === undefined ? {} : { limits: options.archiveLimits }),
+        ...(signal === undefined ? {} : { signal }),
+      });
       extracted = {
         format: result.format,
         files: result.files,

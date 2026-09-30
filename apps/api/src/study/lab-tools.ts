@@ -65,7 +65,12 @@ export async function runInLab(
     outcome = await ctx.labs.runCommand(
       lab.labId,
       { ...command, cwd, env },
-      { timeoutSeconds: Math.min(timeoutSeconds, ctx.config.commandTimeoutSeconds), step: lab.commands.length + 1, observe: true, agent: lab.label },
+      {
+        timeoutSeconds: Math.min(timeoutSeconds, ctx.config.commandTimeoutSeconds),
+        step: lab.commands.length + 1,
+        observe: true,
+        agent: lab.label,
+      },
     );
   } catch (error) {
     if (error instanceof LabError && error.code === "command_rejected") throw new ToolDenied(error.message);
@@ -158,12 +163,23 @@ export async function measureIntegrity(ctx: StudyContext, lab: EngineerLab, data
     ctx,
     lab,
     orchestratorActor(),
-    ["python", "-I", "-S", "-c", INTEGRITY_SCRIPT, `${LAB_LAYOUT.workdir}/${LAB_LAYOUT.workRepo}`, LAB_LAYOUT.venv, JSON.stringify(dataPaths), `${LAB_LAYOUT.workdir}/${LAB_LAYOUT.adapterDir}`],
+    [
+      "python",
+      "-I",
+      "-S",
+      "-c",
+      INTEGRITY_SCRIPT,
+      `${LAB_LAYOUT.workdir}/${LAB_LAYOUT.workRepo}`,
+      LAB_LAYOUT.venv,
+      JSON.stringify(dataPaths),
+      `${LAB_LAYOUT.workdir}/${LAB_LAYOUT.adapterDir}`,
+    ],
     LAB_LAYOUT.workdir,
     {},
     300,
   );
-  if (record.exitCode !== 0) throw new PreparationFailure("integrity_check_failed", `the lab's integrity check failed: ${record.stderrTail.slice(-500)}`, "failed");
+  if (record.exitCode !== 0)
+    throw new PreparationFailure("integrity_check_failed", `the lab's integrity check failed: ${record.stderrTail.slice(-500)}`, "failed");
   const parsed = JSON.parse(record.stdoutTail) as { workRepo: string | null; venv: string | null; adapter?: string | null };
   return { workRepo: parsed.workRepo, venv: parsed.venv, adapter: parsed.adapter ?? null };
 }
@@ -211,9 +227,16 @@ export function labTools(ctx: StudyContext): ToolDefinition[] {
     defineTool({
       name: "lab_read",
       description: "Read a file in the lab, relative to /workspace/case.",
-      input: z.object({ path: RelativePathInput, offset: z.number().int().nonnegative().default(0), maxBytes: z.number().int().positive().max(MAX_READ_BYTES).default(MAX_READ_BYTES) }),
+      input: z.object({
+        path: RelativePathInput,
+        offset: z.number().int().nonnegative().default(0),
+        maxBytes: z.number().int().positive().max(MAX_READ_BYTES).default(MAX_READ_BYTES),
+      }),
       async run(input, context) {
-        return ok(`Read ${input.path}`, await inspect(context.agentId, { op: "read", path: input.path, offset: input.offset, maxBytes: input.maxBytes }));
+        return ok(
+          `Read ${input.path}`,
+          await inspect(context.agentId, { op: "read", path: input.path, offset: input.offset, maxBytes: input.maxBytes }),
+        );
       },
     }),
     defineTool({
@@ -221,7 +244,10 @@ export function labTools(ctx: StudyContext): ToolDefinition[] {
       description: "Search files in the lab for a regular expression, relative to /workspace/case.",
       input: z.object({ path: RelativePathInput.default("."), pattern: z.string().min(1).max(200) }),
       async run(input, context) {
-        return ok(`Searched ${input.path} for ${input.pattern}`, await inspect(context.agentId, { op: "search", path: input.path, pattern: input.pattern, maxMatches: MAX_SEARCH_MATCHES }));
+        return ok(
+          `Searched ${input.path} for ${input.pattern}`,
+          await inspect(context.agentId, { op: "search", path: input.path, pattern: input.pattern, maxMatches: MAX_SEARCH_MATCHES }),
+        );
       },
     }),
     defineTool({
@@ -231,7 +257,8 @@ export function labTools(ctx: StudyContext): ToolDefinition[] {
       async run(input, context) {
         const lab = requireLab(ctx, context.agentId);
         const record = input.receiptId ? lab.commands.find((item) => item.receiptId === input.receiptId) : lab.commands.at(-1);
-        if (!record) throw new ToolDenied(input.receiptId ? `no command with receipt ${input.receiptId} in this lab` : "no command has run yet");
+        if (!record)
+          throw new ToolDenied(input.receiptId ? `no command with receipt ${input.receiptId} in this lab` : "no command has run yet");
         return ok(`Logs of ${record.receiptId}`, commandView(record, 12_000));
       },
     }),
@@ -252,14 +279,19 @@ export function labTools(ctx: StudyContext): ToolDefinition[] {
       input: z.object({
         argv: z.array(z.string().max(20_000)).min(1).max(200),
         cwd: z.string().max(300).optional(),
-        env: z.record(z.string().regex(/^[A-Z_][A-Z0-9_]*$/u), z.string().max(1_000)).optional().describe("Extra environment variables (PATH, HOME, PYTHONPATH and LD_* are not allowed)."),
+        env: z
+          .record(z.string().regex(/^[A-Z_][A-Z0-9_]*$/u), z.string().max(1_000))
+          .optional()
+          .describe("Extra environment variables (PATH, HOME, PYTHONPATH and LD_* are not allowed)."),
         timeoutSeconds: z.number().int().min(1).max(3_600).default(300),
       }),
       async run(input, context) {
         const lab = ownLab(context);
         const record = await runInLab(ctx, lab, context, input.argv, labCwd(input.cwd), input.env ?? {}, input.timeoutSeconds);
         const summary = `exit ${String(record.exitCode)}${record.timedOut ? " (timed out)" : ""}: ${input.argv.join(" ").slice(0, 160)}`;
-        return record.exitCode === 0 ? ok(summary, commandView(record), { exitCode: record.exitCode }) : failed(summary, commandView(record), { exitCode: record.exitCode });
+        return record.exitCode === 0
+          ? ok(summary, commandView(record), { exitCode: record.exitCode })
+          : failed(summary, commandView(record), { exitCode: record.exitCode });
       },
     }),
     defineTool({
@@ -281,24 +313,47 @@ export function labTools(ctx: StudyContext): ToolDefinition[] {
           now.adapter !== lab.integrity.adapter ? "the approved adapter" : null,
         ].filter(Boolean);
         if (changed.length) {
-          return { ...failed("Refused: the prepared state changed", `Refused: ${changed.join(" and ")} changed since the lab was set up. The approved command runs only on the prepared state; report the change as a deviation or request a re-plan with dependency_request.`), status: "denied" };
+          return {
+            ...failed(
+              "Refused: the prepared state changed",
+              `Refused: ${changed.join(" and ")} changed since the lab was set up. The approved command runs only on the prepared state; report the change as a deviation or request a re-plan with dependency_request.`,
+            ),
+            status: "denied",
+          };
         }
         const [, ...args] = approved.command.argv;
         const timeout = Math.min(ctx.config.commandTimeoutSeconds, Math.max(120, approved.expectedRuntimeSeconds * 4));
-        const record = await runInLab(ctx, lab, context, [`${LAB_LAYOUT.venv}/bin/python`, ...args], posix.join(LAB_LAYOUT.workdir, approved.command.cwd), {}, timeout, { official: true });
-        ctx.event("official_run", record.exitCode === 0 ? "completed" : "warning", `${lab.label} ran the approved command: exit ${String(record.exitCode)}${record.timedOut ? " (timed out)" : ""}`, {
-          engineer: lab.label,
-          receiptId: record.receiptId,
-          exitCode: record.exitCode,
-          durationMs: record.durationMs,
-        });
+        const record = await runInLab(
+          ctx,
+          lab,
+          context,
+          [`${LAB_LAYOUT.venv}/bin/python`, ...args],
+          posix.join(LAB_LAYOUT.workdir, approved.command.cwd),
+          {},
+          timeout,
+          { official: true },
+        );
+        ctx.event(
+          "official_run",
+          record.exitCode === 0 ? "completed" : "warning",
+          `${lab.label} ran the approved command: exit ${String(record.exitCode)}${record.timedOut ? " (timed out)" : ""}`,
+          {
+            engineer: lab.label,
+            receiptId: record.receiptId,
+            exitCode: record.exitCode,
+            durationMs: record.durationMs,
+          },
+        );
         const summary = `approved command exit ${String(record.exitCode)}${record.timedOut ? " (timed out)" : ""}`;
-        return record.exitCode === 0 ? ok(summary, commandView(record), { exitCode: record.exitCode, official: true }) : failed(summary, commandView(record), { exitCode: record.exitCode, official: true });
+        return record.exitCode === 0
+          ? ok(summary, commandView(record), { exitCode: record.exitCode, official: true })
+          : failed(summary, commandView(record), { exitCode: record.exitCode, official: true });
       },
     }),
     defineTool({
       name: "lab_destroy",
-      description: "Tell the lab you are done: its artifacts are exported and the lab is destroyed. Lab tools stop working afterwards; call finish next.",
+      description:
+        "Tell the lab you are done: its artifacts are exported and the lab is destroyed. Lab tools stop working afterwards; call finish next.",
       input: z.object({ reason: z.string().min(1).max(300) }),
       async run(input, context) {
         const lab = ownLab(context);
@@ -317,7 +372,13 @@ export function labTools(ctx: StudyContext): ToolDefinition[] {
           manifestSha256: prepared.manifestSha256,
           python: prepared.python,
           platform: prepared.containerPlatform,
-          packages: prepared.packages.map((item) => ({ name: item.name, version: item.version, filename: item.filename, tags: item.tags, sha256: item.sha256 })),
+          packages: prepared.packages.map((item) => ({
+            name: item.name,
+            version: item.version,
+            filename: item.filename,
+            tags: item.tags,
+            sha256: item.sha256,
+          })),
           compatibilityChanges: prepared.changes,
         });
       },
@@ -347,8 +408,17 @@ export function labTools(ctx: StudyContext): ToolDefinition[] {
       async run(input, context) {
         const lab = ownLab(context);
         lab.dependencyRequest = { requirements: input.requirements, reason: input.reason };
-        context.board.post({ kind: "dependency_request", authorAgentId: context.agentId, authorRole: context.role, key: lab.agentId, payload: { requirements: input.requirements, reason: input.reason } });
-        return ok("Dependency request recorded", "Recorded. The Supervisor and Planner will decide on a re-plan; finish now as not_measured.");
+        context.board.post({
+          kind: "dependency_request",
+          authorAgentId: context.agentId,
+          authorRole: context.role,
+          key: lab.agentId,
+          payload: { requirements: input.requirements, reason: input.reason },
+        });
+        return ok(
+          "Dependency request recorded",
+          "Recorded. The Supervisor and Planner will decide on a re-plan; finish now as not_measured.",
+        );
       },
     }),
     defineTool({
@@ -361,14 +431,26 @@ export function labTools(ctx: StudyContext): ToolDefinition[] {
       }),
       async run(input, context) {
         if (!ctx.dependencies) throw new ToolDenied("dependency preparation is disabled on this server");
-        const platform = { ...ctx.config.platform, python: { ...ctx.config.platform.python, version: input.python, abi: `cp${input.python.replace(".", "")}` } };
+        const platform = {
+          ...ctx.config.platform,
+          python: { ...ctx.config.platform.python, version: input.python, abi: `cp${input.python.replace(".", "")}` },
+        };
         const screen = ctx.dependencies.screen(input.requirements, platform);
-        if (screen.refused.length) return failed("Some requirements are refused by policy", screen.refused, { refused: screen.refused.length });
+        if (screen.refused.length)
+          return failed("Some requirements are refused by policy", screen.refused, { refused: screen.refused.length });
         try {
-          const result = await ctx.dependencies.check({ runId: ctx.runId, platform, requirements: input.requirements, signal: context.signal });
-          return result.ok ? ok("Binary wheels exist for every requirement", result.detail) : failed("Some requirements have no compatible wheel", result.detail);
+          const result = await ctx.dependencies.check({
+            runId: ctx.runId,
+            platform,
+            requirements: input.requirements,
+            signal: context.signal,
+          });
+          return result.ok
+            ? ok("Binary wheels exist for every requirement", result.detail)
+            : failed("Some requirements have no compatible wheel", result.detail);
         } catch (error) {
-          if (error instanceof PreparationFailure) return failed(`Check failed: ${error.code}`, { code: error.code, message: error.message, requirement: error.requirement });
+          if (error instanceof PreparationFailure)
+            return failed(`Check failed: ${error.code}`, { code: error.code, message: error.message, requirement: error.requirement });
           throw error;
         }
       },
@@ -407,26 +489,40 @@ export function labTools(ctx: StudyContext): ToolDefinition[] {
         if (outcome.status !== "completed" || !outcome.result) {
           return failed(`The Debugger did not finish (${outcome.status})`, outcome.reason ?? outcome.status);
         }
-        context.board.post({ kind: "diagnosis", authorAgentId: helper.agentId, authorRole: "debugger", key: lab.agentId, payload: outcome.result });
+        context.board.post({
+          kind: "diagnosis",
+          authorAgentId: helper.agentId,
+          authorRole: "debugger",
+          key: lab.agentId,
+          payload: outcome.result,
+        });
         return ok(`Diagnosis from ${helper.agentId}`, outcome.result, { debuggerAgentId: helper.agentId });
       },
     }),
     defineTool({
       name: "artifact_read",
-      description: "Read an artifact exported from a finished engineer's lab. Give the engineer's agent id (the submission key) and the artifact path.",
+      description:
+        "Read an artifact exported from a finished engineer's lab. Give the engineer's agent id (the submission key) and the artifact path.",
       input: z.object({ engineerAgentId: z.string().min(1).max(100), path: z.string().min(1).max(300) }),
       async run(input) {
         const exported = ctx.exports.get(input.engineerAgentId);
         if (!exported) throw new ToolDenied("no exported artifacts for that engineer");
         const item = exported.find((artifact) => artifact.path === input.path);
         if (!item) throw new ToolDenied(`not exported; available: ${exported.map((artifact) => artifact.path).join(", ") || "none"}`);
-        if (item.text === null) return ok(`${item.path} is binary`, { path: item.path, sha256: item.sha256, bytes: item.bytes, binary: true });
-        return ok(`Read ${item.path}`, { path: item.path, sha256: item.sha256, bytes: item.bytes, content: item.text.slice(0, MAX_READ_BYTES) });
+        if (item.text === null)
+          return ok(`${item.path} is binary`, { path: item.path, sha256: item.sha256, bytes: item.bytes, binary: true });
+        return ok(`Read ${item.path}`, {
+          path: item.path,
+          sha256: item.sha256,
+          bytes: item.bytes,
+          content: item.text.slice(0, MAX_READ_BYTES),
+        });
       },
     }),
     defineTool({
       name: "logs_read",
-      description: "Read the bounded stdout and stderr of a command a finished engineer ran, by the engineer's agent id and the receipt id.",
+      description:
+        "Read the bounded stdout and stderr of a command a finished engineer ran, by the engineer's agent id and the receipt id.",
       input: z.object({ engineerAgentId: z.string().min(1).max(100), receiptId: z.string().min(1).max(100) }),
       async run(input) {
         const lab = ctx.labsByAgent.get(input.engineerAgentId);

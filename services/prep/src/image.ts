@@ -53,7 +53,8 @@ export type PinnedReference = {
   digestReference: string;
 };
 
-const PINNED = /^((?:[a-z0-9][a-z0-9._-]*(?::\d{1,5})?\/)*[a-z0-9][a-z0-9._-]*)(?::([A-Za-z0-9_][A-Za-z0-9_.-]{0,127}))?@(sha256:[a-f0-9]{64})$/u;
+const PINNED =
+  /^((?:[a-z0-9][a-z0-9._-]*(?::\d{1,5})?\/)*[a-z0-9][a-z0-9._-]*)(?::([A-Za-z0-9_][A-Za-z0-9_.-]{0,127}))?@(sha256:[a-f0-9]{64})$/u;
 
 export function canonicalRepository(repository: string): string {
   return repository.replace(/^(docker\.io|index\.docker\.io|registry-1\.docker\.io)\//u, "").replace(/^library\//u, "");
@@ -63,7 +64,10 @@ export function canonicalRepository(repository: string): string {
 export function parsePinnedReference(reference: string): PinnedReference {
   const match = PINNED.exec(reference.trim());
   if (!match?.[1] || !match[3]) {
-    throw new PrepError("invalid_policy", `preparation image ${reference.slice(0, 200)} must be pinned by digest (name:tag@sha256:<64 hex>)`);
+    throw new PrepError(
+      "invalid_policy",
+      `preparation image ${reference.slice(0, 200)} must be pinned by digest (name:tag@sha256:<64 hex>)`,
+    );
   }
   const repository = canonicalRepository(match[1]);
   return { reference: reference.trim(), repository, tag: match[2] ?? null, digest: match[3], digestReference: `${match[1]}@${match[3]}` };
@@ -147,7 +151,10 @@ export class DockerPrepImageProvider implements PrepImageProvider {
   async #inspect(pinned: PinnedReference, platform: ContainerPlatform, signal: AbortSignal | undefined): Promise<InspectOutcome> {
     const options = { ...(signal ? { signal } : {}), maxOutputBytes: 64 * 1024 };
     let usedPlatformFlag = true;
-    let result = await this.#runtime.docker(["image", "inspect", "--platform", platform, "--format", INSPECT_FORMAT, pinned.digestReference], options);
+    let result = await this.#runtime.docker(
+      ["image", "inspect", "--platform", platform, "--format", INSPECT_FORMAT, pinned.digestReference],
+      options,
+    );
     if (result.exitCode !== 0 && /unknown flag: --platform/u.test(result.stderr.text)) {
       // Docker before 28 cannot inspect a single platform; compare the image's own platform instead.
       usedPlatformFlag = false;
@@ -161,7 +168,8 @@ export class DockerPrepImageProvider implements PrepImageProvider {
     }
     const line = result.stdout.text.trim().split("\n").at(-1) ?? "";
     const [imageId = "", os = "", architecture = "", digestsJson = "[]"] = line.split("|");
-    if (!/^sha256:[a-f0-9]{64}$/u.test(imageId)) throw new PrepError("runtime_error", "unexpected image ID format from docker image inspect");
+    if (!/^sha256:[a-f0-9]{64}$/u.test(imageId))
+      throw new PrepError("runtime_error", "unexpected image ID format from docker image inspect");
     if (os === "" || architecture === "") return usedPlatformFlag ? { state: "missing_platform" } : { state: "missing" };
     const found = `${os}/${architecture}`;
     if (os !== "linux" || architectureOf(found) !== architectureOf(platform)) return { state: "wrong_platform", platform: found };

@@ -5,13 +5,7 @@ import { inspect } from "node:util";
 import type { EndpointTransport, Resolver } from "@dejaml/net-guard";
 import { afterEach, describe, expect, it } from "vitest";
 
-import {
-  ProviderConfigError,
-  ProviderSelectionError,
-  createChatProvider,
-  loadProviderConfig,
-  publicProviders,
-} from "./registry.js";
+import { ProviderConfigError, ProviderSelectionError, createChatProvider, loadProviderConfig, publicProviders } from "./registry.js";
 import { fakeFetch, fixture, jsonResponse, recordingSleep, startLocalServer } from "./test-helpers.js";
 import { ProviderError, type ChatRequest } from "./types.js";
 
@@ -108,7 +102,11 @@ describe("loadProviderConfig (server-only keys)", () => {
     }
     // "0" already meant "no uploader keys", so an existing deployment keeps starting.
     expect(publicProviders(loadProviderConfig({ DEJAML_ALLOW_UPLOADER_KEYS: "0" }))).toEqual([]);
-    const legacy = problemsOf({ DEJAML_MODEL: "llama", DEJAML_MODEL_BASE_URL: "http://169.254.169.254/v1", DEJAML_MODEL_API_KEY: "sk-legacy-FIXTURE-0000" });
+    const legacy = problemsOf({
+      DEJAML_MODEL: "llama",
+      DEJAML_MODEL_BASE_URL: "http://169.254.169.254/v1",
+      DEJAML_MODEL_API_KEY: "sk-legacy-FIXTURE-0000",
+    });
     expect(legacy).toHaveLength(1);
     expect(legacy[0]).toMatch(/^DEJAML_MODEL, DEJAML_MODEL_BASE_URL, DEJAML_MODEL_API_KEY are no longer supported/);
     expect(legacy.join("\n")).not.toContain("sk-legacy");
@@ -140,12 +138,18 @@ describe("loadProviderConfig (server-only keys)", () => {
   });
 
   it("requires a model list when an OpenAI key is set", () => {
-    expect(problemsOf({ DEJAML_OPENAI_API_KEY: OPENAI_KEY })).toEqual(["DEJAML_OPENAI_MODELS is required when DEJAML_OPENAI_API_KEY is set"]);
+    expect(problemsOf({ DEJAML_OPENAI_API_KEY: OPENAI_KEY })).toEqual([
+      "DEJAML_OPENAI_MODELS is required when DEJAML_OPENAI_API_KEY is set",
+    ]);
   });
 });
 
 describe("custom endpoint address policy", () => {
-  const custom = (url: string, extra: Record<string, string> = {}) => ({ DEJAML_CUSTOM_BASE_URL: url, DEJAML_CUSTOM_MODELS: "m1", ...extra });
+  const custom = (url: string, extra: Record<string, string> = {}) => ({
+    DEJAML_CUSTOM_BASE_URL: url,
+    DEJAML_CUSTOM_MODELS: "m1",
+    ...extra,
+  });
   const PRIVATE_HINT = " (for a development server set DEJAML_CUSTOM_ALLOW_PRIVATE=1; never in production)";
 
   it.each([
@@ -173,12 +177,16 @@ describe("custom endpoint address policy", () => {
     ]);
   });
 
-  it.each(["https://localhost/v1", "https://app.localhost/v1", "https://gpu.internal/v1", "https://box.local/v1", "https://ollama/v1", "https://metadata.google.internal/v1"])(
-    "refuses the internal name %s by default",
-    (url) => {
-      expect(problemsOf(custom(url))).toEqual([`DEJAML_CUSTOM_BASE_URL uses a local, internal or single-label hostname${PRIVATE_HINT}`]);
-    },
-  );
+  it.each([
+    "https://localhost/v1",
+    "https://app.localhost/v1",
+    "https://gpu.internal/v1",
+    "https://box.local/v1",
+    "https://ollama/v1",
+    "https://metadata.google.internal/v1",
+  ])("refuses the internal name %s by default", (url) => {
+    expect(problemsOf(custom(url))).toEqual([`DEJAML_CUSTOM_BASE_URL uses a local, internal or single-label hostname${PRIVATE_HINT}`]);
+  });
 
   it("refuses non-canonical IPv4 forms", () => {
     for (const url of ["https://0x7f.1/v1", "https://2130706433/v1", "https://0177.0.0.1/v1"]) {
@@ -187,7 +195,13 @@ describe("custom endpoint address policy", () => {
   });
 
   it("allows private networks only with DEJAML_CUSTOM_ALLOW_PRIVATE=1 outside production, and never metadata", () => {
-    for (const url of ["https://10.0.0.5/v1", "https://gpu.internal:8443/v1", "https://ollama/v1", "https://[fd12::1]/v1", "https://100.64.0.1/v1"]) {
+    for (const url of [
+      "https://10.0.0.5/v1",
+      "https://gpu.internal:8443/v1",
+      "https://ollama/v1",
+      "https://[fd12::1]/v1",
+      "https://100.64.0.1/v1",
+    ]) {
       const config = loadProviderConfig(custom(url, { DEJAML_CUSTOM_ALLOW_PRIVATE: "1", NODE_ENV: "development" }));
       expect(config.providers.find((p) => p.id === "custom")?.endpointAccess).toBe("private");
     }
@@ -368,7 +382,12 @@ describe("custom endpoint requests go through the guarded fetch", () => {
       };
       const resolver: Resolver = async () => [answer];
       const err = await catchError(createChatProvider(config, "custom", "m1", { netGuard: { resolver, transport } }).chat(request("m1")));
-      expect([answer.address, err.code, err.details.retryable, err.details.attempts]).toEqual([answer.address, "blocked_endpoint", false, 1]);
+      expect([answer.address, err.code, err.details.retryable, err.details.attempts]).toEqual([
+        answer.address,
+        "blocked_endpoint",
+        false,
+        1,
+      ]);
       expect(transportCalls).toBe(0);
     }
   });

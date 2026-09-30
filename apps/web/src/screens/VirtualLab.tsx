@@ -74,9 +74,7 @@ export function VirtualLab({ events, onCancel }: { events: readonly RunEvent[]; 
       <div className="row space-between">
         <div className="stack-tight">
           <h2 id="lab-title">Virtual Lab</h2>
-          <p className="muted small">
-            One disposable, offline CPU container. Only the approved command runs here.
-          </p>
+          <p className="muted small">One disposable, offline CPU container. Only the approved command runs here.</p>
         </div>
         <div className="row-tight">
           <Badge tone={phase.tone}>{phase.label}</Badge>
@@ -145,8 +143,7 @@ export function VirtualLab({ events, onCancel }: { events: readonly RunEvent[]; 
                 <dd>{lab.isolation.readOnlyRoot ? "Read-only" : "Writable"}</dd>
                 <dt>Limits</dt>
                 <dd>
-                  {lab.isolation.cpus} CPU · {lab.isolation.memoryMb} MB · {lab.isolation.pids} processes ·{" "}
-                  {lab.isolation.timeoutSeconds} s
+                  {lab.isolation.cpus} CPU · {lab.isolation.memoryMb} MB · {lab.isolation.pids} processes · {lab.isolation.timeoutSeconds} s
                 </dd>
               </dl>
             ) : (

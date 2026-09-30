@@ -63,7 +63,10 @@ export type StageTransition = {
 
 /** A stage is already running under another owner whose lease has not expired. */
 export class StageOwnershipError extends Error {
-  constructor(readonly stage: StudyStage, readonly owner: string) {
+  constructor(
+    readonly stage: StudyStage,
+    readonly owner: string,
+  ) {
     super(`stage ${stage} is owned by ${owner}`);
     this.name = "StageOwnershipError";
   }
@@ -134,7 +137,9 @@ export class StudyStages {
       if (this.#stateRow(runId)) throw new StageTransitionError(`study ${runId} already exists`);
       const now = this.#iso();
       this.#db
-        .prepare("INSERT INTO study_state (run_id, inputs_json, terminal, result_status, created_at, updated_at) VALUES (?, ?, NULL, NULL, ?, ?)")
+        .prepare(
+          "INSERT INTO study_state (run_id, inputs_json, terminal, result_status, created_at, updated_at) VALUES (?, ?, NULL, NULL, ?, ?)",
+        )
         .run(runId, JSON.stringify(inputs), now, now);
       for (const stage of WORK_STAGES) {
         this.#db
@@ -218,7 +223,12 @@ export class StudyStages {
         }
       }
       const now = this.#now();
-      if (current.status === "running" && current.owner !== owner && current.leaseExpiresAt && Date.parse(current.leaseExpiresAt) > now.getTime()) {
+      if (
+        current.status === "running" &&
+        current.owner !== owner &&
+        current.leaseExpiresAt &&
+        Date.parse(current.leaseExpiresAt) > now.getTime()
+      ) {
         throw new StageOwnershipError(stage, current.owner ?? "unknown");
       }
       const isRetry = current.attempt > 0;
@@ -233,7 +243,16 @@ export class StudyStages {
           `UPDATE study_stages SET status = 'running', attempt = ?, owner = ?, lease_expires_at = ?, retry_reason = ?, error = NULL,
              started_at = ?, ended_at = NULL, updated_at = ? WHERE run_id = ? AND stage = ?`,
         )
-        .run(attempt, owner, lease, isRetry ? (options.retryReason ?? current.retryReason) : null, now.toISOString(), now.toISOString(), runId, stage);
+        .run(
+          attempt,
+          owner,
+          lease,
+          isRetry ? (options.retryReason ?? current.retryReason) : null,
+          now.toISOString(),
+          now.toISOString(),
+          runId,
+          stage,
+        );
       this.#log(runId, stage, current.status, "running", owner, attempt, isRetry ? (options.retryReason ?? null) : null);
       return { completed: false, record: this.stage(runId, stage) };
     });
@@ -277,7 +296,9 @@ export class StudyStages {
         if (current.status === "pending") continue;
         if (current.status === "running") throw new StageTransitionError(`${name} is running; stop it before invalidating`);
         this.#db
-          .prepare("UPDATE study_stages SET status = 'invalidated', owner = NULL, lease_expires_at = NULL, retry_reason = ?, updated_at = ? WHERE run_id = ? AND stage = ?")
+          .prepare(
+            "UPDATE study_stages SET status = 'invalidated', owner = NULL, lease_expires_at = NULL, retry_reason = ?, updated_at = ? WHERE run_id = ? AND stage = ?",
+          )
           .run(reason, this.#iso(), runId, name);
         this.#log(runId, name, current.status, "invalidated", null, current.attempt, reason);
         changed.push(this.stage(runId, name));
@@ -297,7 +318,9 @@ export class StudyStages {
       for (const record of this.stages(runId)) {
         if (record.status !== "running") continue;
         this.#db
-          .prepare("UPDATE study_stages SET status = 'failed', owner = NULL, lease_expires_at = NULL, retry_reason = 'process_restart', error = ?, ended_at = ?, updated_at = ? WHERE run_id = ? AND stage = ?")
+          .prepare(
+            "UPDATE study_stages SET status = 'failed', owner = NULL, lease_expires_at = NULL, retry_reason = 'process_restart', error = ?, ended_at = ?, updated_at = ? WHERE run_id = ? AND stage = ?",
+          )
           .run("the service restarted while this stage was running", this.#iso(), this.#iso(), runId, record.stage);
         this.#log(runId, record.stage, "running", "failed", record.owner, record.attempt, "process_restart");
         recovered.push(this.stage(runId, record.stage));
@@ -310,24 +333,36 @@ export class StudyStages {
   finish(runId: string, terminal: TerminalStudyStage, resultStatus: StudyResultStatus): StudyStateRecord {
     return this.#tx(() => {
       this.#assertOpen(runId);
-      if (!(TERMINAL_STUDY_STAGES as readonly string[]).includes(terminal)) throw new StageTransitionError(`${terminal} is not a terminal stage`);
+      if (!(TERMINAL_STUDY_STAGES as readonly string[]).includes(terminal))
+        throw new StageTransitionError(`${terminal} is not a terminal stage`);
       StudyResultStatusSchema.parse(resultStatus);
       const now = this.#iso();
       for (const record of this.stages(runId)) {
         if (record.status === "running") {
           this.#db
-            .prepare("UPDATE study_stages SET status = 'failed', owner = NULL, lease_expires_at = NULL, error = ?, ended_at = ?, updated_at = ? WHERE run_id = ? AND stage = ?")
+            .prepare(
+              "UPDATE study_stages SET status = 'failed', owner = NULL, lease_expires_at = NULL, error = ?, ended_at = ?, updated_at = ? WHERE run_id = ? AND stage = ?",
+            )
             .run(`the study ended (${terminal}) while this stage was running`, now, now, runId, record.stage);
           this.#log(runId, record.stage, "running", "failed", record.owner, record.attempt, terminal);
         }
       }
-      this.#db.prepare("UPDATE study_state SET terminal = ?, result_status = ?, updated_at = ? WHERE run_id = ?").run(terminal, resultStatus, now, runId);
+      this.#db
+        .prepare("UPDATE study_state SET terminal = ?, result_status = ?, updated_at = ? WHERE run_id = ?")
+        .run(terminal, resultStatus, now, runId);
       this.#log(runId, terminal, "open", terminal, null, 0, resultStatus);
       return this.state(runId)!;
     });
   }
 
-  #finish(runId: string, stage: WorkStage, owner: string, status: "completed" | "failed" | "skipped", output: Record<string, unknown> | null, error: string | null): StageRecord {
+  #finish(
+    runId: string,
+    stage: WorkStage,
+    owner: string,
+    status: "completed" | "failed" | "skipped",
+    output: Record<string, unknown> | null,
+    error: string | null,
+  ): StageRecord {
     return this.#tx(() => {
       this.#assertOpen(runId);
       const current = this.#owned(runId, stage, owner);
@@ -337,7 +372,15 @@ export class StudyStages {
           `UPDATE study_stages SET status = ?, owner = NULL, lease_expires_at = NULL, output_json = ?, error = ?, ended_at = ?, updated_at = ?
            WHERE run_id = ? AND stage = ?`,
         )
-        .run(status, output === null ? current.output === null ? null : JSON.stringify(current.output) : JSON.stringify(output), error, now, now, runId, stage);
+        .run(
+          status,
+          output === null ? (current.output === null ? null : JSON.stringify(current.output)) : JSON.stringify(output),
+          error,
+          now,
+          now,
+          runId,
+          stage,
+        );
       this.#log(runId, stage, "running", status, owner, current.attempt, error);
       return this.stage(runId, stage);
     });
@@ -361,9 +404,13 @@ export class StudyStages {
   }
 
   #log(runId: string, stage: StudyStage, from: string, to: string, owner: string | null, attempt: number, reason: string | null): void {
-    const row = this.#db.prepare("SELECT COALESCE(MAX(sequence), 0) + 1 AS next FROM study_transitions WHERE run_id = ?").get(runId) as { next: number };
+    const row = this.#db.prepare("SELECT COALESCE(MAX(sequence), 0) + 1 AS next FROM study_transitions WHERE run_id = ?").get(runId) as {
+      next: number;
+    };
     this.#db
-      .prepare("INSERT INTO study_transitions (id, run_id, sequence, stage, from_status, to_status, owner, attempt, reason, at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+      .prepare(
+        "INSERT INTO study_transitions (id, run_id, sequence, stage, from_status, to_status, owner, attempt, reason, at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      )
       .run(`stt_${randomUUID().replaceAll("-", "")}`, runId, row.next, stage, from, to, owner, attempt, reason, this.#iso());
   }
 

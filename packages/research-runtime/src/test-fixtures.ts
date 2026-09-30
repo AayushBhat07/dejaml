@@ -1,9 +1,4 @@
-import {
-  type CodeAnalysis,
-  type ExperimentPlan,
-  ExperimentPolicySchema,
-  type PaperAnalysis,
-} from "@dejaml/contracts";
+import { type CodeAnalysis, type ExperimentPlan, ExperimentPolicySchema, type PaperAnalysis } from "@dejaml/contracts";
 
 const repositoryUrl = "https://github.com/mtesha/tdl-vs-ml-urbanlandcover";
 const commitSha = "49ece7ff4cc43fd4cb258678d44854f1cb2a417d";

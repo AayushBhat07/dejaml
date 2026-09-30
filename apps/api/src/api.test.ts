@@ -1,4 +1,4 @@
-import { copyFile, mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -110,11 +110,7 @@ async function startServer(
   base = `http://127.0.0.1:${(api.server.address() as AddressInfo).port}`;
 }
 
-async function upload(
-  data: Uint8Array | string,
-  name = "paper.pdf",
-  fields: Record<string, string> = {},
-): Promise<Response> {
+async function upload(data: Uint8Array | string, name = "paper.pdf", fields: Record<string, string> = {}): Promise<Response> {
   const form = new FormData();
   form.append("paper", new Blob([typeof data === "string" ? data : new Uint8Array(data)]), name);
   for (const [key, value] of Object.entries(fields)) form.append(key, value);
@@ -226,15 +222,19 @@ describe("Run API", () => {
     expect(report.metric?.value).toBe(79.88);
     expect(report.lab?.cleanup?.verifiedAbsent).toBe(true);
     expect(runtime.containers.size).toBe(0);
-    expect(report.events.filter((event) => event.type === "lab_agent_action").map((event) => event.publicPayload.action))
-      .toEqual(["request_lab", "run_approved_experiment", "inspect_result", "finish"]);
+    expect(report.events.filter((event) => event.type === "lab_agent_action").map((event) => event.publicPayload.action)).toEqual([
+      "request_lab",
+      "run_approved_experiment",
+      "inspect_result",
+      "finish",
+    ]);
     expect(report.events.some((event) => event.type === "lab_agent_finished")).toBe(true);
   });
 
   it("rejects an out-of-order Lab Agent action and removes the created lab", async () => {
     await startServer({
       labAgentEnabled: true,
-      labActionOverride: (state, action) => state === "ready" ? "finish" : action,
+      labActionOverride: (state, action) => (state === "ready" ? "finish" : action),
     });
     const { runId } = (await (await upload(await paperPdf())).json()) as { runId: string };
     await api.idle();
@@ -260,8 +260,14 @@ describe("Run API", () => {
     // Every role ran as its own agent instance with its own id, grants, and history.
     const roles = study.agents.map((agent) => agent.role).sort();
     expect(roles).toEqual([
-      "independent_reviewer", "independent_reviewer", "lab_engineer", "lab_engineer",
-      "paper_analyst", "repository_analyst", "reproduction_planner", "supervisor",
+      "independent_reviewer",
+      "independent_reviewer",
+      "lab_engineer",
+      "lab_engineer",
+      "paper_analyst",
+      "repository_analyst",
+      "reproduction_planner",
+      "supervisor",
     ]);
     expect(new Set(study.agents.map((agent) => agent.agentId)).size).toBe(study.agents.length);
     expect(study.agents.every((agent) => agent.status === "completed")).toBe(true);
@@ -287,18 +293,44 @@ describe("Run API", () => {
     expect(study.transitions.at(-1)).toMatchObject({ stage: "completed", to: "completed", reason: "reproduced" });
 
     // One bounded claim, approved by policy, run exactly, metric parsed by code, reviewed.
-    expect(study.contract).toMatchObject({ entrypoint: "train.py", command: { argv: ["python", "train.py"], cwd: "work/repo" }, reportedValue: 81.66, tolerance: 2 });
+    expect(study.contract).toMatchObject({
+      entrypoint: "train.py",
+      command: { argv: ["python", "train.py"], cwd: "work/repo" },
+      reportedValue: 81.66,
+      tolerance: 2,
+    });
     expect(study.planDigest).toMatch(/^[a-f0-9]{64}$/u);
     expect(study.policy).toMatchObject({ outcome: "approved", violations: [] });
-    expect(study.engineers.map((item) => [item.label, item.official?.exitCode, item.metric?.ok, item.value, item.review?.verdict])).toEqual([
-      ["engineer-1", 0, true, 79.88, "approve"],
-      ["engineer-2", 0, true, 79.88, "approve"],
-    ]);
-    expect(study.result).toMatchObject({ status: "reproduced", computedStatus: "reproduced", paperValue: 81.66, observedValue: 79.88, tolerance: 2 });
+    expect(study.engineers.map((item) => [item.label, item.official?.exitCode, item.metric?.ok, item.value, item.review?.verdict])).toEqual(
+      [
+        ["engineer-1", 0, true, 79.88, "approve"],
+        ["engineer-2", 0, true, 79.88, "approve"],
+      ],
+    );
+    expect(study.result).toMatchObject({
+      status: "reproduced",
+      computedStatus: "reproduced",
+      paperValue: 81.66,
+      observedValue: 79.88,
+      tolerance: 2,
+    });
     expect(study.result.absoluteDifference).toBeCloseTo(1.78);
-    expect(study.board.map((entry) => entry.kind)).toEqual(expect.arrayContaining([
-      "paper_claim", "repository_receipt", "repository_mapping", "plan", "claim_contract", "command_receipt", "metric", "artifact", "submission", "review", "status_decision", "stage",
-    ]));
+    expect(study.board.map((entry) => entry.kind)).toEqual(
+      expect.arrayContaining([
+        "paper_claim",
+        "repository_receipt",
+        "repository_mapping",
+        "plan",
+        "claim_contract",
+        "command_receipt",
+        "metric",
+        "artifact",
+        "submission",
+        "review",
+        "status_decision",
+        "stage",
+      ]),
+    );
     // The official run went through lab_run_official; nothing typed the number.
     const official = study.board.filter((entry) => entry.kind === "command_receipt" && entry.payload.official === true);
     expect(official).toHaveLength(2);
@@ -320,7 +352,11 @@ describe("Run API", () => {
     expect(runtime.containers.size).toBe(0);
     expect(checkoutsCreated).toHaveLength(1);
     expect(selections).toEqual([{ providerId: "openai", model: "default-model" }]);
-    const persisted = [JSON.stringify(report), JSON.stringify(store.ledger.listAgents(runId)), JSON.stringify(store.ledger.listReceipts({ runId }))].join("\n");
+    const persisted = [
+      JSON.stringify(report),
+      JSON.stringify(store.ledger.listAgents(runId)),
+      JSON.stringify(store.ledger.listReceipts({ runId })),
+    ].join("\n");
     expect(persisted).not.toContain("sk-server-test-key-0001");
   });
 
@@ -336,7 +372,10 @@ describe("Run API", () => {
     const engineer = study.agents.find((agent) => agent.role === "lab_engineer")!;
     expect(debuggers[0]?.parentId).toBe(engineer.agentId);
     expect(study.board.filter((entry) => entry.kind === "diagnosis")).toHaveLength(1);
-    expect(study.receipts.filter((receipt) => receipt.tool === "lab_run_official").map((receipt) => receipt.status)).toEqual(["error", "ok"]);
+    expect(study.receipts.filter((receipt) => receipt.tool === "lab_run_official").map((receipt) => receipt.status)).toEqual([
+      "error",
+      "ok",
+    ]);
     expect(study.result.status).toBe("reproduced");
     expect(runtime.containers.size).toBe(0);
   });
@@ -347,7 +386,9 @@ describe("Run API", () => {
     const { runId } = (await (await upload(await paperPdf(true, "https://github.com/example/new-paper"))).json()) as { runId: string };
     await api.idle();
     const report = (await (await fetch(`${base}/api/runs/${runId}/report`)).json()) as StudyReport;
-    expect(report.study?.receipts.filter((receipt) => receipt.tool === "lab_run_official").map((receipt) => receipt.status)).toEqual(["denied"]);
+    expect(report.study?.receipts.filter((receipt) => receipt.tool === "lab_run_official").map((receipt) => receipt.status)).toEqual([
+      "denied",
+    ]);
     expect(report.study?.result.status).toBe("inconclusive");
     expect(report.metric).toBeNull();
     expect(runtime.containers.size).toBe(0);
@@ -388,7 +429,11 @@ describe("Run API", () => {
     const { runId } = (await (await upload(await paperPdf(true, "https://github.com/example/new-paper"))).json()) as { runId: string };
     await api.idle();
     const report = (await (await fetch(`${base}/api/runs/${runId}/report`)).json()) as StudyReport;
-    expect(report.study?.result).toMatchObject({ status: "partially_reproduced", computedStatus: "reproduced", supervisor: { applied: true } });
+    expect(report.study?.result).toMatchObject({
+      status: "partially_reproduced",
+      computedStatus: "reproduced",
+      supervisor: { applied: true },
+    });
   });
 
   it("cancels a multi-agent study mid-run and cleans up every agent and lab", async () => {
@@ -451,7 +496,9 @@ describe("Run API", () => {
     const report = (await (await fetch(`${base}/api/runs/${runId}/report`)).json()) as StudyReport;
     expect(report.status).toBe("cancelled");
     expect(report.lab?.attempt).toMatchObject({ cancelled: true });
-    const failed = checkDemoAcceptance(report, curated).checks.filter((check) => !check.passed).map((check) => check.name);
+    const failed = checkDemoAcceptance(report, curated)
+      .checks.filter((check) => !check.passed)
+      .map((check) => check.name);
     expect(failed).toEqual(expect.arrayContaining(["isolated_experiment", "metric_parsed", "comparison", "report_complete"]));
     expect(report.lab?.cleanup?.verifiedAbsent).toBe(true);
     expect(report.assessment).toBeNull();
@@ -558,7 +605,16 @@ describe("restart recovery", () => {
     const recoveryStore = new RunStore();
     const run = recoveryStore.createRun({}, "run_interrupted");
     recoveryStore.transitionRun(run.id, "ingesting");
-    const agent = recoveryStore.ledger.createAgent({ runId: run.id, role: "lab_engineer", parentId: null, provider: "p", model: "m", task: {}, grants: [], limits: {} });
+    const agent = recoveryStore.ledger.createAgent({
+      runId: run.id,
+      role: "lab_engineer",
+      parentId: null,
+      provider: "p",
+      model: "m",
+      task: {},
+      grants: [],
+      limits: {},
+    });
     recoveryStore.ledger.updateAgent(agent.id, { status: "running" });
     await mkdir(join(work, "data/study-abc"), { recursive: true });
     const orphanRuntime = new ScriptedRuntime();

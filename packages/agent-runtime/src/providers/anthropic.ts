@@ -380,13 +380,18 @@ export class AnthropicChatProvider implements ChatProvider {
               break;
             }
             case "input_json_delta":
-              partialJson.set(index, `${partialJson.get(index) ?? ""}${typeof delta["partial_json"] === "string" ? delta["partial_json"] : ""}`);
+              partialJson.set(
+                index,
+                `${partialJson.get(index) ?? ""}${typeof delta["partial_json"] === "string" ? delta["partial_json"] : ""}`,
+              );
               break;
             case "thinking_delta":
-              block["thinking"] = `${typeof block["thinking"] === "string" ? block["thinking"] : ""}${typeof delta["thinking"] === "string" ? delta["thinking"] : ""}`;
+              block["thinking"] =
+                `${typeof block["thinking"] === "string" ? block["thinking"] : ""}${typeof delta["thinking"] === "string" ? delta["thinking"] : ""}`;
               break;
             case "signature_delta":
-              block["signature"] = `${typeof block["signature"] === "string" ? block["signature"] : ""}${typeof delta["signature"] === "string" ? delta["signature"] : ""}`;
+              block["signature"] =
+                `${typeof block["signature"] === "string" ? block["signature"] : ""}${typeof delta["signature"] === "string" ? delta["signature"] : ""}`;
               break;
             case "citations_delta": {
               const list = Array.isArray(block["citations"]) ? (block["citations"] as unknown[]) : [];

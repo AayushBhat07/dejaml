@@ -175,10 +175,7 @@ describe("OpenAIChatProvider (streaming)", () => {
 
   it("treats a stream that ends without [DONE] as a retryable network error", async () => {
     const truncated = fixture("openai/stream-text-and-tools.sse").split("\n\n").slice(0, 1).join("\n\n") + "\n\n";
-    const { fetchImpl, calls } = fakeFetch([
-      () => sseResponse(truncated),
-      () => sseResponse(fixture("openai/stream-text-and-tools.sse")),
-    ]);
+    const { fetchImpl, calls } = fakeFetch([() => sseResponse(truncated), () => sseResponse(fixture("openai/stream-text-and-tools.sse"))]);
     const { sleep } = recordingSleep();
     const res = await new OpenAIChatProvider({ apiKey: KEY, fetchImpl, retry: { sleep, random: () => 0 } }).chat(
       baseRequest({ stream: true }),

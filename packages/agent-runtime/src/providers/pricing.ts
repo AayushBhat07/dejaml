@@ -38,9 +38,7 @@ export function parsePriceTable(json: string): Record<string, ModelPrice> {
   }
   const result = PriceTableSchema.safeParse(raw);
   if (!result.success) {
-    throw new PriceTableError(
-      result.error.issues.map((i) => `${i.path.length ? i.path.map(String).join(".") : "(root)"}: ${i.message}`),
-    );
+    throw new PriceTableError(result.error.issues.map((i) => `${i.path.length ? i.path.map(String).join(".") : "(root)"}: ${i.message}`));
   }
   const out: Record<string, ModelPrice> = {};
   for (const [model, p] of Object.entries(result.data)) {

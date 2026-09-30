@@ -58,9 +58,13 @@ export type ProviderHttpOptions = {
 /** Refuses a model outside the allowlist without touching the network. */
 export function assertModelAllowed(models: readonly string[] | null, model: string, providerLabel: string): void {
   if (models !== null && !models.includes(model)) {
-    throw new ProviderError("model_not_allowed", truncate(`${providerLabel} model ${JSON.stringify(model.slice(0, 128))} is not in the configured model list`), {
-      retryable: false,
-    });
+    throw new ProviderError(
+      "model_not_allowed",
+      truncate(`${providerLabel} model ${JSON.stringify(model.slice(0, 128))} is not in the configured model list`),
+      {
+        retryable: false,
+      },
+    );
   }
 }
 
@@ -354,10 +358,7 @@ export function httpError(
   // Both providers may say explicitly whether a request is worth retrying.
   const shouldRetry = headers.get("x-should-retry")?.trim().toLowerCase();
   const retryable = shouldRetry === "true" ? true : shouldRetry === "false" ? false : RETRYABLE_STATUSES.has(status);
-  const text = redact(
-    `${providerLabel} HTTP ${status}${type ? ` ${type}` : ""}${message ? `: ${message}` : ""}`,
-    secrets,
-  );
+  const text = redact(`${providerLabel} HTTP ${status}${type ? ` ${type}` : ""}${message ? `: ${message}` : ""}`, secrets);
   return new ProviderError(code, truncate(text), {
     status,
     retryable,
@@ -569,12 +570,7 @@ export function parseToolInput(raw: string): unknown {
 }
 
 /** Maps an error `type` delivered inside a stream (no HTTP status) to a ProviderError. */
-export function streamError(
-  providerLabel: string,
-  type: string,
-  message: string,
-  secrets: readonly (string | undefined)[],
-): ProviderError {
+export function streamError(providerLabel: string, type: string, message: string, secrets: readonly (string | undefined)[]): ProviderError {
   const map: Record<string, { code: ProviderErrorCode; retryable: boolean }> = {
     overloaded_error: { code: "overloaded", retryable: true },
     rate_limit_error: { code: "rate_limited", retryable: true },

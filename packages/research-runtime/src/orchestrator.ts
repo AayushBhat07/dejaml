@@ -9,17 +9,9 @@ import {
 } from "@dejaml/contracts";
 import { type RunStore } from "@dejaml/run-store";
 
-import {
-  buildPaperEvidenceBundle,
-  snapshotRepositoryForAnalysis,
-  type RepositoryEvidenceBundle,
-} from "./evidence.js";
+import { buildPaperEvidenceBundle, snapshotRepositoryForAnalysis, type RepositoryEvidenceBundle } from "./evidence.js";
 import { type StructuredCompletion, type StructuredModelClient } from "./model.js";
-import {
-  type AnalysisTargetHint,
-  buildCodeAnalystPrompt,
-  buildPaperAnalystPrompt,
-} from "./prompts.js";
+import { type AnalysisTargetHint, buildCodeAnalystPrompt, buildPaperAnalystPrompt } from "./prompts.js";
 
 export type ParallelAnalysisResult = {
   paper: StructuredCompletion<PaperAnalysis>;
@@ -52,11 +44,7 @@ function publicFailureSummary(role: "Paper" | "Code", error: unknown): string {
   return `${role} analysis could not be completed by the configured model runtime.`;
 }
 
-function validatePaperAnalysis(
-  analysis: PaperAnalysis,
-  document: PaperDocument,
-  candidates: RepositoryCandidate[],
-): void {
+function validatePaperAnalysis(analysis: PaperAnalysis, document: PaperDocument, candidates: RepositoryCandidate[]): void {
   if (analysis.selectedRepositoryUrl) {
     const approved = new Set(candidates.map((candidate) => candidate.repositoryUrl.toLowerCase()));
     if (!approved.has(analysis.selectedRepositoryUrl.toLowerCase())) {
@@ -73,11 +61,7 @@ function validatePaperAnalysis(
   }
 }
 
-function validateCodeAnalysis(
-  analysis: CodeAnalysis,
-  acquisition: RepositoryAcquisition,
-  repository: RepositoryEvidenceBundle,
-): void {
+function validateCodeAnalysis(analysis: CodeAnalysis, acquisition: RepositoryAcquisition, repository: RepositoryEvidenceBundle): void {
   if (!analysis.mapping) return;
   if (
     analysis.mapping.repositoryUrl.toLowerCase() !== acquisition.repositoryUrl.toLowerCase() ||

@@ -1,11 +1,7 @@
 import { z } from "zod";
 
 import type { ExperimentPlan } from "@dejaml/contracts";
-import type {
-  AttemptOutcome,
-  LabManager,
-  LabSpec,
-} from "@dejaml/lab-manager";
+import type { AttemptOutcome, LabManager, LabSpec } from "@dejaml/lab-manager";
 import type { RunStore } from "@dejaml/run-store";
 
 import type { StructuredModelClient } from "./model.js";

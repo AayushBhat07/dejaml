@@ -171,7 +171,17 @@ describe("discoverDependencies", () => {
   });
 
   it("parses pylock.toml", async () => {
-    await put("pylock.toml", ['lock-version = "1.0"', "[[packages]]", 'name = "attrs"', 'version = "23.2.0"', "[[packages.wheels]]", 'url = "https://files.pythonhosted.org/a.whl"'].join("\n"));
+    await put(
+      "pylock.toml",
+      [
+        'lock-version = "1.0"',
+        "[[packages]]",
+        'name = "attrs"',
+        'version = "23.2.0"',
+        "[[packages.wheels]]",
+        'url = "https://files.pythonhosted.org/a.whl"',
+      ].join("\n"),
+    );
     const result = await discoverDependencies(repo);
     expect(result.lockfile).toEqual({ path: "pylock.toml", kind: "pylock.toml" });
     expect(result.requirements.map((requirement) => requirement.spec)).toEqual(["attrs==23.2.0"]);
@@ -259,16 +269,16 @@ describe("pyproject optional dependencies", () => {
       "click>=8.1.0,<9.0.0",
     ]);
     expect(extras.requirements.find((requirement) => requirement.name === "seaborn")?.source).toEqual({ file: "pyproject.toml", line: 6 });
-    expect(extras.rejected).toEqual([expect.objectContaining({ file: "pyproject.toml", line: 9, reason: expect.stringMatching(/VCS|direct/u) })]);
+    expect(extras.rejected).toEqual([
+      expect.objectContaining({ file: "pyproject.toml", line: 9, reason: expect.stringMatching(/VCS|direct/u) }),
+    ]);
     expect(extras.unsupported).toContainEqual({ path: "pyproject.toml", reason: "optional_dependency_group_missing:missing" });
   });
 
   it("reports repository lines that point pip at a CUDA index as rejected", async () => {
     await put("requirements.txt", "--extra-index-url https://download.pytorch.org/whl/cu121\ntorch==2.3.0+cu121\nnumpy\n");
     const result = await discoverDependencies(repo);
-    expect(result.rejected).toEqual([
-      expect.objectContaining({ line: 1, reason: expect.stringMatching(/accelerator package indexes/u) }),
-    ]);
+    expect(result.rejected).toEqual([expect.objectContaining({ line: 1, reason: expect.stringMatching(/accelerator package indexes/u) })]);
     // The +cu121 build itself is refused later, by the preparer's CPU-only policy, before any download.
     expect(result.requirements.map((requirement) => requirement.spec)).toEqual(["torch==2.3.0+cu121", "numpy"]);
   });

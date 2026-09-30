@@ -75,7 +75,15 @@ describe("study stage machine", () => {
     expect(store.stages.stage(RUN, "analyzing_paper").status).toBe("completed");
     expect(() => store.stages.claim(RUN, "policy_review", "o", lease)).toThrow(/reconciling/u);
     expect(store.stages.claim(RUN, "reconciling", "o", { ...lease, retryReason: "dependency_failure_replan" }).record.attempt).toBe(2);
-    expect(downstreamOf("analyzing_paper")).toEqual(["analyzing_paper", "reconciling", "policy_review", "preparing", "executing", "reviewing", "deciding"]);
+    expect(downstreamOf("analyzing_paper")).toEqual([
+      "analyzing_paper",
+      "reconciling",
+      "policy_review",
+      "preparing",
+      "executing",
+      "reviewing",
+      "deciding",
+    ]);
   });
 
   it("recovers after a process restart: running stages fail with reason process_restart and resume with it", () => {

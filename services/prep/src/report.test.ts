@@ -38,8 +38,22 @@ describe("parsePipReport", () => {
     );
     expect(parsed.pythonVersion).toBe("3.13.15");
     expect(parsed.packages).toEqual([
-      { name: "matplotlib", version: "3.11.2", filename: "matplotlib-3.11.2-cp313-cp313-manylinux_2_27_x86_64.whl", url: MPL, sha256: SHA, requested: true },
-      { name: "python-dateutil", version: "2.9.0.post0", filename: "python_dateutil-2.9.0.post0-py2.py3-none-any.whl", url: DATEUTIL, sha256: SHA, requested: false },
+      {
+        name: "matplotlib",
+        version: "3.11.2",
+        filename: "matplotlib-3.11.2-cp313-cp313-manylinux_2_27_x86_64.whl",
+        url: MPL,
+        sha256: SHA,
+        requested: true,
+      },
+      {
+        name: "python-dateutil",
+        version: "2.9.0.post0",
+        filename: "python_dateutil-2.9.0.post0-py2.py3-none-any.whl",
+        url: DATEUTIL,
+        sha256: SHA,
+        requested: false,
+      },
     ]);
   });
 
@@ -116,12 +130,15 @@ describe("classifyPipFailure", () => {
   });
 
   it("maps ResolutionImpossible to resolution_conflict", () => {
-    const stderr = "ERROR: Cannot install a==1 and b==2 because these package versions have conflicting dependencies.\nERROR: ResolutionImpossible: for help visit ...";
+    const stderr =
+      "ERROR: Cannot install a==1 and b==2 because these package versions have conflicting dependencies.\nERROR: ResolutionImpossible: for help visit ...";
     expect(classifyPipFailure({ stderr, proxyLog: [], exitCode: 1 }).code).toBe("resolution_conflict");
   });
 
   it("maps a denied proxy connection to egress_denied", () => {
-    const proxyLog = parseProxyLog('{"event":"listening"}\n{"event":"connect","host":"evil.example","allowed":false,"reason":"host_not_allowed"}\nnoise\n');
+    const proxyLog = parseProxyLog(
+      '{"event":"listening"}\n{"event":"connect","host":"evil.example","allowed":false,"reason":"host_not_allowed"}\nnoise\n',
+    );
     const error = classifyPipFailure({ stderr: "ProxyError('Cannot connect to proxy.')", proxyLog, exitCode: 1 });
     expect(error.code).toBe("egress_denied");
     expect(error.message).toContain("evil.example (host_not_allowed)");
@@ -232,11 +249,21 @@ describe("effectivePackageIndex", () => {
       indexUrl: "https://pypi.org/simple",
       allowedHosts: ["pypi.org", "files.pythonhosted.org"],
     });
-    const mirror = { id: "mirror", indexUrl: "https://mirror.example.org/simple", allowedHosts: ["mirror.example.org"], cpuOnly: true as const };
+    const mirror = {
+      id: "mirror",
+      indexUrl: "https://mirror.example.org/simple",
+      allowedHosts: ["mirror.example.org"],
+      cpuOnly: true as const,
+    };
     expect(() => effectivePackageIndex(DEFAULT_PREP_POLICY, mirror)).toThrow(/does not/u);
-    const policy = loadPrepPolicy({ DEJAML_PREP_ALLOWED_HOSTS: "mirror.example.org,pypi.org", DEJAML_PREP_INDEX_URL: "https://pypi.org/simple" });
+    const policy = loadPrepPolicy({
+      DEJAML_PREP_ALLOWED_HOSTS: "mirror.example.org,pypi.org",
+      DEJAML_PREP_INDEX_URL: "https://pypi.org/simple",
+    });
     expect(() => effectivePackageIndex(policy, mirror)).toThrow(/requires https:\/\/pypi\.org\/simple/u);
-    expect(() => effectivePackageIndex(DEFAULT_PREP_POLICY, { ...DEFAULT_PACKAGE_INDEX, allowedHosts: ["files.pythonhosted.org"] })).toThrow(/index host/u);
+    expect(() =>
+      effectivePackageIndex(DEFAULT_PREP_POLICY, { ...DEFAULT_PACKAGE_INDEX, allowedHosts: ["files.pythonhosted.org"] }),
+    ).toThrow(/index host/u);
   });
 });
 
@@ -304,7 +331,16 @@ describe.skipIf(!hasPython)("egress proxy (in-process, fake DNS, no network)", (
       responses: Record<string, string>;
       logs: { event: string; host?: string; ip?: string; allowed?: boolean; reason?: string }[];
     };
-    for (const name of ["plain_get", "other_port", "ip_literal", "ipv6_literal", "shorthand_ip", "unknown_host", "private_answer", "metadata_answer"]) {
+    for (const name of [
+      "plain_get",
+      "other_port",
+      "ip_literal",
+      "ipv6_literal",
+      "shorthand_ip",
+      "unknown_host",
+      "private_answer",
+      "metadata_answer",
+    ]) {
       expect(responses[name], name).toBe("HTTP/1.1 403 Forbidden");
     }
     expect(responses.allowed_upstream_down).toBe("HTTP/1.1 502 Bad Gateway");

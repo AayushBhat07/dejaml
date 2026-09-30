@@ -201,7 +201,9 @@ export function createApiServer(options: ApiOptions): ApiServer {
       if (error instanceof ProviderSelectionError || error instanceof ProviderConfigError) throw new HttpError(400, error.message);
       throw error;
     }
-    const model = options.structuredModel ? options.structuredModel(provider, selection.model) : new ChatStructuredClient(provider, selection.model);
+    const model = options.structuredModel
+      ? options.structuredModel(provider, selection.model)
+      : new ChatStructuredClient(provider, selection.model);
     const runId = `run_${randomUUID()}`;
     // Only the file's name and size are stored; the model key is never written anywhere.
     store.createRun({ fileName: upload.fileName, bytes: upload.data.byteLength }, runId);
@@ -230,7 +232,15 @@ export function createApiServer(options: ApiOptions): ApiServer {
       },
     });
     if (!accepted) {
-      store.appendEvent({ runId, actor: "system", type: "run_rejected", status: "failed", summary: "No worker was free to run the study", evidence: [], publicPayload: {} });
+      store.appendEvent({
+        runId,
+        actor: "system",
+        type: "run_rejected",
+        status: "failed",
+        summary: "No worker was free to run the study",
+        evidence: [],
+        publicPayload: {},
+      });
       store.transitionRun(runId, "failed");
       throw new HttpError(409, "Another study is still running. Try again when it finishes.");
     }
@@ -363,14 +373,17 @@ export function createApiServer(options: ApiOptions): ApiServer {
       if (!store.stages.state(runId)?.terminal) store.stages.finish(runId, "failed", "failed");
       if (!store.isTerminal(runId)) store.transitionRun(runId, "failed");
     };
-    if (!state || state.terminal || !inputs.paperDocument || !inputs.candidates || !inputs.provider) return fail("The study's saved inputs are incomplete, so it cannot resume");
+    if (!state || state.terminal || !inputs.paperDocument || !inputs.candidates || !inputs.provider)
+      return fail("The study's saved inputs are incomplete, so it cannot resume");
     let provider: ChatProvider;
     try {
       provider = providerFactory(inputs.provider.id, inputs.provider.model);
     } catch {
       return fail("The study's model provider is no longer configured on this server, so it cannot resume");
     }
-    const model = options.structuredModel ? options.structuredModel(provider, inputs.provider.model) : new ChatStructuredClient(provider, inputs.provider.model);
+    const model = options.structuredModel
+      ? options.structuredModel(provider, inputs.provider.model)
+      : new ChatStructuredClient(provider, inputs.provider.model);
     try {
       const report = await runStudy(
         {
@@ -478,4 +491,3 @@ export async function recoverAfterRestart(
   }
   return { interruptedRuns: interrupted, resumableRuns: resumable, orphanLabs: receipts.length, staleCheckouts };
 }
-

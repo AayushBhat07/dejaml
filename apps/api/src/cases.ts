@@ -34,12 +34,8 @@ export async function loadCases(projectRoot: string): Promise<CuratedCase[]> {
   const cases: CuratedCase[] = [];
   for (const entry of await readdir(root, { withFileTypes: true })) {
     if (!entry.isDirectory()) continue;
-    const read = async (name: string): Promise<unknown> =>
-      JSON.parse(await readFile(join(root, entry.name, name), "utf8"));
-    const [policy, manifest] = await Promise.all([
-      read("policy.json").catch(() => null),
-      read("case.json").catch(() => null),
-    ]);
+    const read = async (name: string): Promise<unknown> => JSON.parse(await readFile(join(root, entry.name, name), "utf8"));
+    const [policy, manifest] = await Promise.all([read("policy.json").catch(() => null), read("case.json").catch(() => null)]);
     if (!policy || !manifest) continue;
     const parsed = { policy: ExperimentPolicySchema.parse(policy), manifest: CaseManifestSchema.parse(manifest) };
     if (parsed.policy.caseId !== parsed.manifest.caseId) {

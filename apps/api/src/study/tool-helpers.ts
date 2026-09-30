@@ -6,10 +6,7 @@ export const MAX_READ_BYTES = 24_000;
 export const MAX_SEARCH_MATCHES = 60;
 const EXCERPT_BYTES = 4_000;
 
-export const RelativePathInput = z
-  .string()
-  .max(300)
-  .describe("Path relative to the root, such as `.` or `src/train.py`.");
+export const RelativePathInput = z.string().max(300).describe("Path relative to the root, such as `.` or `src/train.py`.");
 
 export function ok(summary: string, content: unknown, output?: Record<string, unknown>): ToolResult {
   return {

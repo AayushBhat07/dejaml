@@ -63,12 +63,22 @@ describe("CPU-only accelerator policy", () => {
     expect(acceleratorReason("jax", null, ["cuda12"])).toMatch(/cuda12/u);
     expect(acceleratorReason("tensorflow", null, ["and-cuda"])).toMatch(/and-cuda/u);
     expect(acceleratorReason("jax", null, ["cpu"])).toBeNull();
-    expect(findAcceleratorRequirements([parsed("torch==2.3.0+cu121"), parsed("numpy"), parsed("jax[cuda12]>=0.4")]).map((item) => item.name)).toEqual([
-      "torch",
-      "jax",
-    ]);
-    expect(findAcceleratorPackages([{ name: "torch", version: "2.8.0" }, { name: "nvidia_cublas_cu12", version: "12.8.4.1" }, { name: "jaxlib", version: "0.4.30+cuda12.cudnn89" }])).toEqual([
-      { name: "nvidia-cublas-cu12", spec: "nvidia_cublas_cu12==12.8.4.1", reason: "NVIDIA CUDA runtime or library package", origin: "resolved" },
+    expect(
+      findAcceleratorRequirements([parsed("torch==2.3.0+cu121"), parsed("numpy"), parsed("jax[cuda12]>=0.4")]).map((item) => item.name),
+    ).toEqual(["torch", "jax"]);
+    expect(
+      findAcceleratorPackages([
+        { name: "torch", version: "2.8.0" },
+        { name: "nvidia_cublas_cu12", version: "12.8.4.1" },
+        { name: "jaxlib", version: "0.4.30+cuda12.cudnn89" },
+      ]),
+    ).toEqual([
+      {
+        name: "nvidia-cublas-cu12",
+        spec: "nvidia_cublas_cu12==12.8.4.1",
+        reason: "NVIDIA CUDA runtime or library package",
+        origin: "resolved",
+      },
       { name: "jaxlib", spec: "jaxlib==0.4.30+cuda12.cudnn89", reason: "accelerator build (0.4.30+cuda12.cudnn89)", origin: "resolved" },
     ]);
   });
@@ -81,8 +91,14 @@ describe("CPU-only accelerator policy", () => {
     expect(isAcceleratorIndexUrl("https://pypi.org/simple")).toBe(false);
     const line = parseRequirementLine("--extra-index-url https://download.pytorch.org/whl/cu118");
     expect(line).toEqual({ ok: false, reason: expect.stringMatching(/accelerator package indexes/u) });
-    expect(parseRequirementLine("--extra-index-url https://download.pytorch.org/whl/cpu")).toEqual({ ok: false, reason: expect.stringMatching(/extra indexes/u) });
-    expect(parseRequirementLine("-f https://download.pytorch.org/whl/rocm6.0/torch_stable.html")).toEqual({ ok: false, reason: expect.stringMatching(/accelerator/u) });
+    expect(parseRequirementLine("--extra-index-url https://download.pytorch.org/whl/cpu")).toEqual({
+      ok: false,
+      reason: expect.stringMatching(/extra indexes/u),
+    });
+    expect(parseRequirementLine("-f https://download.pytorch.org/whl/rocm6.0/torch_stable.html")).toEqual({
+      ok: false,
+      reason: expect.stringMatching(/accelerator/u),
+    });
   });
 });
 
@@ -100,7 +116,12 @@ describe("platform targeting", () => {
     expect(amd.at(-1)).toBe("manylinux1_x86_64");
     expect(amd.every((tag) => tag.includes("x86_64"))).toBe(true);
     expect(pipCrossTargetArgs(buildPlatformSpec({ architecture: "arm64", python: "3.10" })).slice(0, 6)).toEqual([
-      "--python-version", "3.10", "--implementation", "cp", "--abi", "cp310",
+      "--python-version",
+      "3.10",
+      "--implementation",
+      "cp",
+      "--abi",
+      "cp310",
     ]);
   });
 
@@ -117,9 +138,14 @@ describe("platform targeting", () => {
       ),
     ).toThrow(expect.objectContaining({ code: "platform_mismatch", refused: ["scipy"] }));
     expect(() =>
-      assertWheelsMatchPlatform([{ name: "numpy", filename: "numpy-2.3.3-cp311-cp311-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl" }], arm),
+      assertWheelsMatchPlatform(
+        [{ name: "numpy", filename: "numpy-2.3.3-cp311-cp311-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl" }],
+        arm,
+      ),
     ).toThrow(/linux\/arm64/u);
-    expect(() => assertWheelsMatchPlatform([{ name: "numpy", filename: "numpy-2.3.3-cp311-cp311-musllinux_1_2_aarch64.whl" }], arm)).toThrow(/is not built for linux\/arm64/u);
+    expect(() =>
+      assertWheelsMatchPlatform([{ name: "numpy", filename: "numpy-2.3.3-cp311-cp311-musllinux_1_2_aarch64.whl" }], arm),
+    ).toThrow(/is not built for linux\/arm64/u);
   });
 });
 
@@ -167,9 +193,14 @@ describe("disk accounting", () => {
 
   it("the watcher fires when free space drops below the margin", async () => {
     let fired = false;
-    const watcher = new QuotaWatcher(dir, { maxBytes: 1e9, maxInodes: 1e6, minFreeBytes: 100, pollMs: 20 }, async () => ({ freeBytes: 50 }), () => {
-      fired = true;
-    });
+    const watcher = new QuotaWatcher(
+      dir,
+      { maxBytes: 1e9, maxInodes: 1e6, minFreeBytes: 100, pollMs: 20 },
+      async () => ({ freeBytes: 50 }),
+      () => {
+        fired = true;
+      },
+    );
     expect(await watcher.check()).toMatch(/below the 100 B margin/u);
     expect(fired).toBe(true);
   });

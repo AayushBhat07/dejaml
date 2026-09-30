@@ -4,14 +4,7 @@ import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-import {
-  ArtifactWatcher,
-  DEFAULT_OBSERVE_OPTIONS,
-  OutputBatcher,
-  parseDockerStats,
-  parseSize,
-  sanitizeLine,
-} from "./observer.js";
+import { ArtifactWatcher, DEFAULT_OBSERVE_OPTIONS, OutputBatcher, parseDockerStats, parseSize, sanitizeLine } from "./observer.js";
 
 describe("sanitizeLine", () => {
   it("strips terminal escapes and control characters and keeps the last carriage-return frame", () => {
@@ -56,11 +49,7 @@ describe("OutputBatcher", () => {
 
 describe("parseDockerStats", () => {
   it("parses docker stats JSON", () => {
-    expect(
-      parseDockerStats(
-        '{"CPUPerc":"187.25%","MemPerc":"6.10%","MemUsage":"124.9MiB / 2GiB","PIDs":"7","Name":"x"}',
-      ),
-    ).toEqual({
+    expect(parseDockerStats('{"CPUPerc":"187.25%","MemPerc":"6.10%","MemUsage":"124.9MiB / 2GiB","PIDs":"7","Name":"x"}')).toEqual({
       cpuPercent: 187.25,
       memoryBytes: Math.round(124.9 * 1024 ** 2),
       memoryLimitBytes: 2 * 1024 ** 3,

@@ -223,30 +223,21 @@ export class AgentLedger {
   }
 
   listAgents(runId: string): AgentRecord[] {
-    return (this.#db.prepare("SELECT * FROM agents WHERE run_id = ? ORDER BY created_at, id").all(runId) as Row[]).map(
-      agentFromRow,
-    );
+    return (this.#db.prepare("SELECT * FROM agents WHERE run_id = ? ORDER BY created_at, id").all(runId) as Row[]).map(agentFromRow);
   }
 
   /** Agents that were mid-flight when the process stopped. */
   listUnfinishedAgents(): AgentRecord[] {
     return (
-      this.#db
-        .prepare("SELECT * FROM agents WHERE status IN ('created','running','waiting') ORDER BY created_at")
-        .all() as Row[]
+      this.#db.prepare("SELECT * FROM agents WHERE status IN ('created','running','waiting') ORDER BY created_at").all() as Row[]
     ).map(agentFromRow);
   }
 
-  updateAgent(
-    id: string,
-    patch: Partial<Pick<AgentRecord, "status" | "usage" | "result" | "failure">>,
-  ): AgentRecord {
+  updateAgent(id: string, patch: Partial<Pick<AgentRecord, "status" | "usage" | "result" | "failure">>): AgentRecord {
     const current = this.getAgent(id);
     const next = { ...current, ...patch };
     this.#db
-      .prepare(
-        `UPDATE agents SET status = ?, usage_json = ?, result_json = ?, failure = ?, updated_at = ? WHERE id = ?`,
-      )
+      .prepare(`UPDATE agents SET status = ?, usage_json = ?, result_json = ?, failure = ?, updated_at = ? WHERE id = ?`)
       .run(
         next.status,
         JSON.stringify(next.usage),
@@ -259,9 +250,9 @@ export class AgentLedger {
   }
 
   appendTurn(agentId: string, segment: number, message: Record<string, unknown>): AgentTurn {
-    const row = this.#db
-      .prepare("SELECT COALESCE(MAX(sequence), 0) + 1 AS next FROM agent_turns WHERE agent_id = ?")
-      .get(agentId) as { next: number };
+    const row = this.#db.prepare("SELECT COALESCE(MAX(sequence), 0) + 1 AS next FROM agent_turns WHERE agent_id = ?").get(agentId) as {
+      next: number;
+    };
     const createdAt = new Date().toISOString();
     this.#db
       .prepare("INSERT INTO agent_turns (agent_id, sequence, segment, message_json, created_at) VALUES (?, ?, ?, ?, ?)")
@@ -273,9 +264,7 @@ export class AgentLedger {
     const rows = (
       segment === undefined
         ? this.#db.prepare("SELECT * FROM agent_turns WHERE agent_id = ? ORDER BY sequence").all(agentId)
-        : this.#db
-            .prepare("SELECT * FROM agent_turns WHERE agent_id = ? AND segment = ? ORDER BY sequence")
-            .all(agentId, segment)
+        : this.#db.prepare("SELECT * FROM agent_turns WHERE agent_id = ? AND segment = ? ORDER BY sequence").all(agentId, segment)
     ) as Row[];
     return rows.map((item) => ({
       agentId: String(item.agent_id),
@@ -286,24 +275,43 @@ export class AgentLedger {
     }));
   }
 
-  startReceipt(input: Omit<ToolReceipt, "id" | "sequence" | "endedAt" | "durationMs" | "status" | "summary" | "output" | "outputSha256">): ToolReceipt {
+  startReceipt(
+    input: Omit<ToolReceipt, "id" | "sequence" | "endedAt" | "durationMs" | "status" | "summary" | "output" | "outputSha256">,
+  ): ToolReceipt {
     const id = `rcpt_${randomUUID().replaceAll("-", "")}`;
-    const row = this.#db
-      .prepare("SELECT COUNT(*) + 1 AS next FROM tool_receipts WHERE agent_id = ?")
-      .get(input.agentId) as { next: number };
+    const row = this.#db.prepare("SELECT COUNT(*) + 1 AS next FROM tool_receipts WHERE agent_id = ?").get(input.agentId) as {
+      next: number;
+    };
     this.#db
       .prepare(
         `INSERT INTO tool_receipts (id, agent_id, run_id, sequence, tool, tool_call_id, input_json, input_sha256,
            status, summary, output_json, output_sha256, started_at, ended_at, duration_ms)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'interrupted', 'started', '{}', '', ?, NULL, NULL)`,
       )
-      .run(id, input.agentId, input.runId, row.next, input.tool, input.toolCallId, JSON.stringify(input.input ?? null), input.inputSha256, input.startedAt);
+      .run(
+        id,
+        input.agentId,
+        input.runId,
+        row.next,
+        input.tool,
+        input.toolCallId,
+        JSON.stringify(input.input ?? null),
+        input.inputSha256,
+        input.startedAt,
+      );
     return this.getReceipt(id);
   }
 
   finishReceipt(
     id: string,
-    patch: { status: ToolReceipt["status"]; summary: string; output: Record<string, unknown>; outputSha256: string; endedAt: string; durationMs: number },
+    patch: {
+      status: ToolReceipt["status"];
+      summary: string;
+      output: Record<string, unknown>;
+      outputSha256: string;
+      endedAt: string;
+      durationMs: number;
+    },
   ): ToolReceipt {
     this.#db
       .prepare(
@@ -328,11 +336,16 @@ export class AgentLedger {
     return rows.map(receiptFromRow);
   }
 
-  postMessage(input: { runId: string; fromAgentId: string | null; toAgentId: string; content: Record<string, unknown> }): AgentMessageRecord {
+  postMessage(input: {
+    runId: string;
+    fromAgentId: string | null;
+    toAgentId: string;
+    content: Record<string, unknown>;
+  }): AgentMessageRecord {
     const id = `msg_${randomUUID().replaceAll("-", "")}`;
-    const row = this.#db
-      .prepare("SELECT COUNT(*) + 1 AS next FROM agent_messages WHERE to_agent_id = ?")
-      .get(input.toAgentId) as { next: number };
+    const row = this.#db.prepare("SELECT COUNT(*) + 1 AS next FROM agent_messages WHERE to_agent_id = ?").get(input.toAgentId) as {
+      next: number;
+    };
     const createdAt = new Date().toISOString();
     this.#db
       .prepare(
@@ -405,7 +418,17 @@ export class AgentLedger {
           `INSERT INTO board_entries (id, run_id, sequence, author_agent_id, author_role, kind, key, payload_json, created_at)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         )
-        .run(entry.id, entry.runId, entry.sequence, entry.authorAgentId, entry.authorRole, entry.kind, entry.key, JSON.stringify(entry.payload), entry.createdAt);
+        .run(
+          entry.id,
+          entry.runId,
+          entry.sequence,
+          entry.authorAgentId,
+          entry.authorRole,
+          entry.kind,
+          entry.key,
+          JSON.stringify(entry.payload),
+          entry.createdAt,
+        );
       this.#db.exec("COMMIT");
       return entry;
     } catch (error) {
@@ -415,9 +438,7 @@ export class AgentLedger {
   }
 
   listBoard(runId: string, kinds?: readonly string[]): BoardEntry[] {
-    const rows = this.#db
-      .prepare("SELECT * FROM board_entries WHERE run_id = ? ORDER BY sequence")
-      .all(runId) as Row[];
+    const rows = this.#db.prepare("SELECT * FROM board_entries WHERE run_id = ? ORDER BY sequence").all(runId) as Row[];
     return rows
       .map((row) => ({
         id: String(row.id),

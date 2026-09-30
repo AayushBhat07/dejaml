@@ -12,11 +12,7 @@ import {
 import { RunStore } from "@dejaml/run-store";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import {
-  findLiteral,
-  runAutonomousLabAgent,
-  type AutonomousLabAction,
-} from "./autonomous-lab-agent.js";
+import { findLiteral, runAutonomousLabAgent, type AutonomousLabAction } from "./autonomous-lab-agent.js";
 import type { StructuredModelClient } from "./model.js";
 import { paperFixture } from "./test-fixtures.js";
 
@@ -45,8 +41,17 @@ class SimulatedLab implements ContainerRuntime {
 
   async docker(args: readonly string[], _options: RuntimeCommandOptions = {}): Promise<RuntimeCommandResult> {
     const [command] = args;
-    if (command === "image") return ok(JSON.stringify({ Id: IMAGE_ID, Os: "linux", Architecture: "amd64", Config: { User: "10001:10001", Env: [] } }));
-    if (command === "container") return ok(JSON.stringify({ Image: IMAGE_ID, Config: { User: "10001:10001", Env: [] }, HostConfig: { NetworkMode: "none", ReadonlyRootfs: true, CapDrop: ["ALL"], SecurityOpt: ["no-new-privileges"] }, Mounts: [] }));
+    if (command === "image")
+      return ok(JSON.stringify({ Id: IMAGE_ID, Os: "linux", Architecture: "amd64", Config: { User: "10001:10001", Env: [] } }));
+    if (command === "container")
+      return ok(
+        JSON.stringify({
+          Image: IMAGE_ID,
+          Config: { User: "10001:10001", Env: [] },
+          HostConfig: { NetworkMode: "none", ReadonlyRootfs: true, CapDrop: ["ALL"], SecurityOpt: ["no-new-privileges"] },
+          Mounts: [],
+        }),
+      );
     if (command === "create") {
       for (const value of args) {
         const match = /^type=bind,src=([^,]+),dst=([^,]+)$/u.exec(value);
@@ -269,18 +274,29 @@ describe("autonomous Lab Agent", () => {
       },
     };
     const result = await runAutonomousLabAgent({
-      runId: "run_auto", labId, agentName: "agent-2", team: true, claim: paperFixture.claim!, mapping: null, layout, labs, model, store,
+      runId: "run_auto",
+      labId,
+      agentName: "agent-2",
+      team: true,
+      claim: paperFixture.claim!,
+      mapping: null,
+      layout,
+      labs,
+      model,
+      store,
     });
     expect(result.status).toBe("submitted");
     expect(result.team?.plan?.entrypoint).toBe("train.py");
     expect(result.team?.diagnoses).toEqual([{ step: 1, diagnosis: expect.objectContaining({ diagnosis: "wrong command" }) }]);
     expect(JSON.parse(engineer.prompts[0]!).plannerPlan).toMatchObject({ summary: "Run train.py" });
     expect(JSON.parse(engineer.prompts[1]!).observation.debuggerAdvice).toMatchObject({ suggestedFix: "run work/train.py" });
-    expect(roles).toEqual(expect.arrayContaining([
-      "lab_planner:run_auto:lab_planner:agent-2",
-      "lab_debugger:run_auto:lab_debugger:agent-2",
-      "lab_agent:run_auto:lab_agent:agent-2",
-    ]));
+    expect(roles).toEqual(
+      expect.arrayContaining([
+        "lab_planner:run_auto:lab_planner:agent-2",
+        "lab_debugger:run_auto:lab_debugger:agent-2",
+        "lab_agent:run_auto:lab_agent:agent-2",
+      ]),
+    );
   });
 
   it("finds literal metric values without flagging small constants", () => {

@@ -13,7 +13,10 @@ const RelativePath = z
   .string()
   .min(1)
   .max(300)
-  .refine((value) => !value.startsWith("/") && !value.includes("\\") && !value.split("/").includes(".."), "a path relative to the repository root, without `..`");
+  .refine(
+    (value) => !value.startsWith("/") && !value.includes("\\") && !value.split("/").includes(".."),
+    "a path relative to the repository root, without `..`",
+  );
 
 export const PaperClaimSchema = z.object({
   method: z.string().min(1).max(300).describe("The model or method, e.g. `Random Forest`."),
@@ -51,7 +54,10 @@ export const RepositoryMappingSchema = z.object({
 export const AdapterSchema = z.object({
   /** Written by the orchestrator into the lab before any engineer starts. */
   path: z.string().regex(/^work\/adapter\/[A-Za-z0-9_.-]{1,80}\.py$/u),
-  content: z.string().min(1).max(16 * 1024),
+  content: z
+    .string()
+    .min(1)
+    .max(16 * 1024),
   why: z.string().min(1).max(1_000),
   source: z.string().min(1).max(500),
   differences: z.array(z.string().max(500)).max(20),
@@ -63,24 +69,45 @@ export const PlanSchema = z.object({
   blockedReason: z.string().max(1_000).nullable(),
   entrypoint: RelativePath.describe("The repository's official script for this claim."),
   command: z.object({
-    argv: z.array(z.string().min(1).max(500)).min(2).max(40).describe("Starts with `python`; the next item is the entry point (or the adapter) as seen from cwd."),
-    cwd: z.enum(["repo", "work/repo"]).describe("`work/repo` is a writable copy of the checkout made before the run; `repo` is the read-only checkout."),
+    argv: z
+      .array(z.string().min(1).max(500))
+      .min(2)
+      .max(40)
+      .describe("Starts with `python`; the next item is the entry point (or the adapter) as seen from cwd."),
+    cwd: z
+      .enum(["repo", "work/repo"])
+      .describe("`work/repo` is a writable copy of the checkout made before the run; `repo` is the read-only checkout."),
   }),
   python: PythonVersionSchema,
   requirements: z.array(z.string().min(1).max(200)).max(150).describe("From the repository's dependency files, unchanged."),
-  compatibilityConstraints: z.array(z.object({ requirement: z.string().min(1).max(200), reason: z.string().min(1).max(500) })).max(30).describe("Project-owned changes (relaxed or added pins); each is reported."),
+  compatibilityConstraints: z
+    .array(z.object({ requirement: z.string().min(1).max(200), reason: z.string().min(1).max(500) }))
+    .max(30)
+    .describe("Project-owned changes (relaxed or added pins); each is reported."),
   dataset: z.object({
     name: z.string().min(1).max(300),
     source: z.discriminatedUnion("kind", [
       z.object({ kind: z.literal("repository"), paths: z.array(RelativePath).min(1).max(20) }),
-      z.object({ kind: z.literal("download"), url: z.string().max(2_000), sha256: z.string().regex(/^[a-f0-9]{64}$/u).nullable(), extract: z.boolean() }),
+      z.object({
+        kind: z.literal("download"),
+        url: z.string().max(2_000),
+        sha256: z
+          .string()
+          .regex(/^[a-f0-9]{64}$/u)
+          .nullable(),
+        extract: z.boolean(),
+      }),
       z
         .object({ kind: z.literal("package"), package: z.string().min(1).max(100), path: z.string().min(1).max(300) })
         .describe("Data bundled inside a Python package the plan pins exactly with == in requirements (path inside that package)."),
     ]),
   }),
   metricParser: MetricParserSchema,
-  expectedRuntimeSeconds: z.number().int().positive().max(24 * 3_600),
+  expectedRuntimeSeconds: z
+    .number()
+    .int()
+    .positive()
+    .max(24 * 3_600),
   stopConditions: z.array(z.string().min(1).max(300)).min(1).max(10),
   adapter: AdapterSchema.nullable(),
   risks: z.array(z.string().max(500)).max(10),
@@ -154,7 +181,15 @@ export const ROLE_LIMITS: Record<AgentRole, Partial<AgentLimits>> = {
 export const ROLE_GRANTS: Record<AgentRole, readonly string[]> = {
   paper_analyst: ["paper_list_pages", "paper_read_page", "paper_search"],
   repository_analyst: ["repo_acquire", "repo_list", "repo_read", "repo_search", "dependency_discover"],
-  reproduction_planner: ["board_read", "paper_read_page", "repo_list", "repo_read", "repo_search", "dependency_discover", "dependency_check"],
+  reproduction_planner: [
+    "board_read",
+    "paper_read_page",
+    "repo_list",
+    "repo_read",
+    "repo_search",
+    "dependency_discover",
+    "dependency_check",
+  ],
   lab_engineer: [
     "board_read",
     "lab_list",

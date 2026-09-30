@@ -100,7 +100,10 @@ describe("BoundedAgentRuntime", () => {
     expect(store.ledger.listTurns(first.agentId).length).toBeGreaterThan(store.ledger.listTurns(second.agentId).length);
     expect(store.ledger.listAgents(runId).map((agent) => agent.status)).toEqual(["completed", "completed"]);
     const receipts = store.ledger.listReceipts({ agentId: first.agentId });
-    expect(receipts.map((receipt) => [receipt.tool, receipt.status])).toEqual([["board_read", "ok"], ["finish", "ok"]]);
+    expect(receipts.map((receipt) => [receipt.tool, receipt.status])).toEqual([
+      ["board_read", "ok"],
+      ["finish", "ok"],
+    ]);
     expect(receipts[0]!.outputSha256).toMatch(/^[a-f0-9]{64}$/u);
   });
 
@@ -150,16 +153,17 @@ describe("BoundedAgentRuntime", () => {
     const { runtime, runId } = setup({ a: loop, b: [{ calls: [{ name: "lab_list", input: {} }] }] }, [echo, slowTool("lab_list", 200)]);
     const byTokens = await (await runtime.startAgent(task(runId, "a", { limits: { maxInputTokens: 250 } }))).done;
     expect(byTokens.reason).toMatch(/input-token limit/u);
-    const byTime = await (await runtime.startAgent(task(runId, "b", { role: "debugger", grants: ["lab_list"], limits: { maxWallMs: 50 } }))).done;
+    const byTime = await (
+      await runtime.startAgent(task(runId, "b", { role: "debugger", grants: ["lab_list"], limits: { maxWallMs: 50 } }))
+    ).done;
     expect(byTime.status).toBe("exhausted");
     expect(byTime.reason).toMatch(/time limit/u);
   });
 
   it("cancels a running agent and its tool call", async () => {
-    const { runtime, runId, store } = setup(
-      { a: [{ calls: [{ name: "board_read", input: {} }] }] },
-      [defineTool({ ...slowTool("board_read", 10_000) })],
-    );
+    const { runtime, runId, store } = setup({ a: [{ calls: [{ name: "board_read", input: {} }] }] }, [
+      defineTool({ ...slowTool("board_read", 10_000) }),
+    ]);
     const handle = await runtime.startAgent(task(runId, "a"));
     await new Promise((resolve) => setTimeout(resolve, 50));
     await runtime.cancelAgent(handle.agentId);
@@ -188,7 +192,7 @@ describe("BoundedAgentRuntime", () => {
   it("limits what the Independent Reviewer can read from the board", async () => {
     const { runtime, runId } = setup({
       r: [
-        (request) => ({ calls: [{ name: "board_read", input: {} }] , text: String(request.messages.length) }),
+        (request) => ({ calls: [{ name: "board_read", input: {} }], text: String(request.messages.length) }),
         (request) => {
           const last = request.messages.at(-1);
           return { calls: [{ name: "finish", input: { answer: last?.role === "tool" ? last.content : "" } }] };
@@ -214,7 +218,18 @@ describe("BoundedAgentRuntime", () => {
     // Real crash scenario: a granted tool hangs and the process dies mid-call.
     const second = setup(
       { b: [{ calls: [{ name: "board_read", input: {} }] }, { calls: [{ name: "lab_list", input: {} }] }] },
-      [echo, defineTool({ name: "lab_list", description: "hangs", input: z.object({}), run: () => { crash(); return new Promise(() => undefined); } })],
+      [
+        echo,
+        defineTool({
+          name: "lab_list",
+          description: "hangs",
+          input: z.object({}),
+          run: () => {
+            crash();
+            return new Promise(() => undefined);
+          },
+        }),
+      ],
       file,
     );
     const hung = await second.runtime.startAgent(task(second.runId, "b", { role: "lab_engineer", grants: ["board_read", "lab_list"] }));
@@ -233,7 +248,15 @@ describe("BoundedAgentRuntime", () => {
           },
         ],
       },
-      [echo, defineTool({ name: "lab_list", description: "ok", input: z.object({}), run: async () => ({ content: "listed", summary: "listed" }) })],
+      [
+        echo,
+        defineTool({
+          name: "lab_list",
+          description: "ok",
+          input: z.object({}),
+          run: async () => ({ content: "listed", summary: "listed" }),
+        }),
+      ],
       file,
     );
     const resumed = await third.runtime.resumeAgent(hung.agentId);
@@ -247,7 +270,12 @@ describe("BoundedAgentRuntime", () => {
   });
 
   it("rolls over to a new conversation segment instead of editing history", async () => {
-    const big = defineTool({ name: "board_read", description: "big", input: z.object({}), run: async () => ({ content: "x".repeat(5_000), summary: "big" }) });
+    const big = defineTool({
+      name: "board_read",
+      description: "big",
+      input: z.object({}),
+      run: async () => ({ content: "x".repeat(5_000), summary: "big" }),
+    });
     const { runtime, runId, store, providers } = setup(
       {
         a: [
@@ -273,7 +301,13 @@ describe("BoundedAgentRuntime", () => {
     const store = new RunStore();
     cleanups.push(() => store.close());
     const run = store.createRun({});
-    const failing: ChatProvider = { id: "x", kind: "scripted", chat: async () => { throw new Error("boom"); } };
+    const failing: ChatProvider = {
+      id: "x",
+      kind: "scripted",
+      chat: async () => {
+        throw new Error("boom");
+      },
+    };
     const runtime = new BoundedAgentRuntime({ store, provider: () => failing, tools: () => [] });
     const outcome = await (await runtime.startAgent(task(run.id, "a", { grants: [] }))).done;
     expect(outcome.status).toBe("failed");

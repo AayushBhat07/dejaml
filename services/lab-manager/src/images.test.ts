@@ -75,10 +75,7 @@ class FakeDocker implements ContainerRuntime {
       const [os = "", architecture = ""] = platform ? platform.split("/") : [];
       // The containerd store reports the platform manifest's digest when asked for a platform.
       const id = asked && !this.classicStore ? PLATFORM_DIGEST[asked] : image.id;
-      return result(
-        0,
-        `${JSON.stringify({ Id: id, Os: os, Architecture: architecture, RepoDigests: [`busybox@${image.id}`] })}\n`,
-      );
+      return result(0, `${JSON.stringify({ Id: id, Os: os, Architecture: architecture, RepoDigests: [`busybox@${image.id}`] })}\n`);
     }
     if (command === "pull") {
       const platform = flag("--platform") ?? "";
@@ -160,9 +157,7 @@ describe("ImageReadiness", () => {
       readyAt: "2026-09-30T12:00:00.000Z",
     });
     expect(docker.count("pull")).toBe(0);
-    expect(readiness.status()).toEqual([
-      expect.objectContaining({ key: "probe:busybox", platform: "linux/amd64", state: "ready", image }),
-    ]);
+    expect(readiness.status()).toEqual([expect.objectContaining({ key: "probe:busybox", platform: "linux/amd64", state: "ready", image })]);
   });
 
   it("fails with image_missing when the image is absent and nothing may create it", async () => {
@@ -240,18 +235,15 @@ describe("ImageReadiness", () => {
       readiness.ensure(request({ pull: true, platform: "linux/arm64" })),
     ]);
     expect(docker.pulledPlatforms.sort()).toEqual(["linux/amd64", "linux/arm64"]);
-    expect(readiness.status().map((entry) => `${entry.platform} ${entry.state}`)).toEqual([
-      "linux/amd64 ready",
-      "linux/arm64 ready",
-    ]);
+    expect(readiness.status().map((entry) => `${entry.platform} ${entry.state}`)).toEqual(["linux/amd64 ready", "linux/arm64 ready"]);
   });
 
   it("refuses a second, different request under a key that is already preparing", async () => {
     docker.pullDelayMs = 30;
     const first = readiness.ensure(request({ pull: true }));
-    await expect(
-      readiness.ensure(request({ pull: true, reference: `mirror.example/library/busybox@${OTHER}` })),
-    ).rejects.toMatchObject({ code: "invalid_request" });
+    await expect(readiness.ensure(request({ pull: true, reference: `mirror.example/library/busybox@${OTHER}` }))).rejects.toMatchObject({
+      code: "invalid_request",
+    });
     await first;
   });
 
@@ -311,9 +303,7 @@ describe("ImageReadiness", () => {
     await writeFile(join(context, "Dockerfile"), `FROM ${PINNED}\n`);
     docker.buildFails = true;
     const build = { contextDir: context, dockerfile: "Dockerfile", tag: "dejaml/python-base:test" };
-    const failure = await readiness
-      .ensure(request({ reference: "dejaml/python-base:test", build }))
-      .catch((error: unknown) => error);
+    const failure = await readiness.ensure(request({ reference: "dejaml/python-base:test", build })).catch((error: unknown) => error);
     expect(failure).toMatchObject({ code: "build_failed" });
     expect((failure as ImageNotReadyError).detail).toContain("failed to solve");
     expect(docker.count("build")).toBe(1);
@@ -427,7 +417,12 @@ describe("lab base images", () => {
 
   it("builds the study's lab image from the pinned base for its Python version and platform", async () => {
     const lock = await loadBaseImageLock(baseLockPath);
-    const imageRequest = pythonBaseImageRequest({ lock, python: "3.12", platform: "linux/arm64", contextDir: "/repo/lab-images/python-base" });
+    const imageRequest = pythonBaseImageRequest({
+      lock,
+      python: "3.12",
+      platform: "linux/arm64",
+      contextDir: "/repo/lab-images/python-base",
+    });
     expect(imageRequest).toEqual({
       key: "lab-base:python-3.12",
       reference: "dejaml/python-base:0.1.0-py3.12-linux-arm64",

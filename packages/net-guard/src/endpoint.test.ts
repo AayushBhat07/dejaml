@@ -205,7 +205,12 @@ describe("createGuardedFetch against a local HTTP server", () => {
       const chunks: Buffer[] = [];
       request.on("data", (chunk: Buffer) => chunks.push(chunk));
       request.on("end", () => {
-        hits.push({ method: request.method ?? "", url: request.url ?? "", headers: request.headers, body: Buffer.concat(chunks).toString("utf8") });
+        hits.push({
+          method: request.method ?? "",
+          url: request.url ?? "",
+          headers: request.headers,
+          body: Buffer.concat(chunks).toString("utf8"),
+        });
         handler(request, response);
       });
     });
@@ -228,7 +233,8 @@ describe("createGuardedFetch against a local HTTP server", () => {
   });
 
   it("posts a body with caller headers and returns status, headers and body", async () => {
-    handler = (_request, response) => response.writeHead(429, { "content-type": "application/json", "retry-after": "3" }).end('{"error":"slow down"}');
+    handler = (_request, response) =>
+      response.writeHead(429, { "content-type": "application/json", "retry-after": "3" }).end('{"error":"slow down"}');
     const guarded = createGuardedFetch({ policy: policy(), resolver: resolverFrom({ "llm.example.test": [v4("127.0.0.1")] }) });
     const response = await guarded(url("/v1/chat/completions"), {
       method: "POST",
@@ -265,7 +271,13 @@ describe("createGuardedFetch against a local HTTP server", () => {
       "metadata6.example.test": [v6("fd00:ec2::254")],
     });
     const guarded = createGuardedFetch({ policy: policy(), resolver });
-    for (const host of ["private.example.test", "mixed.example.test", "mapped.example.test", "metadata.example.test", "metadata6.example.test"]) {
+    for (const host of [
+      "private.example.test",
+      "mixed.example.test",
+      "mapped.example.test",
+      "metadata.example.test",
+      "metadata6.example.test",
+    ]) {
       expect(await failure(guarded(url("/v1", host), { method: "POST", body: "{}" }))).toBe("private_address");
     }
     expect(hits).toEqual([]);

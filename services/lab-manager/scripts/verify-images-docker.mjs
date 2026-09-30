@@ -93,7 +93,10 @@ try {
   const probeRequest = (platform) => ({ key: "probe:busybox", reference: PROBE_IMAGE, platform, pull: true });
   const concurrent = await Promise.all(Array.from({ length: 5 }, () => readiness.ensure(probeRequest(HOST_PLATFORM))));
   assert(counting.count("pull") === (probePresentBefore ? 0 : 1), `one pull for five concurrent requests (saw ${counting.count("pull")})`);
-  assert(concurrent.every((image) => image === concurrent[0]), "all callers share one result");
+  assert(
+    concurrent.every((image) => image === concurrent[0]),
+    "all callers share one result",
+  );
   const host = concurrent[0];
   assert(host.platform === HOST_PLATFORM && `${host.os}/${host.architecture}` === HOST_PLATFORM, "probe image is for this platform");
   assert(host.source === (probePresentBefore ? "present" : "pulled"), "probe image source recorded");
@@ -101,12 +104,33 @@ try {
   assert(again.source === "present" && again.imageId === host.imageId, "an existing image is used by its ID without pulling");
   const running = docker(["run", "--rm", "--network", "none", "--platform", HOST_PLATFORM, "--pull", "never", PROBE_IMAGE, "uname", "-m"]);
   assert(running.status === 0, `probe image runs on ${HOST_PLATFORM}: ${running.stderr}`);
-  report.hostProbe = { imageId: host.imageId, repoDigests: host.repoDigests, source: host.source, pulls: counting.count("pull"), uname: running.stdout.trim() };
+  report.hostProbe = {
+    imageId: host.imageId,
+    repoDigests: host.repoDigests,
+    source: host.source,
+    pulls: counting.count("pull"),
+    uname: running.stdout.trim(),
+  };
 
   // 2. The same image for the other platform: pulling needs no emulation; running it does.
   const other = await readiness.ensure(probeRequest(OTHER_PLATFORM));
-  assert(other.platform === OTHER_PLATFORM && `${other.os}/${other.architecture}` === OTHER_PLATFORM, `probe image pulled for ${OTHER_PLATFORM}`);
-  const emulated = docker(["run", "--rm", "--network", "none", "--platform", OTHER_PLATFORM, "--pull", "never", PROBE_IMAGE, "uname", "-m"]);
+  assert(
+    other.platform === OTHER_PLATFORM && `${other.os}/${other.architecture}` === OTHER_PLATFORM,
+    `probe image pulled for ${OTHER_PLATFORM}`,
+  );
+  const emulated = docker([
+    "run",
+    "--rm",
+    "--network",
+    "none",
+    "--platform",
+    OTHER_PLATFORM,
+    "--pull",
+    "never",
+    PROBE_IMAGE,
+    "uname",
+    "-m",
+  ]);
   if (emulated.status === 0) {
     report.otherProbe = { imageId: other.imageId, architecture: other.architecture, uname: emulated.stdout.trim() };
   } else {
@@ -117,7 +141,9 @@ try {
   }
 
   // 3. Typed failures against the real engine.
-  const stale = await failure(readiness.ensure({ ...probeRequest(HOST_PLATFORM), key: "probe:stale", expectedImageId: `sha256:${"0".repeat(64)}` }));
+  const stale = await failure(
+    readiness.ensure({ ...probeRequest(HOST_PLATFORM), key: "probe:stale", expectedImageId: `sha256:${"0".repeat(64)}` }),
+  );
   assert(stale?.code === "image_stale", `a different local ID is stale (${stale?.code})`);
   const missing = await failure(
     readiness.ensure({ key: "probe:missing", reference: `dejaml/never-built@sha256:${"0".repeat(64)}`, platform: HOST_PLATFORM }),
@@ -126,7 +152,12 @@ try {
   const quick = new ImageReadiness({ pullTimeoutMs: 50, retries: 0 });
   const unpulled = lock.bases["3.12"];
   const timedOut = await failure(
-    quick.ensure({ key: "probe:timeout", reference: `docker.io/library/python:${unpulled.tag}@${unpulled.index}`, platform: HOST_PLATFORM, pull: true }),
+    quick.ensure({
+      key: "probe:timeout",
+      reference: `docker.io/library/python:${unpulled.tag}@${unpulled.index}`,
+      platform: HOST_PLATFORM,
+      pull: true,
+    }),
   );
   assert(timedOut?.code === "timeout" || timedOut === null, `a pull past its limit times out (${timedOut?.code})`);
   if (timedOut === null) report.skipped.push("timeout: the 3.12 base was already present locally, so nothing was pulled");
@@ -141,19 +172,28 @@ try {
   const built = await Promise.all([images.ensure(baseRequest), images.ensure(baseRequest), images.ensure(baseRequest)]);
   assert(builds.count("build") === 1, `one build for three concurrent requests (saw ${builds.count("build")})`);
   const base = built[0];
-  assert(base.source === "built" && base.platform === HOST_PLATFORM && `${base.os}/${base.architecture}` === HOST_PLATFORM, "base image built for this platform");
+  assert(
+    base.source === "built" && base.platform === HOST_PLATFORM && `${base.os}/${base.architecture}` === HOST_PLATFORM,
+    "base image built for this platform",
+  );
   const rebuilt = await images.ensure({ ...baseRequest, expectedImageId: base.imageId });
   assert(rebuilt.source === "present" && rebuilt.imageId === base.imageId, "the built image is reused by its ID");
   const wrongPlatform = await failure(
     images.ensure({ key: "lab-base:wrong-platform", reference: baseRequest.reference, platform: OTHER_PLATFORM }),
   );
-  assert(wrongPlatform?.code === "platform_mismatch", `the ${HOST_PLATFORM} base is refused for ${OTHER_PLATFORM} (${wrongPlatform?.code})`);
+  assert(
+    wrongPlatform?.code === "platform_mismatch",
+    `the ${HOST_PLATFORM} base is refused for ${OTHER_PLATFORM} (${wrongPlatform?.code})`,
+  );
   const staleBase = await failure(images.ensure({ ...baseRequest, key: "lab-base:stale", expectedImageId: host.imageId }));
   assert(staleBase?.code === "image_stale", "a base with another ID is stale");
 
   // 5. The built base is a sealed lab image: non-root, no pip, offline venv support, and it runs in a lab.
   const inspected = JSON.parse(docker(["image", "inspect", "--format", "{{json .}}", baseRequest.reference]).stdout);
-  assert(inspected.Config.User === "10001:10001" && inspected.Config.WorkingDir === "/workspace/case", "base image is non-root with the lab workdir");
+  assert(
+    inspected.Config.User === "10001:10001" && inspected.Config.WorkingDir === "/workspace/case",
+    "base image is non-root with the lab workdir",
+  );
   const root = await mkdtemp(join(tmpdir(), "dejaml-images-proof-"));
   cleanup.dirs.push(root);
   await mkdir(join(root, "repo"));
@@ -178,15 +218,25 @@ try {
       const version = await run(["repo/train.py"]);
       const pip = await run(["-c", "import importlib.util as u; print(u.find_spec('pip') is None, u.find_spec('ensurepip') is None)"]);
       const venv = await run(["-m", "venv", "--without-pip", "work/venv"]);
-      const inVenv = await labs.runCommand(
-        handle.labId,
-        { executable: "work/venv/bin/python", args: ["-c", "import sys; print(sys.prefix != sys.base_prefix)"], cwd: "/workspace/case", env: {} },
-        { timeoutSeconds: 30, step: 2 },
-      ).catch((error) => ({ exitCode: null, stdout: { text: "" }, stderr: { text: String(error) } }));
+      const inVenv = await labs
+        .runCommand(
+          handle.labId,
+          {
+            executable: "work/venv/bin/python",
+            args: ["-c", "import sys; print(sys.prefix != sys.base_prefix)"],
+            cwd: "/workspace/case",
+            env: {},
+          },
+          { timeoutSeconds: 30, step: 2 },
+        )
+        .catch((error) => ({ exitCode: null, stdout: { text: "" }, stderr: { text: String(error) } }));
       return { handle, version, pip, venv, inVenv };
     },
   );
-  assert(lab.value.handle.platform === HOST_PLATFORM && lab.value.handle.imageId === base.imageId, "lab runs the built base image on this platform");
+  assert(
+    lab.value.handle.platform === HOST_PLATFORM && lab.value.handle.imageId === base.imageId,
+    "lab runs the built base image on this platform",
+  );
   assert(lab.value.version.stdout.text.trim() === `python ${PYTHON}`, `lab has Python ${PYTHON}`);
   assert(lab.value.pip.stdout.text.trim() === "True True", "pip and ensurepip are removed");
   assert(lab.value.venv.exitCode === 0, `python -m venv --without-pip works offline: ${lab.value.venv.stderr.text}`);

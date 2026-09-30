@@ -9,13 +9,7 @@ export {
   parseIpLiteral,
   type ParsedIp,
 } from "./ip.js";
-export {
-  type FetchPolicy,
-  hostMatchesAllowlist,
-  isPlainDnsName,
-  MAX_URL_LENGTH,
-  validateFetchUrl,
-} from "./url-policy.js";
+export { type FetchPolicy, hostMatchesAllowlist, isPlainDnsName, MAX_URL_LENGTH, validateFetchUrl } from "./url-policy.js";
 export {
   type AddressPolicy,
   createPinnedLookup,

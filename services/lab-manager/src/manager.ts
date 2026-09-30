@@ -15,27 +15,10 @@ import {
 } from "@dejaml/contracts";
 import type { z } from "zod";
 
-import {
-  type BoundedText,
-  type ContainerRuntime,
-  type OutputStream,
-  type RuntimeCommandResult,
-  DockerCliRuntime,
-} from "./runtime.js";
-import {
-  ArtifactWatcher,
-  DEFAULT_OBSERVE_OPTIONS,
-  OutputBatcher,
-  parseDockerStats,
-  type ObserveOptions,
-} from "./observer.js";
+import { type BoundedText, type ContainerRuntime, type OutputStream, type RuntimeCommandResult, DockerCliRuntime } from "./runtime.js";
+import { ArtifactWatcher, DEFAULT_OBSERVE_OPTIONS, OutputBatcher, parseDockerStats, type ObserveOptions } from "./observer.js";
 import type { ImageReadiness } from "./images.js";
-import {
-  DEFAULT_LAB_TIMEOUT_SECONDS,
-  LabSpecSchema,
-  WorkspaceRelativePathSchema,
-  type LabSpec,
-} from "./spec.js";
+import { DEFAULT_LAB_TIMEOUT_SECONDS, LabSpecSchema, WorkspaceRelativePathSchema, type LabSpec } from "./spec.js";
 
 export const LAB_LABEL = "dejaml.lab";
 export const RUN_LABEL = "dejaml.run";
@@ -71,8 +54,23 @@ export const LAB_ENV_ALLOWLIST: ReadonlySet<string> = new Set([
 ]);
 /** Variable names a command may never set: they look like credentials or configure a provider. */
 const CREDENTIAL_ENV_PREFIXES = [
-  "DEJAML_", "AWS_", "AZURE_", "GOOGLE_", "GCP_", "GCLOUD_", "GITHUB_", "GH_", "GITLAB_",
-  "OPENAI_", "ANTHROPIC_", "DOCKER_", "KUBE", "SSH_", "NPM_", "PIP_INDEX", "PIP_EXTRA_INDEX",
+  "DEJAML_",
+  "AWS_",
+  "AZURE_",
+  "GOOGLE_",
+  "GCP_",
+  "GCLOUD_",
+  "GITHUB_",
+  "GH_",
+  "GITLAB_",
+  "OPENAI_",
+  "ANTHROPIC_",
+  "DOCKER_",
+  "KUBE",
+  "SSH_",
+  "NPM_",
+  "PIP_INDEX",
+  "PIP_EXTRA_INDEX",
 ];
 const CREDENTIAL_ENV_PATTERN = /(?:^|_)(?:TOKEN|SECRET|PASSWORD|PASSWD|API_?KEY|CREDENTIALS?|ACCESS_KEY|PRIVATE_KEY|AUTH)(?:_|$)/u;
 /** Host paths that must never be mounted into a lab, nor any directory that contains them. */
@@ -92,15 +90,7 @@ export type LabEventInput = Omit<RunEvent, "id" | "sequence" | "timestamp">;
 export type LabEventSink = (event: LabEventInput) => unknown;
 type EvidencePointer = z.infer<typeof EvidencePointerSchema>;
 
-export type LabState =
-  | "ready"
-  | "preparing"
-  | "running"
-  | "idle"
-  | "cancelled"
-  | "timed_out"
-  | "failed"
-  | "destroyed";
+export type LabState = "ready" | "preparing" | "running" | "idle" | "cancelled" | "timed_out" | "failed" | "destroyed";
 
 export type LabHandle = {
   labId: string;
@@ -296,25 +286,41 @@ export class LabManager {
 
       const args = [
         "create",
-        "--name", containerName,
-        "--label", `${LAB_LABEL}=${labId}`,
-        "--label", `${RUN_LABEL}=${spec.runId}`,
-        "--label", `${PLATFORM_LABEL}=${spec.platform}`,
-        "--label", `${IMAGE_LABEL}=${imageId}`,
+        "--name",
+        containerName,
+        "--label",
+        `${LAB_LABEL}=${labId}`,
+        "--label",
+        `${RUN_LABEL}=${spec.runId}`,
+        "--label",
+        `${PLATFORM_LABEL}=${spec.platform}`,
+        "--label",
+        `${IMAGE_LABEL}=${imageId}`,
         // The image was verified above; a lab never pulls, and runs only the requested platform.
-        "--platform", spec.platform,
-        "--pull", "never",
+        "--platform",
+        spec.platform,
+        "--pull",
+        "never",
         "--init",
-        "--network", "none",
+        "--network",
+        "none",
         "--read-only",
-        "--cap-drop", "ALL",
-        "--security-opt", "no-new-privileges",
-        "--cpus", String(spec.resources.cpus),
-        "--memory", `${spec.resources.memoryMb}m`,
-        "--memory-swap", `${spec.resources.memoryMb}m`,
-        "--pids-limit", String(spec.resources.pids),
-        "--tmpfs", `/tmp:rw,noexec,nosuid,nodev,size=${spec.limits.tmpfsMb}m,uid=10001,gid=10001,mode=1777`,
-        "--workdir", spec.workdir,
+        "--cap-drop",
+        "ALL",
+        "--security-opt",
+        "no-new-privileges",
+        "--cpus",
+        String(spec.resources.cpus),
+        "--memory",
+        `${spec.resources.memoryMb}m`,
+        "--memory-swap",
+        `${spec.resources.memoryMb}m`,
+        "--pids-limit",
+        String(spec.resources.pids),
+        "--tmpfs",
+        `/tmp:rw,noexec,nosuid,nodev,size=${spec.limits.tmpfsMb}m,uid=10001,gid=10001,mode=1777`,
+        "--workdir",
+        spec.workdir,
         ...spec.inputs.flatMap((labInput) => [
           "--mount",
           mountArgument(labInput.hostPath, posix.join(spec.workdir, labInput.containerPath), true),
@@ -324,7 +330,8 @@ export class LabManager {
         ...(hostScratchDir && spec.scratchDir
           ? ["--mount", mountArgument(hostScratchDir, posix.join(spec.workdir, spec.scratchDir), false)]
           : []),
-        "--entrypoint", "sleep",
+        "--entrypoint",
+        "sleep",
         spec.image,
         "infinity",
       ];
@@ -390,10 +397,7 @@ export class LabManager {
     }
   }
 
-  async prepareLab(
-    labId: string,
-    steps: ReadonlyArray<z.input<typeof PreparationStepSchema>>,
-  ): Promise<PreparationRecord[]> {
+  async prepareLab(labId: string, steps: ReadonlyArray<z.input<typeof PreparationStepSchema>>): Promise<PreparationRecord[]> {
     const lab = this.#lab(labId);
     this.#requireState(lab, ["ready"]);
     const records: PreparationRecord[] = [];
@@ -402,10 +406,7 @@ export class LabManager {
       for (const rawStep of steps) {
         const step = PreparationStepSchema.parse(rawStep);
         if (step.kind === "install") {
-          throw new LabError(
-            "preparation_rejected",
-            "install steps need network access, which labs never receive after creation",
-          );
+          throw new LabError("preparation_rejected", "install steps need network access, which labs never receive after creation");
         }
         if (!step.command) {
           records.push({ step, exitCode: null, stdout: emptyText(), stderr: emptyText() });
@@ -466,22 +467,11 @@ export class LabManager {
     });
 
     const observation = request.observe
-      ? this.#startObservation(
-          lab,
-          attemptId,
-          startedAt,
-          request.observe === true ? {} : request.observe,
-          request.onOutput,
-        )
+      ? this.#startObservation(lab, attemptId, startedAt, request.observe === true ? {} : request.observe, request.onOutput)
       : null;
     let result: RuntimeCommandResult;
     try {
-      result = await this.#execInLab(
-        lab,
-        command,
-        lab.spec.resources.timeoutSeconds,
-        observation?.onOutput ?? request.onOutput,
-      );
+      result = await this.#execInLab(lab, command, lab.spec.resources.timeoutSeconds, observation?.onOutput ?? request.onOutput);
       await observation?.stop();
     } catch (error) {
       await observation?.stop();
@@ -588,9 +578,7 @@ export class LabManager {
       timeoutSeconds: limit,
     });
     if (lab.spec.scratchDir && lab.mainPid === null) await this.#learnMainPid(lab);
-    const observation = options.observe
-      ? this.#startObservation(lab, stepId, startedAt, {}, undefined)
-      : null;
+    const observation = options.observe ? this.#startObservation(lab, stepId, startedAt, {}, undefined) : null;
     let result: RuntimeCommandResult;
     try {
       result = await this.#execInLab(
@@ -615,8 +603,7 @@ export class LabManager {
     const durationMs = endedAt.getTime() - startedAt.getTime();
     // `timeout --signal=KILL` exits 137; an out-of-memory kill also exits 137, so the elapsed time decides.
     const timedOut =
-      lab.killReason === "timed_out" ||
-      ((result.exitCode === 137 || result.exitCode === 124) && durationMs >= limit * 1000 - 1000);
+      lab.killReason === "timed_out" || ((result.exitCode === 137 || result.exitCode === 124) && durationMs >= limit * 1000 - 1000);
     // Nothing the command started may keep running after it: stray background
     // processes are stopped before the host looks at the lab's files.
     const strayProcesses = lab.killReason ? [] : await this.#reapStrays(lab);
@@ -650,26 +637,36 @@ export class LabManager {
       scratchBytes,
     };
     if (strayProcesses.length > 0) {
-      this.#emit(lab.handle.runId, "lab_strays_stopped", "warning", `Stopped ${strayProcesses.length} background process(es) left by step ${options.step}`, {
-        labId,
-        step: options.step,
-        processes: strayProcesses,
-      });
+      this.#emit(
+        lab.handle.runId,
+        "lab_strays_stopped",
+        "warning",
+        `Stopped ${strayProcesses.length} background process(es) left by step ${options.step}`,
+        {
+          labId,
+          step: options.step,
+          processes: strayProcesses,
+        },
+      );
     }
     if (scratchBytes !== null && scratchBytes > scratchLimit) {
       lab.state = "failed";
-      this.#emit(lab.handle.runId, "lab_disk_limit", "failed", `The lab's scratch space grew past ${lab.spec.limits.maxScratchMb ?? 3_072} MB`, {
-        labId,
-        scratchBytes,
-      });
+      this.#emit(
+        lab.handle.runId,
+        "lab_disk_limit",
+        "failed",
+        `The lab's scratch space grew past ${lab.spec.limits.maxScratchMb ?? 3_072} MB`,
+        {
+          labId,
+          scratchBytes,
+        },
+      );
     }
     this.#emit(
       lab.handle.runId,
       "agent_command",
       outcome.exitCode === 0 ? "completed" : "failed",
-      timedOut
-        ? `${who} ${options.step} hit its ${limit}s limit`
-        : `${who} ${options.step} exited with code ${String(outcome.exitCode)}`,
+      timedOut ? `${who} ${options.step} hit its ${limit}s limit` : `${who} ${options.step} exited with code ${String(outcome.exitCode)}`,
       {
         labId,
         step: options.step,
@@ -726,11 +723,18 @@ export class LabManager {
       bytes: bytes.length,
       sha256: createHash("sha256").update(bytes).digest("hex"),
     };
-    this.#emit(lab.handle.runId, "agent_file", "completed", `Step ${step}: wrote ${relativePath}`, {
-      labId,
-      step,
-      ...summary,
-    }, [{ kind: "artifact", reference: `${relativePath}#sha256=${summary.sha256}` }]);
+    this.#emit(
+      lab.handle.runId,
+      "agent_file",
+      "completed",
+      `Step ${step}: wrote ${relativePath}`,
+      {
+        labId,
+        step,
+        ...summary,
+      },
+      [{ kind: "artifact", reference: `${relativePath}#sha256=${summary.sha256}` }],
+    );
     return summary;
   }
 
@@ -770,14 +774,22 @@ export class LabManager {
       { executable: "cat", args: ["/proc/1/task/1/children"], cwd: lab.spec.workdir, env: {} },
       15,
     ).catch(() => null);
-    const pids = result?.exitCode === 0 ? result.stdout.text.trim().split(/\s+/u).filter((item) => /^\d+$/u.test(item)) : [];
+    const pids =
+      result?.exitCode === 0
+        ? result.stdout.text
+            .trim()
+            .split(/\s+/u)
+            .filter((item) => /^\d+$/u.test(item))
+        : [];
     lab.mainPid = pids.length === 1 ? Number(pids[0]) : null;
   }
 
   async #reapStrays(lab: LabRecord): Promise<string[]> {
     if (!lab.spec.scratchDir) return [];
     if (lab.mainPid === null) {
-      this.#emit(lab.handle.runId, "lab_strays_unchecked", "warning", "Background processes could not be checked in this lab", { labId: lab.handle.labId });
+      this.#emit(lab.handle.runId, "lab_strays_unchecked", "warning", "Background processes could not be checked in this lab", {
+        labId: lab.handle.labId,
+      });
       return [];
     }
     const result = await this.#execInLab(
@@ -837,12 +849,19 @@ export class LabManager {
         sha256: createHash("sha256").update(content).digest("hex"),
         content,
       };
-      this.#emit(lab.handle.runId, "artifact_read", "completed", `Exported ${relativePath}`, {
-        labId,
-        path: relativePath,
-        bytes: artifact.bytes,
-        sha256: artifact.sha256,
-      }, [{ kind: "artifact", reference: `${relativePath}#sha256=${artifact.sha256}` }]);
+      this.#emit(
+        lab.handle.runId,
+        "artifact_read",
+        "completed",
+        `Exported ${relativePath}`,
+        {
+          labId,
+          path: relativePath,
+          bytes: artifact.bytes,
+          sha256: artifact.sha256,
+        },
+        [{ kind: "artifact", reference: `${relativePath}#sha256=${artifact.sha256}` }],
+      );
       return artifact;
     } finally {
       await handle.close();
@@ -874,9 +893,7 @@ export class LabManager {
         errors.push(`container removal: ${errorMessage(error)}`);
         return null;
       });
-    const containerRemoved =
-      removal !== null &&
-      (removal.exitCode === 0 || /no such container/iu.test(removal.stderr.text));
+    const containerRemoved = removal !== null && (removal.exitCode === 0 || /no such container/iu.test(removal.stderr.text));
     if (removal && !containerRemoved) errors.push(`container removal: ${removal.stderr.text.trim()}`);
 
     let artifactDirectoryRemoved = false;
@@ -921,10 +938,7 @@ export class LabManager {
   }
 
   /** Creates a lab, runs `work`, and always destroys the lab afterwards. */
-  async withLab<T>(
-    spec: LabSpec,
-    work: (lab: LabHandle) => Promise<T>,
-  ): Promise<{ value: T; receipt: CleanupReceipt }> {
+  async withLab<T>(spec: LabSpec, work: (lab: LabHandle) => Promise<T>): Promise<{ value: T; receipt: CleanupReceipt }> {
     const lab = await this.createLab(spec);
     let failure: unknown = null;
     let value: T | undefined;
@@ -933,10 +947,7 @@ export class LabManager {
     } catch (error) {
       failure = error;
     }
-    const receipt = await this.destroyLab(
-      lab.labId,
-      failure ? `work failed: ${errorMessage(failure)}` : `lab ${this.state(lab.labId)}`,
-    );
+    const receipt = await this.destroyLab(lab.labId, failure ? `work failed: ${errorMessage(failure)}` : `lab ${this.state(lab.labId)}`);
     if (failure) throw failure;
     return { value: value as T, receipt };
   }
@@ -993,10 +1004,7 @@ export class LabManager {
       throw new LabError("image_missing", `lab image ${spec.image} is not available locally`);
     }
     if (plain.id !== spec.expectedImageId) {
-      throw new LabError(
-        "image_mismatch",
-        `lab image ${spec.image} is ${plain.id}, expected ${spec.expectedImageId}`,
-      );
+      throw new LabError("image_mismatch", `lab image ${spec.image} is ${plain.id}, expected ${spec.expectedImageId}`);
     }
     if (!isNonRootUser(plain.user)) {
       throw new LabError("image_root_user", `lab image ${spec.image} must declare a non-root user`);
@@ -1146,9 +1154,7 @@ export class LabManager {
       return;
     }
     lab.state = "timed_out";
-    await this.#runtime
-      .docker(["kill", "--signal", "KILL", lab.handle.containerName], { maxOutputBytes: 4096 })
-      .catch(() => undefined);
+    await this.#runtime.docker(["kill", "--signal", "KILL", lab.handle.containerName], { maxOutputBytes: 4096 }).catch(() => undefined);
   }
 
   async #verifyInput(input: LabSpec["inputs"][number]): Promise<void> {
@@ -1167,7 +1173,9 @@ export class LabManager {
       if (!stats.isFile()) {
         throw new LabError("input_rejected", `digest-pinned input must be a file: ${input.containerPath}`);
       }
-      const digest = createHash("sha256").update(await readFile(input.hostPath)).digest("hex");
+      const digest = createHash("sha256")
+        .update(await readFile(input.hostPath))
+        .digest("hex");
       if (digest !== input.sha256) {
         throw new LabError("input_digest_mismatch", `${input.containerPath} does not match its reviewed digest`);
       }
@@ -1216,7 +1224,8 @@ export class LabManager {
       return await this.#runtime.docker(
         [
           "exec",
-          "--workdir", command.cwd,
+          "--workdir",
+          command.cwd,
           ...Object.entries(command.env).flatMap(([key, value]) => ["--env", `${key}=${value}`]),
           lab.handle.containerName,
           command.executable,
@@ -1241,11 +1250,7 @@ export class LabManager {
     const runId = lab.handle.runId;
     const labId = lab.handle.labId;
     const batcher = new OutputBatcher(options);
-    const watcher = new ArtifactWatcher(
-      lab.hostArtifactsDir,
-      lab.spec.artifactsDir,
-      lab.spec.limits.maxArtifactFiles,
-    );
+    const watcher = new ArtifactWatcher(lab.hostArtifactsDir, lab.spec.artifactsDir, lab.spec.limits.maxArtifactFiles);
 
     const publishOutput = (final: boolean): void => {
       for (const batch of batcher.drain(final)) {
@@ -1385,11 +1390,10 @@ export class LabManager {
         if (stats.size > lab.spec.limits.maxArtifactBytes || totalBytes > lab.spec.limits.maxArtifactTotalBytes) {
           throw new LabError("artifact_limit", "the attempt produced more artifact bytes than allowed");
         }
-        const path = posix.join(
-          lab.spec.artifactsDir,
-          ...relative(lab.hostArtifactsDir, hostPath).split(sep),
-        );
-        const sha256 = createHash("sha256").update(await readFile(hostPath)).digest("hex");
+        const path = posix.join(lab.spec.artifactsDir, ...relative(lab.hostArtifactsDir, hostPath).split(sep));
+        const sha256 = createHash("sha256")
+          .update(await readFile(hostPath))
+          .digest("hex");
         summaries.push({ path, bytes: stats.size, sha256 });
       }
     };
@@ -1408,13 +1412,16 @@ export class LabManager {
     }
   }
 
-  async #listLabContainers(filter: string): Promise<
-    Array<{ name: string; labId: string; runId: string; platform: ContainerPlatform | null; imageId: string | null }>
-  > {
+  async #listLabContainers(
+    filter: string,
+  ): Promise<Array<{ name: string; labId: string; runId: string; platform: ContainerPlatform | null; imageId: string | null }>> {
     const result = await this.#runtime.docker(
       [
-        "ps", "--all", "--no-trunc",
-        "--filter", `label=${filter}`,
+        "ps",
+        "--all",
+        "--no-trunc",
+        "--filter",
+        `label=${filter}`,
         "--format",
         `{{.Names}}\t{{.Label "${LAB_LABEL}"}}\t{{.Label "${RUN_LABEL}"}}\t{{.Label "${PLATFORM_LABEL}"}}\t{{.Label "${IMAGE_LABEL}"}}`,
       ],
@@ -1606,8 +1613,7 @@ export function isCredentialEnvKey(key: string): boolean {
  * directories are refused, as is any directory that contains one of them.
  */
 export function forbiddenMountReason(resolvedPath: string, home = process.env.HOME): string | null {
-  const within = (path: string, root: string): boolean =>
-    root === "/" || path === root || path.startsWith(`${root}/`);
+  const within = (path: string, root: string): boolean => root === "/" || path === root || path.startsWith(`${root}/`);
   const protectedPaths = [
     ...DOCKER_SOCKET_PATHS,
     ...(home && home !== "/" ? CREDENTIAL_DIRECTORIES.map((entry) => posix.join(home, entry)) : []),

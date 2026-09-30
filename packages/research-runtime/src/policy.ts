@@ -60,16 +60,16 @@ export function evaluateExperimentPlan(input: {
     "claim",
     Boolean(
       paperClaim &&
-        normalized(plan.claim.dataset) === normalized(policy.claim.dataset) &&
-        normalized(plan.claim.model) === normalized(policy.claim.model) &&
-        policy.claim.metricNames.map(normalized).includes(normalized(plan.claim.metric.name)) &&
-        plan.claim.metric.unit === policy.claim.unit &&
-        Math.abs(plan.claim.metric.reportedValue - policy.claim.reportedValue) < 1e-9 &&
-        normalized(paperClaim.dataset) === normalized(plan.claim.dataset) &&
-        normalized(paperClaim.model) === normalized(plan.claim.model) &&
-        normalized(paperClaim.metric.name) === normalized(plan.claim.metric.name) &&
-        paperClaim.metric.unit === plan.claim.metric.unit &&
-        Math.abs(paperClaim.metric.reportedValue - plan.claim.metric.reportedValue) < 1e-9,
+      normalized(plan.claim.dataset) === normalized(policy.claim.dataset) &&
+      normalized(plan.claim.model) === normalized(policy.claim.model) &&
+      policy.claim.metricNames.map(normalized).includes(normalized(plan.claim.metric.name)) &&
+      plan.claim.metric.unit === policy.claim.unit &&
+      Math.abs(plan.claim.metric.reportedValue - policy.claim.reportedValue) < 1e-9 &&
+      normalized(paperClaim.dataset) === normalized(plan.claim.dataset) &&
+      normalized(paperClaim.model) === normalized(plan.claim.model) &&
+      normalized(paperClaim.metric.name) === normalized(plan.claim.metric.name) &&
+      paperClaim.metric.unit === plan.claim.metric.unit &&
+      Math.abs(paperClaim.metric.reportedValue - plan.claim.metric.reportedValue) < 1e-9,
     ),
     "Claim identity and reported metric match the validated paper evidence and reviewed case.",
   );
@@ -95,11 +95,7 @@ export function evaluateExperimentPlan(input: {
     same(plan.metricExtraction, policy.metricExtraction),
     "Metric artifact and extraction key are exactly reviewed.",
   );
-  check(
-    "attempts",
-    plan.maxAttempts <= policy.maximumAttempts,
-    "Attempt count does not exceed the reviewed maximum.",
-  );
+  check("attempts", plan.maxAttempts <= policy.maximumAttempts, "Attempt count does not exceed the reviewed maximum.");
   const allowedStops = new Set(policy.allowedStopConditions);
   check(
     "stop_conditions",

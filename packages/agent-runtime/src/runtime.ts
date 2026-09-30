@@ -96,7 +96,16 @@ export type AgentMessage = { from: { agentId: string | null; role: string }; tex
 
 export type AgentEvent =
   | { agentId: string; type: "lifecycle"; status: AgentRecord["status"]; reason?: string | null }
-  | { agentId: string; type: "model_turn"; iteration: number; text: string | null; toolCalls: string[]; inputTokens: number; outputTokens: number; costUsd: number | null }
+  | {
+      agentId: string;
+      type: "model_turn";
+      iteration: number;
+      text: string | null;
+      toolCalls: string[];
+      inputTokens: number;
+      outputTokens: number;
+      costUsd: number | null;
+    }
   | { agentId: string; type: "tool_call"; receiptId: string; tool: string; input: unknown }
   | { agentId: string; type: "tool_result"; receiptId: string; tool: string; status: string; summary: string }
   | { agentId: string; type: "message"; from: string; text: string };
@@ -221,7 +230,8 @@ export class BoundedAgentRuntime implements AgentRuntime {
           role: "tool",
           toolCallId: call.id,
           name: call.name,
-          content: "INTERRUPTED: the service stopped before this tool call finished. Its effect is unknown; check the current state before relying on it.",
+          content:
+            "INTERRUPTED: the service stopped before this tool call finished. Its effect is unknown; check the current state before relying on it.",
           isError: true,
         });
       }
@@ -294,7 +304,13 @@ export class BoundedAgentRuntime implements AgentRuntime {
       if (!record.grants.includes(tool.name)) throw new Error(`tool ${tool.name} is not granted to ${agentId}`);
     }
     const byName = new Map(tools.map((tool) => [tool.name, tool]));
-    const task = record.task as { instructions: string; objective: string; inputs: Record<string, unknown>; resultDescription: string; label: string | null };
+    const task = record.task as {
+      instructions: string;
+      objective: string;
+      inputs: Record<string, unknown>;
+      resultDescription: string;
+      label: string | null;
+    };
     const finishTool: ToolDefinition = {
       name: FINISH,
       description: `Finish your task and hand back the result. ${task.resultDescription}`,
@@ -397,13 +413,19 @@ export class BoundedAgentRuntime implements AgentRuntime {
           outputTokens: response.usage.outputTokens,
           costUsd: response.costUsd,
         });
-        this.#runEvent(record, "agent_turn", "progress", `${ROLE_LABELS[role]} turn ${usage.iterations}: ${response.toolCalls.length ? response.toolCalls.map((call) => call.name).join(", ") : "no tool call"}`, {
-          iteration: usage.iterations,
-          tools: response.toolCalls.map((call) => call.name),
-          text: response.text?.slice(0, 1_000) ?? null,
-          tokens: { input: response.usage.inputTokens, output: response.usage.outputTokens },
-          costUsd: response.costUsd,
-        });
+        this.#runEvent(
+          record,
+          "agent_turn",
+          "progress",
+          `${ROLE_LABELS[role]} turn ${usage.iterations}: ${response.toolCalls.length ? response.toolCalls.map((call) => call.name).join(", ") : "no tool call"}`,
+          {
+            iteration: usage.iterations,
+            tools: response.toolCalls.map((call) => call.name),
+            text: response.text?.slice(0, 1_000) ?? null,
+            tokens: { input: response.usage.inputTokens, output: response.usage.outputTokens },
+            costUsd: response.costUsd,
+          },
+        );
 
         if (response.stopReason === "refusal") return end("failed", null, "the model declined this request");
         if (response.toolCalls.length === 0) {
@@ -441,12 +463,12 @@ export class BoundedAgentRuntime implements AgentRuntime {
               this.#toolTurn(agentId, usage.segments, call, detail, true);
               continue;
             }
-            this.#finishReceipt(receipt, "ok", call.name === FINISH ? "result submitted" : "gave up", { input: parsed.data as Record<string, unknown> });
+            this.#finishReceipt(receipt, "ok", call.name === FINISH ? "result submitted" : "gave up", {
+              input: parsed.data as Record<string, unknown>,
+            });
             this.#toolTurn(agentId, usage.segments, call, call.name === FINISH ? "Result accepted." : "Acknowledged.", false);
             finished =
-              call.name === FINISH
-                ? end("completed", parsed.data, null)
-                : end("failed", null, (parsed.data as { reason: string }).reason);
+              call.name === FINISH ? end("completed", parsed.data, null) : end("failed", null, (parsed.data as { reason: string }).reason);
             continue;
           }
           const tool = byName.get(call.name);
@@ -459,9 +481,10 @@ export class BoundedAgentRuntime implements AgentRuntime {
           }
           const parsed = tool.input.safeParse(call.input);
           if (!parsed.success) {
-            const detail = call.input === null
-              ? `The arguments for ${call.name} were not valid JSON.`
-              : `Invalid input for ${call.name}: ${formatIssues(parsed.error)}`;
+            const detail =
+              call.input === null
+                ? `The arguments for ${call.name} were not valid JSON.`
+                : `Invalid input for ${call.name}: ${formatIssues(parsed.error)}`;
             this.#finishReceipt(receipt, "error", detail, { error: detail });
             this.#toolTurn(agentId, usage.segments, call, detail, true);
             continue;
@@ -486,14 +509,20 @@ export class BoundedAgentRuntime implements AgentRuntime {
             }
             const denied = error instanceof ToolDenied;
             const message = (error instanceof Error ? error.message : String(error)).slice(0, 2_000);
-            result = { content: `${denied ? "DENIED" : "ERROR"}: ${message}`, summary: message.slice(0, 200), isError: true, status: denied ? "denied" : "error" };
+            result = {
+              content: `${denied ? "DENIED" : "ERROR"}: ${message}`,
+              summary: message.slice(0, 200),
+              isError: true,
+              status: denied ? "denied" : "error",
+            };
           }
           const status = result.status ?? (result.isError ? "error" : "ok");
           this.#finishReceipt(receipt, status, result.summary, result.output ?? {});
           this.#emit({ agentId, type: "tool_result", receiptId: receipt.id, tool: call.name, status, summary: result.summary });
-          const content = result.content.length > limits.maxToolResultChars
-            ? `${result.content.slice(0, limits.maxToolResultChars)}\n[truncated ${result.content.length - limits.maxToolResultChars} characters]`
-            : result.content;
+          const content =
+            result.content.length > limits.maxToolResultChars
+              ? `${result.content.slice(0, limits.maxToolResultChars)}\n[truncated ${result.content.length - limits.maxToolResultChars} characters]`
+              : result.content;
           this.#toolTurn(agentId, usage.segments, call, content, Boolean(result.isError));
         }
         ledger.updateAgent(agentId, { usage });
@@ -503,7 +532,12 @@ export class BoundedAgentRuntime implements AgentRuntime {
       if (signal.aborted || (error instanceof ProviderError && error.code === "cancelled")) {
         return end("cancelled", null, "cancelled");
       }
-      const reason = error instanceof ProviderError ? `model provider error (${error.code}): ${error.message}` : error instanceof Error ? error.message : String(error);
+      const reason =
+        error instanceof ProviderError
+          ? `model provider error (${error.code}): ${error.message}`
+          : error instanceof Error
+            ? error.message
+            : String(error);
       return end("failed", null, reason.slice(0, 1_000));
     }
   }
@@ -524,7 +558,12 @@ export class BoundedAgentRuntime implements AgentRuntime {
     });
   }
 
-  #finishReceipt(receipt: { id: string; startedAt: string }, status: "ok" | "error" | "denied", summary: string, output: Record<string, unknown>) {
+  #finishReceipt(
+    receipt: { id: string; startedAt: string },
+    status: "ok" | "error" | "denied",
+    summary: string,
+    output: Record<string, unknown>,
+  ) {
     const endedAt = new Date();
     this.#store.ledger.finishReceipt(receipt.id, {
       status,
@@ -546,7 +585,13 @@ export class BoundedAgentRuntime implements AgentRuntime {
     }
   }
 
-  #runEvent(record: AgentRecord, type: string, status: "started" | "progress" | "completed" | "warning" | "failed", summary: string, payload: Record<string, unknown>): void {
+  #runEvent(
+    record: AgentRecord,
+    type: string,
+    status: "started" | "progress" | "completed" | "warning" | "failed",
+    summary: string,
+    payload: Record<string, unknown>,
+  ): void {
     try {
       this.#store.appendEvent({
         runId: record.runId,
@@ -555,7 +600,12 @@ export class BoundedAgentRuntime implements AgentRuntime {
         status,
         summary: summary || type,
         evidence: [],
-        publicPayload: { agentId: record.id, role: record.role, label: (record.task as { label?: string | null }).label ?? null, ...payload },
+        publicPayload: {
+          agentId: record.id,
+          role: record.role,
+          label: (record.task as { label?: string | null }).label ?? null,
+          ...payload,
+        },
       });
     } catch {
       // Events are best effort; the ledger is the record.
@@ -569,7 +619,7 @@ function outcomeFrom(record: AgentRecord): AgentOutcome {
   return {
     agentId: record.id,
     role: AgentRoleSchema.parse(record.role),
-    label: ((record.task as { label?: string | null }).label ?? null),
+    label: (record.task as { label?: string | null }).label ?? null,
     status,
     result: status === "completed" ? record.result : null,
     reason: record.failure,
@@ -589,7 +639,8 @@ function limitExceeded(usage: AgentUsage, limits: AgentLimits, elapsedMs: number
 function contextChars(messages: ChatMessage[]): number {
   let total = 0;
   for (const message of messages) {
-    if (message.role === "assistant") total += (message.text?.length ?? 0) + message.toolCalls.reduce((sum, call) => sum + call.rawInput.length, 0);
+    if (message.role === "assistant")
+      total += (message.text?.length ?? 0) + message.toolCalls.reduce((sum, call) => sum + call.rawInput.length, 0);
     else total += message.content.length;
   }
   return total;
@@ -604,7 +655,11 @@ function firstMessage(objective: string, inputs: Record<string, unknown>): strin
   ].join("\n");
 }
 
-function rolloverMessage(objective: string, inputs: Record<string, unknown>, receipts: Array<{ tool: string; status: string; summary: string }>): string {
+function rolloverMessage(
+  objective: string,
+  inputs: Record<string, unknown>,
+  receipts: Array<{ tool: string; status: string; summary: string }>,
+): string {
   const recent = receipts.slice(-40).map((receipt, index) => `${index + 1}. ${receipt.tool} [${receipt.status}] ${receipt.summary}`);
   return [
     firstMessage(objective, inputs),

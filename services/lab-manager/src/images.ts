@@ -1,12 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { isAbsolute, join, resolve } from "node:path";
 
-import {
-  ContainerPlatformSchema,
-  PythonVersionSchema,
-  type ContainerPlatform,
-  type PythonVersion,
-} from "@dejaml/contracts";
+import { ContainerPlatformSchema, PythonVersionSchema, type ContainerPlatform, type PythonVersion } from "@dejaml/contracts";
 import { z } from "zod";
 
 import { type ContainerRuntime, type RuntimeCommandResult, DockerCliRuntime } from "./runtime.js";
@@ -95,11 +90,7 @@ export class ImageNotReadyError extends Error {
   readonly platform: ContainerPlatform | null;
   readonly detail: string | undefined;
 
-  constructor(
-    code: ImageErrorCode,
-    message: string,
-    context: { key?: string; platform?: ContainerPlatform | null; detail?: string } = {},
-  ) {
+  constructor(code: ImageErrorCode, message: string, context: { key?: string; platform?: ContainerPlatform | null; detail?: string } = {}) {
     super(message);
     this.name = "ImageNotReadyError";
     this.code = code;
@@ -186,9 +177,7 @@ export class ImageReadiness {
     // A preparation every earlier caller abandoned is finishing its cancellation; start afresh.
     if (flight?.controller.signal.aborted) flight = undefined;
     if (flight && !sameRequest(flight.request, request)) {
-      return Promise.reject(
-        this.#error("invalid_request", `image key ${request.key} is already preparing a different image`, request),
-      );
+      return Promise.reject(this.#error("invalid_request", `image key ${request.key} is already preparing a different image`, request));
     }
     if (!flight) flight = this.#launch(id, request);
     return this.#wait(flight, request, signal);
@@ -205,8 +194,7 @@ export class ImageReadiness {
   async whenSettled(reference: string, platform: ContainerPlatform): Promise<void> {
     const pending = [...this.#flights.values()].filter(
       (flight) =>
-        flight.request.platform === platform &&
-        (flight.request.reference === reference || flight.request.build?.tag === reference),
+        flight.request.platform === platform && (flight.request.reference === reference || flight.request.build?.tag === reference),
     );
     await Promise.all(pending.map((flight) => flight.promise.catch(() => undefined)));
   }
@@ -230,9 +218,11 @@ export class ImageReadiness {
     );
     const flight: Flight = { request, promise, controller, waiters: 0 };
     this.#flights.set(id, flight);
-    void promise.catch(() => undefined).finally(() => {
-      if (this.#flights.get(id) === flight) this.#flights.delete(id);
-    });
+    void promise
+      .catch(() => undefined)
+      .finally(() => {
+        if (this.#flights.get(id) === flight) this.#flights.delete(id);
+      });
     return flight;
   }
 
@@ -308,19 +298,11 @@ export class ImageReadiness {
     );
   }
 
-  #accept(
-    request: ImageRequest,
-    found: Extract<Inspection, { kind: "found" }>,
-    source: ReadyImage["source"],
-  ): ReadyImage {
+  #accept(request: ImageRequest, found: Extract<Inspection, { kind: "found" }>, source: ReadyImage["source"]): ReadyImage {
     const platform = `${found.os}/${found.architecture}`;
     if (platform !== request.platform) throw this.#platformMismatch(request, platform);
     if (request.expectedImageId && found.imageId !== request.expectedImageId) {
-      throw this.#error(
-        "image_stale",
-        `image ${request.reference} is ${found.imageId}, expected ${request.expectedImageId}`,
-        request,
-      );
+      throw this.#error("image_stale", `image ${request.reference} is ${found.imageId}, expected ${request.expectedImageId}`, request);
     }
     return {
       key: request.key,
@@ -357,11 +339,7 @@ export class ImageReadiness {
     return { kind: "other_platform", imageId: String(plain.Id), platform: plainPlatform };
   }
 
-  async #inspectOnce(
-    request: ImageRequest,
-    platform: ContainerPlatform | null,
-    signal: AbortSignal,
-  ): Promise<DockerImageInfo | null> {
+  async #inspectOnce(request: ImageRequest, platform: ContainerPlatform | null, signal: AbortSignal): Promise<DockerImageInfo | null> {
     const { result } = await this.#step(
       request,
       ["image", "inspect", ...(platform ? ["--platform", platform] : []), "--format", "{{json .}}", request.reference],
@@ -416,21 +394,21 @@ export class ImageReadiness {
     }
     const unpinned = unpinnedBaseImages(text, build.buildArgs ?? {});
     if (unpinned.length > 0) {
-      throw this.#error(
-        "build_failed",
-        `every base image must be pinned by digest; unpinned: ${unpinned.join(", ")}`,
-        request,
-      );
+      throw this.#error("build_failed", `every base image must be pinned by digest; unpinned: ${unpinned.join(", ")}`, request);
     }
     const { result } = await this.#step(
       request,
       [
         "build",
-        "--platform", request.platform,
+        "--platform",
+        request.platform,
         "--provenance=false",
-        "--file", dockerfile,
-        "--tag", build.tag,
-        "--label", `dejaml.image-key=${request.key}`,
+        "--file",
+        dockerfile,
+        "--tag",
+        build.tag,
+        "--label",
+        `dejaml.image-key=${request.key}`,
         ...Object.entries(build.buildArgs ?? {})
           .sort(([left], [right]) => left.localeCompare(right))
           .flatMap(([key, value]) => ["--build-arg", `${key}=${value}`]),
@@ -537,9 +515,7 @@ type DockerImageInfo = {
 };
 
 function found(plain: DockerImageInfo, specific: DockerImageInfo): Inspection {
-  const repoDigests = Array.isArray(plain.RepoDigests)
-    ? plain.RepoDigests.filter((item): item is string => typeof item === "string")
-    : [];
+  const repoDigests = Array.isArray(plain.RepoDigests) ? plain.RepoDigests.filter((item): item is string => typeof item === "string") : [];
   // With the containerd image store, a platform inspection reports the platform manifest's digest.
   const platformDigest =
     typeof specific.Id === "string" && specific.Id !== plain.Id && IMAGE_ID_PATTERN.test(specific.Id) ? specific.Id : null;

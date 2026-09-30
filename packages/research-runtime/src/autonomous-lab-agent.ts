@@ -185,7 +185,12 @@ export async function runAutonomousLabAgent(input: {
   let plan: LabPlan | null = null;
   const diagnoses: Array<{ step: number; diagnosis: LabDiagnosis }> = [];
 
-  const event = (type: string, status: "progress" | "completed" | "warning" | "failed", summary: string, payload: Record<string, unknown> = {}): void => {
+  const event = (
+    type: string,
+    status: "progress" | "completed" | "warning" | "failed",
+    summary: string,
+    payload: Record<string, unknown> = {},
+  ): void => {
     input.store.appendEvent({
       runId: input.runId,
       actor: "lab_engineer",
@@ -313,7 +318,11 @@ export async function runAutonomousLabAgent(input: {
     if (action.tool === "run") {
       const [executable = "", ...args] = action.argv;
       const cwd = action.cwd ? posix.normalize(posix.join(layout.workdir, relativeToWorkdir(action.cwd, layout.workdir))) : layout.workdir;
-      const timeoutSeconds = Math.min(action.timeoutSeconds ?? budget.commandTimeoutSeconds, budget.commandTimeoutSeconds, remainingSeconds);
+      const timeoutSeconds = Math.min(
+        action.timeoutSeconds ?? budget.commandTimeoutSeconds,
+        budget.commandTimeoutSeconds,
+        remainingSeconds,
+      );
       let outcome: CommandOutcome;
       try {
         outcome = await input.labs.runCommand(
@@ -416,10 +425,10 @@ export async function runAutonomousLabAgent(input: {
     const base = { submission: action, attempt, stdout: producingCommand!.stdout.text, artifact };
 
     const value = readNumber(artifact.content.toString("utf8"), action.key);
-    const literal = value === null ? null : findLiteral(value, [
-      producingCommand!.command.args.join(" "),
-      ...[...files.values()].map((file) => file.content),
-    ]);
+    const literal =
+      value === null
+        ? null
+        : findLiteral(value, [producingCommand!.command.args.join(" "), ...[...files.values()].map((file) => file.content)]);
     if (literal) {
       const reason = `the reported value ${literal} appears literally in the agent's command or files`;
       event("lab_agent_submission_rejected", "failed", `Submission rejected: ${reason}`, { step });
@@ -453,13 +462,14 @@ function message(error: unknown): string {
 
 function summarizeEntry(entry: TranscriptEntry): string {
   const action = entry.action;
-  const outcome = "exitCode" in entry.observation
-    ? `exit ${String(entry.observation.exitCode)}`
-    : "error" in entry.observation
-      ? `error`
-      : "submissionRejected" in entry.observation
-        ? "rejected"
-        : "ok";
+  const outcome =
+    "exitCode" in entry.observation
+      ? `exit ${String(entry.observation.exitCode)}`
+      : "error" in entry.observation
+        ? `error`
+        : "submissionRejected" in entry.observation
+          ? "rejected"
+          : "ok";
   if (!action) return `${entry.step}: invalid action`;
   if (action.tool === "run") return `${entry.step}: run ${action.argv.join(" ").slice(0, 160)} -> ${outcome}`;
   if (action.tool === "write_file") return `${entry.step}: write ${action.path} -> ${outcome}`;

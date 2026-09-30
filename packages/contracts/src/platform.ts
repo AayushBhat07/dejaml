@@ -118,7 +118,8 @@ export function platformFromEnv(env: Record<string, string | undefined>, nodeArc
     architecture = PLATFORM_TARGETS[raw as PlatformTarget].architecture;
   } else {
     const parsed = ContainerPlatformSchema.safeParse(raw);
-    if (!parsed.success) throw new Error(`DEJAML_PLATFORM must be linux/amd64, linux/arm64, auto, or one of ${Object.keys(PLATFORM_TARGETS).join(", ")}`);
+    if (!parsed.success)
+      throw new Error(`DEJAML_PLATFORM must be linux/amd64, linux/arm64, auto, or one of ${Object.keys(PLATFORM_TARGETS).join(", ")}`);
     architecture = parsed.data === "linux/amd64" ? "amd64" : "arm64";
   }
   const python = PythonVersionSchema.safeParse(env.DEJAML_PYTHON_VERSION?.trim() || "3.11");
@@ -167,11 +168,14 @@ export function wheelMatchesPlatform(fileName: string, platform: PlatformSpec): 
     }
     return false;
   });
-  if (!platformOk) return { ok: false, reason: `${fileName} is not built for ${platform.containerPlatform} (glibc ${platform.libc.version})` };
+  if (!platformOk)
+    return { ok: false, reason: `${fileName} is not built for ${platform.containerPlatform} (glibc ${platform.libc.version})` };
   const abi = platform.python.abi;
-  const pure = tags.abi.includes("none") && tags.python.some((tag) => tag === "py3" || tag === "py2.py3" || /^py3\d*$/u.test(tag) || tag === abi);
+  const pure =
+    tags.abi.includes("none") && tags.python.some((tag) => tag === "py3" || tag === "py2.py3" || /^py3\d*$/u.test(tag) || tag === abi);
   const exact = tags.abi.includes(abi) && tags.python.includes(abi);
-  const stable = tags.abi.includes("abi3") && tags.python.some((tag) => /^cp3\d+$/u.test(tag) && Number(tag.slice(3)) <= Number(abi.slice(3)));
+  const stable =
+    tags.abi.includes("abi3") && tags.python.some((tag) => /^cp3\d+$/u.test(tag) && Number(tag.slice(3)) <= Number(abi.slice(3)));
   if (!pure && !exact && !stable) return { ok: false, reason: `${fileName} is not built for CPython ${platform.python.version}` };
   return { ok: true };
 }

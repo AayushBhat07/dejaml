@@ -81,15 +81,7 @@ export const BOARD_VISIBILITY: Record<AgentRole, readonly BoardKind[] | "all"> =
     "claim_contract",
     "policy_block",
   ],
-  debugger: [
-    "paper_claim",
-    "repository_mapping",
-    "dependency_manifest",
-    "dataset_receipt",
-    "plan",
-    "claim_contract",
-    "command_receipt",
-  ],
+  debugger: ["paper_claim", "repository_mapping", "dependency_manifest", "dataset_receipt", "plan", "claim_contract", "command_receipt"],
   independent_reviewer: [
     "paper_claim",
     "repository_receipt",
@@ -125,7 +117,11 @@ function redact(role: AgentRole, entry: BoardEntry): BoardEntry {
 function stripFields(value: unknown, fields: ReadonlySet<string>): unknown {
   if (Array.isArray(value)) return value.map((item) => stripFields(item, fields));
   if (value && typeof value === "object") {
-    return Object.fromEntries(Object.entries(value).filter(([key]) => !fields.has(key)).map(([key, item]) => [key, stripFields(item, fields)]));
+    return Object.fromEntries(
+      Object.entries(value)
+        .filter(([key]) => !fields.has(key))
+        .map(([key, item]) => [key, stripFields(item, fields)]),
+    );
   }
   return value;
 }
@@ -165,9 +161,7 @@ export class EvidenceBoard {
   }
 
   list(kinds?: readonly BoardKind[], options: { key?: string } = {}): BoardEntry[] {
-    return this.#ledger
-      .listBoard(this.#runId, kinds)
-      .filter((entry) => options.key === undefined || entry.key === options.key);
+    return this.#ledger.listBoard(this.#runId, kinds).filter((entry) => options.key === undefined || entry.key === options.key);
   }
 
   /** Entries a role is allowed to read, optionally narrowed further. */

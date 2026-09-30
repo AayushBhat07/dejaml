@@ -32,22 +32,31 @@ const MAX_FILE_BYTES = 64 * 1024;
 const CONTROL = /[\u0000-\u001f\u007f]/u;
 
 export function validateConstraints(constraints: readonly CompatibilityConstraint[]): ValidatedConstraint[] {
-  if (constraints.length > MAX_CONSTRAINTS) throw new PrepError("invalid_requirement", `at most ${MAX_CONSTRAINTS} compatibility constraints are allowed`);
+  if (constraints.length > MAX_CONSTRAINTS)
+    throw new PrepError("invalid_requirement", `at most ${MAX_CONSTRAINTS} compatibility constraints are allowed`);
   const seen = new Set<string>();
   return constraints.map((constraint) => {
     const where = constraint.source ? ` (${constraint.source.file}:${constraint.source.line})` : "";
     const parsed = parseRequirementLine(constraint.spec);
-    if (!parsed.ok) throw new PrepError("invalid_requirement", `compatibility constraint rejected${where}: ${parsed.reason}`, { detail: constraint.spec.slice(0, 200) });
+    if (!parsed.ok)
+      throw new PrepError("invalid_requirement", `compatibility constraint rejected${where}: ${parsed.reason}`, {
+        detail: constraint.spec.slice(0, 200),
+      });
     const requirement = parsed.requirement;
     if (!requirement) throw new PrepError("invalid_requirement", `empty compatibility constraint${where}`);
     if (requirement.extras.length > 0) throw new PrepError("invalid_requirement", `compatibility constraints cannot have extras${where}`);
     if (requirement.hashes.length > 0) throw new PrepError("invalid_requirement", `compatibility constraints cannot carry hashes${where}`);
-    if (requirement.specifiers.length === 0) throw new PrepError("invalid_requirement", `compatibility constraint ${requirement.name} has no version specifier${where}`);
+    if (requirement.specifiers.length === 0)
+      throw new PrepError("invalid_requirement", `compatibility constraint ${requirement.name} has no version specifier${where}`);
     const reason = constraint.reason.trim();
     if (reason === "" || reason.length > MAX_REASON || CONTROL.test(reason)) {
-      throw new PrepError("invalid_requirement", `compatibility constraint ${requirement.name} needs a reason (one line, at most ${MAX_REASON} characters)${where}`);
+      throw new PrepError(
+        "invalid_requirement",
+        `compatibility constraint ${requirement.name} needs a reason (one line, at most ${MAX_REASON} characters)${where}`,
+      );
     }
-    if (seen.has(requirement.name)) throw new PrepError("invalid_requirement", `compatibility constraint for ${requirement.name} is listed twice${where}`);
+    if (seen.has(requirement.name))
+      throw new PrepError("invalid_requirement", `compatibility constraint for ${requirement.name} is listed twice${where}`);
     seen.add(requirement.name);
     return { ...constraint, spec: requirement.spec, reason, name: requirement.name, requirement };
   });
@@ -64,7 +73,8 @@ export function parseCompatibilityConstraints(text: string, file: string): Compa
     const body = (comment ? raw.slice(0, comment.index) : raw).trim();
     if (body === "") continue;
     const reason = (comment?.[2] ?? "").trim().replace(/^reason:\s*/iu, "");
-    if (reason === "") throw new PrepError("invalid_requirement", `${file}:${line}: every compatibility constraint needs a "# reason: …" comment`);
+    if (reason === "")
+      throw new PrepError("invalid_requirement", `${file}:${line}: every compatibility constraint needs a "# reason: …" comment`);
     constraints.push({ spec: body, reason, source: { file, line } });
   }
   validateConstraints(constraints);

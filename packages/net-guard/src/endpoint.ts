@@ -69,6 +69,7 @@ export interface GuardedFetchOptions {
 /** A `fetch`-shaped function; only string bodies and byte arrays are supported. */
 export type GuardedFetch = (input: string, init?: RequestInit) => Promise<Response>;
 
+// eslint-disable-next-line no-control-regex -- rejects control characters
 const FORBIDDEN_RAW = /[\s\u0000-\u001f\u007f\\]/u;
 const SOCKET_SCHEMES = /^[a-z][a-z0-9+.-]*\+unix:|^unix:/i;
 const LABEL = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;

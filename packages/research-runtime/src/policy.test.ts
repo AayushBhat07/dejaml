@@ -20,14 +20,10 @@ describe("deterministic experiment plan policy", () => {
   it("keeps the committed case policy synchronized with the trusted adapter", async () => {
     const policyPath = new URL("../../../cases/urban-land-cover/policy.json", import.meta.url);
     const projectRoot = new URL("../../../", import.meta.url);
-    const committedPolicy = ExperimentPolicySchema.parse(
-      JSON.parse(await readFile(policyPath, "utf8")),
-    );
+    const committedPolicy = ExperimentPolicySchema.parse(JSON.parse(await readFile(policyPath, "utf8")));
     const adapter = await readFile(new URL(committedPolicy.trustedExecutionAdapter.path, projectRoot));
     expect(committedPolicy).toEqual(policyFixture);
-    expect(createHash("sha256").update(adapter).digest("hex")).toBe(
-      committedPolicy.trustedExecutionAdapter.sha256,
-    );
+    expect(createHash("sha256").update(adapter).digest("hex")).toBe(committedPolicy.trustedExecutionAdapter.sha256);
   });
 
   it("approves only the exact bounded curated plan and produces a stable digest", () => {

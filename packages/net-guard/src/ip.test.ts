@@ -1,13 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import {
-  type AddressClass,
-  classifyAddress,
-  isBlockedHostname,
-  isPublicAddress,
-  looksLikeIpv4Variant,
-  parseIpLiteral,
-} from "./ip.js";
+import { type AddressClass, classifyAddress, isBlockedHostname, isPublicAddress, looksLikeIpv4Variant, parseIpLiteral } from "./ip.js";
 
 describe("parseIpLiteral", () => {
   it("parses canonical IPv4", () => {

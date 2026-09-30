@@ -12,9 +12,7 @@ afterEach(() => {
 describe("App shell", () => {
   it("labels a recorded replay with its recording date", () => {
     render(
-      <App
-        client={new ReplayRunClient(5, recordedRun, { kind: "recorded", runId: "run_real", recordedAt: "2026-09-29T10:00:00Z" })}
-      />,
+      <App client={new ReplayRunClient(5, recordedRun, { kind: "recorded", runId: "run_real", recordedAt: "2026-09-29T10:00:00Z" })} />,
     );
     const note = screen.getByRole("note").textContent ?? "";
     expect(note).toContain("Recorded replay");

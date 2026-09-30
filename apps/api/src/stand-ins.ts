@@ -64,7 +64,9 @@ export class ScriptedRuntime implements ContainerRuntime {
       // `image inspect [--platform p] --format {{json .}} <ref>`: the image exists for whichever platform is asked.
       const platformIndex = args.indexOf("--platform");
       const [os, architecture] = (platformIndex > 0 ? (args[platformIndex + 1] ?? "") : "linux/amd64").split("/");
-      return ok(`${JSON.stringify({ Id: STAND_IN_IMAGE_ID, Os: os, Architecture: architecture, RepoDigests: [], Config: { User: STAND_IN_USER, Env: STAND_IN_ENV } })}\n`);
+      return ok(
+        `${JSON.stringify({ Id: STAND_IN_IMAGE_ID, Os: os, Architecture: architecture, RepoDigests: [], Config: { User: STAND_IN_USER, Env: STAND_IN_ENV } })}\n`,
+      );
     }
     if (command === "container") {
       // `container inspect <name>`: the created container, read back by the sealed-lab audit.
@@ -131,7 +133,13 @@ export class ScriptedRuntime implements ContainerRuntime {
           request = null;
         }
         if (!request?.op) return ok("[]");
-        return ok(JSON.stringify(request.op === "read" ? { path: request.path, content: "import runpy\nrunpy.run_path('repo/train.py')\n", size: 44 } : { path: request.path, entries: ["repo/train.py", "work/run.py"] }));
+        return ok(
+          JSON.stringify(
+            request.op === "read"
+              ? { path: request.path, content: "import runpy\nrunpy.run_path('repo/train.py')\n", size: 44 }
+              : { path: request.path, entries: ["repo/train.py", "work/run.py"] },
+          ),
+        );
       }
       if (argv[0] === "cat" && argv[1] === "/proc/1/task/1/children") return ok("7\n");
       let inner = argv[0] === "timeout" ? argv.slice(3) : argv;
@@ -139,7 +147,8 @@ export class ScriptedRuntime implements ContainerRuntime {
       const program = inner[0] ?? "";
       // The study's own setup steps: copying the checkout and measuring integrity.
       if (inner[1] === "-I" && inner[4]?.includes("copytree")) return ok();
-      if (inner[1] === "-I" && inner[4]?.includes("hashlib")) return ok(JSON.stringify({ workRepo: `${"d".repeat(64)}:3`, venv: `${"e".repeat(64)}:${mounts.tampered ? 2 : 1}` }));
+      if (inner[1] === "-I" && inner[4]?.includes("hashlib"))
+        return ok(JSON.stringify({ workRepo: `${"d".repeat(64)}:3`, venv: `${"e".repeat(64)}:${mounts.tampered ? 2 : 1}` }));
       if (program.endsWith("python") && inner[1] === "-m" && inner[2] === "venv") return ok();
       if (program.endsWith("python") && inner[1] === "-c" && inner[2]?.includes("python_version")) return ok('{"python": "3.11.9"}\n');
       if (program === "touch") {
@@ -151,8 +160,15 @@ export class ScriptedRuntime implements ContainerRuntime {
       if (!program.endsWith("python")) return ok("repo/train.py\n");
       mounts.runs += 1;
       if (this.failFirstRun && mounts.runs === 1) {
-        options.onOutput?.("stderr", "Traceback (most recent call last):\nFileNotFoundError: [Errno 2] No such file or directory: 'sheet1.csv'\n");
-        return { ...ok(), exitCode: 1, stderr: { text: "FileNotFoundError: [Errno 2] No such file or directory: 'sheet1.csv'\n", bytes: 70, truncated: false } };
+        options.onOutput?.(
+          "stderr",
+          "Traceback (most recent call last):\nFileNotFoundError: [Errno 2] No such file or directory: 'sheet1.csv'\n",
+        );
+        return {
+          ...ok(),
+          exitCode: 1,
+          stderr: { text: "FileNotFoundError: [Errno 2] No such file or directory: 'sheet1.csv'\n", bytes: 70, truncated: false },
+        };
       }
       this.execStarted?.();
       if (this.mode === "hang") {
@@ -190,7 +206,9 @@ export class ScriptedRuntime implements ContainerRuntime {
     }
     if (command === "ps") {
       const filter = args[args.indexOf("--filter") + 1] ?? "";
-      return ok(filter === "label=dejaml.lab" ? [...this.containers].map((name) => `${name}\tlab_${"a".repeat(32)}\trun_x`).join("\n") : "");
+      return ok(
+        filter === "label=dejaml.lab" ? [...this.containers].map((name) => `${name}\tlab_${"a".repeat(32)}\trun_x`).join("\n") : "",
+      );
     }
     return ok();
   }
@@ -237,7 +255,10 @@ export class ScriptedModel implements StructuredModelClient {
       return {
         value: request.schema.parse({
           verdict,
-          summary: verdict === "approve" ? "The adapter runs the repository's training script." : "The metric is not computed by the repository's model.",
+          summary:
+            verdict === "approve"
+              ? "The adapter runs the repository's training script."
+              : "The metric is not computed by the repository's model.",
           concerns: verdict === "approve" ? [] : ["metric written without running the model"],
         }),
       };
@@ -268,12 +289,14 @@ export class ScriptedModel implements StructuredModelClient {
     }
     if (request.role === "lab_agent") {
       const observation = JSON.parse(request.prompt) as { state: string };
-      const action = ({
-        not_created: "request_lab",
-        ready: "run_approved_experiment",
-        attempt_completed: "inspect_result",
-        inspected: "finish",
-      } as Record<string, string>)[observation.state];
+      const action = (
+        {
+          not_created: "request_lab",
+          ready: "run_approved_experiment",
+          attempt_completed: "inspect_result",
+          inspected: "finish",
+        } as Record<string, string>
+      )[observation.state];
       if (!action) throw new Error("unrecognized lab observation");
       const chosen = this.labActionOverride?.(observation.state, action) ?? action;
       return { value: request.schema.parse({ action: chosen, summary: `Lab Agent: ${chosen}` }) };
@@ -312,7 +335,8 @@ export class ScriptedModel implements StructuredModelClient {
             schemaVersion: 1,
             verdict: "confirmed",
             metricAligned: true,
-            summary: "The measured accuracy metric matches the paper's Random Forest test accuracy claim on the UCI Urban Land Cover dataset.",
+            summary:
+              "The measured accuracy metric matches the paper's Random Forest test accuracy claim on the UCI Urban Land Cover dataset.",
             evidence: [{ kind: "paper_page", reference: "page 1", excerpt: "Random Forest test accuracy of 81.66" }],
             concerns: [],
           }),
@@ -330,9 +354,7 @@ export class ScriptedModel implements StructuredModelClient {
               repositoryUrl,
               commitSha: policy.repository.commitSha,
               entrypoint: NOTEBOOK_PATH,
-              relevantFiles: [
-                { path: NOTEBOOK_PATH, sha256: createHash("sha256").update(NOTEBOOK).digest("hex"), reason: "experiment" },
-              ],
+              relevantFiles: [{ path: NOTEBOOK_PATH, sha256: createHash("sha256").update(NOTEBOOK).digest("hex"), reason: "experiment" }],
               dependencyFiles: [],
               datasetReferences: ["UCI Urban Land Cover"],
               candidateCommand: null,
@@ -373,10 +395,7 @@ export class ScriptedModel implements StructuredModelClient {
   }
 }
 
-export async function paperPdf(
-  withLink = true,
-  repositoryUrl = "https://github.com/mtesha/tdl-vs-ml-urbanlandcover",
-): Promise<Uint8Array> {
+export async function paperPdf(withLink = true, repositoryUrl = "https://github.com/mtesha/tdl-vs-ml-urbanlandcover"): Promise<Uint8Array> {
   const pdf = await PDFDocument.create();
   const font = await pdf.embedFont(StandardFonts.Helvetica);
   pdf.addPage([612, 792]).drawText("Urban Land Cover: Random Forest test accuracy of 81.66 percent on the test set.", {
@@ -385,21 +404,19 @@ export async function paperPdf(
     size: 11,
     font,
   });
-  pdf.addPage([612, 792]).drawText(
-    withLink
-      ? `Code: ${repositoryUrl} for reproducibility of every table.`
-      : "Code is available from the authors on request for reproducibility of every table.",
-    { x: 40, y: 730, size: 11, font },
-  );
+  pdf
+    .addPage([612, 792])
+    .drawText(
+      withLink
+        ? `Code: ${repositoryUrl} for reproducibility of every table.`
+        : "Code is available from the authors on request for reproducibility of every table.",
+      { x: 40, y: 730, size: 11, font },
+    );
   return pdf.save();
 }
 
 /** Creates a checkout containing the curated notebook and a training script, pinned to the reviewed commit. */
-export function standInAcquire(
-  curated: CuratedCase,
-  created: string[] = [],
-  commitSha = curated.policy.repository.commitSha,
-) {
+export function standInAcquire(curated: CuratedCase, created: string[] = [], commitSha = curated.policy.repository.commitSha) {
   return async (input: { repositoryUrl: string; destinationRoot: string }): Promise<RepositoryReceipt> => {
     await mkdir(input.destinationRoot, { recursive: true });
     const destination = await mkdtemp(join(input.destinationRoot, "dejaml-repo-"));
@@ -437,13 +454,20 @@ export class ScriptedStudyProvider implements ChatProvider {
   readonly id = "scripted";
   readonly kind = "scripted" as const;
   /** How the Independent Reviewers judge each submission. */
-  review: { verdict: "approve" | "reject"; equivalence: "equivalent" | "minor_deviations" | "not_equivalent" } = { verdict: "approve", equivalence: "equivalent" };
+  review: { verdict: "approve" | "reject"; equivalence: "equivalent" | "minor_deviations" | "not_equivalent" } = {
+    verdict: "approve",
+    equivalence: "equivalent",
+  };
   /** Changes to the Planner's plan (for policy tests). */
   plan: Record<string, unknown> = {};
   /** The Supervisor's final proposal; null proposes the computed status. */
   supervisorProposal: string | null = null;
   /** The Supervisor's answer at a checkpoint. */
-  checkpoint: { action: "continue" | "replan" | "stop"; reason: string; guidance: string } = { action: "continue", reason: "none", guidance: "" };
+  checkpoint: { action: "continue" | "replan" | "stop"; reason: string; guidance: string } = {
+    action: "continue",
+    reason: "none",
+    guidance: "",
+  };
   /** Engineers change the prepared environment before the approved run. */
   tamper = false;
   /** Engineers ask a Debugger for help after a failed run. */
@@ -471,9 +495,15 @@ export class ScriptedStudyProvider implements ChatProvider {
       }
     };
     const first = request.messages[0];
-    const inputs = first && first.role === "user" ? (JSON.parse(first.content.slice(first.content.indexOf("\n{") + 1)) as Record<string, unknown>) : {};
+    const inputs =
+      first && first.role === "user" ? (JSON.parse(first.content.slice(first.content.indexOf("\n{") + 1)) as Record<string, unknown>) : {};
     const calls = this.#step(role, turns, inputs, lastJson, last?.role === "tool" ? last.isError : false);
-    const toolCalls: ToolCall[] = calls.map((call) => ({ id: `call_${++this.#counter}`, name: call.name, input: call.input, rawInput: JSON.stringify(call.input) }));
+    const toolCalls: ToolCall[] = calls.map((call) => ({
+      id: `call_${++this.#counter}`,
+      name: call.name,
+      input: call.input,
+      rawInput: JSON.stringify(call.input),
+    }));
     return {
       id: `scripted_${this.#counter}`,
       provider: "scripted",
@@ -487,12 +517,21 @@ export class ScriptedStudyProvider implements ChatProvider {
     };
   }
 
-  #step(role: string, turn: number, inputs: Record<string, unknown>, last: () => Record<string, unknown>, lastFailed: boolean): ScriptedCall[] {
+  #step(
+    role: string,
+    turn: number,
+    inputs: Record<string, unknown>,
+    last: () => Record<string, unknown>,
+    lastFailed: boolean,
+  ): ScriptedCall[] {
     const finish = (input: unknown): ScriptedCall[] => [{ name: "finish", input }];
     switch (role) {
       case "Supervisor":
         if (inputs.resultKind === "verdict") {
-          return finish({ proposedStatus: this.supervisorProposal ?? inputs.computedStatus, rationale: "The evidence supports this status." });
+          return finish({
+            proposedStatus: this.supervisorProposal ?? inputs.computedStatus,
+            rationale: "The evidence supports this status.",
+          });
         }
         return finish(this.checkpoint);
       case "Paper Analyst":
@@ -559,13 +598,31 @@ export class ScriptedStudyProvider implements ChatProvider {
         }
         if (typeof result.diagnosis === "string") return [{ name: "lab_run_official", input: {} }];
         if (typeof result.receiptId === "string" && result.exitCode === 0) {
-          return finish({ status: "measured", summary: "PRIVATE-ENGINEER-NOTE: ran the approved command.", officialReceiptId: result.receiptId, deviations: [], failureReason: null });
+          return finish({
+            status: "measured",
+            summary: "PRIVATE-ENGINEER-NOTE: ran the approved command.",
+            officialReceiptId: result.receiptId,
+            deviations: [],
+            failureReason: null,
+          });
         }
-        return finish({ status: "not_measured", summary: "The approved command did not succeed.", officialReceiptId: null, deviations: [], failureReason: "the approved command did not succeed" });
+        return finish({
+          status: "not_measured",
+          summary: "The approved command did not succeed.",
+          officialReceiptId: null,
+          deviations: [],
+          failureReason: "the approved command did not succeed",
+        });
       }
       case "Debugger":
         if (turn === 0) return [{ name: "lab_logs", input: {} }];
-        return finish({ diagnosis: "The script looked for its data in the wrong directory.", rootCause: "working directory", suggestedFix: "Run the approved command again.", fixableWithoutChangingThePlan: true, changesMethodology: false });
+        return finish({
+          diagnosis: "The script looked for its data in the wrong directory.",
+          rootCause: "working directory",
+          suggestedFix: "Run the approved command again.",
+          fixableWithoutChangingThePlan: true,
+          changesMethodology: false,
+        });
       case "Independent Reviewer": {
         const key = String(inputs.submissionKey ?? "");
         if (turn === 0) return [{ name: "board_read", input: { key } }];
@@ -573,11 +630,18 @@ export class ScriptedStudyProvider implements ChatProvider {
         return finish({
           verdict: this.review.verdict,
           equivalence: this.review.equivalence,
-          summary: this.review.verdict === "approve" ? "The approved official command ran and wrote the metric." : "The metric does not come from the paper's model.",
+          summary:
+            this.review.verdict === "approve"
+              ? "The approved official command ran and wrote the metric."
+              : "The metric does not come from the paper's model.",
           checks: [
             { name: "official command ran", passed: true, explanation: "the official receipt exited 0" },
             { name: "metric from the run", passed: true, explanation: "artifact digest matches the official receipt" },
-            { name: "dataset and metric match", passed: this.review.verdict === "approve", explanation: "same dataset and metric as the claim" },
+            {
+              name: "dataset and metric match",
+              passed: this.review.verdict === "approve",
+              explanation: "same dataset and metric as the claim",
+            },
           ],
           concerns: [],
         });

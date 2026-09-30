@@ -1,16 +1,7 @@
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
 import { lookup } from "node:dns/promises";
-import {
-  lstat,
-  mkdir,
-  mkdtemp,
-  readdir,
-  readFile,
-  readlink,
-  realpath,
-  rm,
-} from "node:fs/promises";
+import { lstat, mkdir, mkdtemp, readdir, readFile, readlink, realpath, rm } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 
 import {
@@ -29,7 +20,7 @@ export const MAX_CHECKED_OUT_FILES = 20_000;
 export const DEFAULT_ACQUISITION_TIMEOUT_MS = 60_000;
 export const ACQUISITION_DIRECTORY_PREFIX = "dejaml-repo-";
 
-const GITHUB_LINK_PATTERN = /https?:\/\/(?:www\.)?github\.com\/[^\s<>()\[\]{}"'`]+/giu;
+const GITHUB_LINK_PATTERN = /https?:\/\/(?:www\.)?github\.com\/[^\s<>()[\]{}"'`]+/giu;
 const OWNER_PATTERN = /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?$/;
 const REPOSITORY_PATTERN = /^[A-Za-z0-9._-]{1,100}$/;
 const RESERVED_OWNERS = new Set([
@@ -109,10 +100,7 @@ export function canonicalizeGithubRepositoryUrl(rawUrl: string): {
     parsed.password !== "" ||
     parsed.port !== ""
   ) {
-    throw new RepositoryIntakeError(
-      "only direct GitHub repository URLs are supported",
-      "invalid_repository_url",
-    );
+    throw new RepositoryIntakeError("only direct GitHub repository URLs are supported", "invalid_repository_url");
   }
 
   const segments = parsed.pathname.split("/").filter(Boolean);
@@ -122,9 +110,7 @@ export function canonicalizeGithubRepositoryUrl(rawUrl: string): {
 
   const owner = segments[0] ?? "";
   const repositorySegment = segments[1] ?? "";
-  const name = repositorySegment.toLowerCase().endsWith(".git")
-    ? repositorySegment.slice(0, -4)
-    : repositorySegment;
+  const name = repositorySegment.toLowerCase().endsWith(".git") ? repositorySegment.slice(0, -4) : repositorySegment;
   if (
     !OWNER_PATTERN.test(owner) ||
     RESERVED_OWNERS.has(owner.toLowerCase()) ||
@@ -185,10 +171,7 @@ type RunGit = (args: string[], options: { cwd?: string; timeoutMs: number; signa
  */
 const PASS_THROUGH_ENV = ["HTTPS_PROXY", "https_proxy", "NO_PROXY", "no_proxy", "GIT_SSL_CAINFO", "SSL_CERT_FILE"];
 
-function defaultRunGit(
-  args: string[],
-  options: { cwd?: string; timeoutMs: number; signal?: AbortSignal },
-): Promise<CommandResult> {
+function defaultRunGit(args: string[], options: { cwd?: string; timeoutMs: number; signal?: AbortSignal }): Promise<CommandResult> {
   return new Promise((resolvePromise, rejectPromise) => {
     const environment: NodeJS.ProcessEnv = {
       GIT_CONFIG_GLOBAL: "/dev/null",
@@ -253,17 +236,11 @@ async function measureCheckout(root: string): Promise<{ bytes: number; files: nu
         const target = await readlink(entryPath);
         const resolved = resolve(dirname(entryPath), target);
         if (isAbsolute(target) || (resolved !== root && !resolved.startsWith(`${root}${sep}`))) {
-          throw new RepositoryIntakeError(
-            `unsafe symlink ${relative(root, entryPath)} points outside the repository`,
-            "unsafe_symlink",
-          );
+          throw new RepositoryIntakeError(`unsafe symlink ${relative(root, entryPath)} points outside the repository`, "unsafe_symlink");
         }
       }
       if (bytes > MAX_CHECKED_OUT_BYTES || files > MAX_CHECKED_OUT_FILES) {
-        throw new RepositoryIntakeError(
-          "checked-out repository exceeds local inspection limits",
-          "checkout_too_large",
-        );
+        throw new RepositoryIntakeError("checked-out repository exceeds local inspection limits", "checkout_too_large");
       }
     }
   }
@@ -330,7 +307,10 @@ export async function buildRepositoryManifest(root: string): Promise<{ entries: 
     for (const entry of await readdir(directory, { withFileTypes: true })) {
       if (directory === root && entry.name === ".git") continue;
       const path = join(directory, entry.name);
-      const relativePath = path.slice(root.length + 1).split("\\").join("/");
+      const relativePath = path
+        .slice(root.length + 1)
+        .split("\\")
+        .join("/");
       if (entry.isDirectory()) {
         pending.push(path);
       } else if (entry.isSymbolicLink()) {
@@ -350,20 +330,34 @@ export async function buildRepositoryManifest(root: string): Promise<{ entries: 
 }
 
 const HARDENED_GIT_CONFIG = [
-  "-c", "credential.helper=",
-  "-c", "core.askPass=",
-  "-c", "core.hooksPath=/dev/null",
-  "-c", "core.fsmonitor=false",
-  "-c", "filter.lfs.smudge=",
-  "-c", "filter.lfs.process=",
-  "-c", "filter.lfs.required=false",
-  "-c", "protocol.allow=never",
-  "-c", "protocol.https.allow=always",
-  "-c", "protocol.file.allow=never",
-  "-c", "http.followRedirects=false",
-  "-c", "submodule.recurse=false",
-  "-c", "fetch.recurseSubmodules=false",
-  "-c", "transfer.fsckObjects=true",
+  "-c",
+  "credential.helper=",
+  "-c",
+  "core.askPass=",
+  "-c",
+  "core.hooksPath=/dev/null",
+  "-c",
+  "core.fsmonitor=false",
+  "-c",
+  "filter.lfs.smudge=",
+  "-c",
+  "filter.lfs.process=",
+  "-c",
+  "filter.lfs.required=false",
+  "-c",
+  "protocol.allow=never",
+  "-c",
+  "protocol.https.allow=always",
+  "-c",
+  "protocol.file.allow=never",
+  "-c",
+  "http.followRedirects=false",
+  "-c",
+  "submodule.recurse=false",
+  "-c",
+  "fetch.recurseSubmodules=false",
+  "-c",
+  "transfer.fsckObjects=true",
 ];
 
 /**
@@ -392,10 +386,7 @@ export async function acquireGithubRepository(
 ): Promise<RepositoryReceipt> {
   const canonical = canonicalizeGithubRepositoryUrl(input.repositoryUrl);
   if (canonical.repositoryUrl !== input.repositoryUrl) {
-    throw new RepositoryIntakeError(
-      "acquisition requires the canonical HTTPS repository URL",
-      "invalid_repository_url",
-    );
+    throw new RepositoryIntakeError("acquisition requires the canonical HTTPS repository URL", "invalid_repository_url");
   }
 
   const fetchImplementation = dependencies.fetch ?? fetch;
@@ -449,21 +440,13 @@ export async function acquireGithubRepository(
       metadataHtml.repositoryUrl.toLowerCase() !== canonical.repositoryUrl.toLowerCase() ||
       metadataClone.repositoryUrl.toLowerCase() !== canonical.repositoryUrl.toLowerCase()
     ) {
-      throw new RepositoryIntakeError(
-        "GitHub metadata resolved to a different repository",
-        "repository_unavailable",
-      );
+      throw new RepositoryIntakeError("GitHub metadata resolved to a different repository", "repository_unavailable");
     }
   } else if (response && ![403, 429].includes(response.status)) {
-    throw new RepositoryIntakeError(
-      `GitHub repository metadata returned HTTP ${response.status}`,
-      "repository_unavailable",
-    );
+    throw new RepositoryIntakeError(`GitHub repository metadata returned HTTP ${response.status}`, "repository_unavailable");
   }
 
-  await assertPublicGithub(
-    dependencies.resolveHost ?? (async (host) => (await lookup(host, { all: true })).map((item) => item.address)),
-  );
+  await assertPublicGithub(dependencies.resolveHost ?? (async (host) => (await lookup(host, { all: true })).map((item) => item.address)));
 
   const root = await checkedRoot(input.destinationRoot);
   const destination = await mkdtemp(join(root, ACQUISITION_DIRECTORY_PREFIX));
@@ -558,16 +541,10 @@ export async function acquireGithubRepository(
   }
 }
 
-export async function cleanupAcquiredRepository(input: {
-  destination: string;
-  destinationRoot: string;
-}): Promise<void> {
+export async function cleanupAcquiredRepository(input: { destination: string; destinationRoot: string }): Promise<void> {
   const root = await checkedRoot(input.destinationRoot);
   const destination = resolve(input.destination);
-  if (
-    dirname(destination) !== root ||
-    !basename(destination).startsWith(ACQUISITION_DIRECTORY_PREFIX)
-  ) {
+  if (dirname(destination) !== root || !basename(destination).startsWith(ACQUISITION_DIRECTORY_PREFIX)) {
     throw new RepositoryIntakeError("refusing to remove an unmanaged directory", "unsafe_destination");
   }
   const metadata = await lstat(destination);

@@ -133,18 +133,51 @@ class FakeRuntime implements ContainerRuntime {
 type Wheel = { name: string; version: string; filename: string; content: string };
 
 const WHEELS: Record<string, Wheel> = {
-  matplotlib: { name: "matplotlib", version: "3.11.2", filename: "matplotlib-3.11.2-cp313-cp313-manylinux_2_27_x86_64.whl", content: "mpl-wheel" },
+  matplotlib: {
+    name: "matplotlib",
+    version: "3.11.2",
+    filename: "matplotlib-3.11.2-cp313-cp313-manylinux_2_27_x86_64.whl",
+    content: "mpl-wheel",
+  },
   six: { name: "six", version: "1.17.0", filename: "six-1.17.0-py2.py3-none-any.whl", content: "six-wheel" },
   pip: { name: "pip", version: "26.2.1", filename: "pip-26.2.1-py3-none-any.whl", content: "pip-wheel" },
-  numpyAmd64: { name: "numpy", version: "2.3.3", filename: "numpy-2.3.3-cp311-cp311-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", content: "np-x86" },
-  numpyArm64: { name: "numpy", version: "2.3.3", filename: "numpy-2.3.3-cp311-cp311-manylinux_2_26_aarch64.manylinux_2_28_aarch64.whl", content: "np-arm" },
+  numpyAmd64: {
+    name: "numpy",
+    version: "2.3.3",
+    filename: "numpy-2.3.3-cp311-cp311-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl",
+    content: "np-x86",
+  },
+  numpyArm64: {
+    name: "numpy",
+    version: "2.3.3",
+    filename: "numpy-2.3.3-cp311-cp311-manylinux_2_26_aarch64.manylinux_2_28_aarch64.whl",
+    content: "np-arm",
+  },
   torch: { name: "torch", version: "2.8.0", filename: "torch-2.8.0-cp313-cp313-manylinux_2_28_x86_64.whl", content: "torch" },
-  cublas: { name: "nvidia-cublas-cu12", version: "12.8.4.1", filename: "nvidia_cublas_cu12-12.8.4.1-py3-none-manylinux_2_27_x86_64.whl", content: "cublas" },
-  triton: { name: "triton", version: "3.4.0", filename: "triton-3.4.0-cp313-cp313-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", content: "triton" },
-  rocm: { name: "pytorch-triton-rocm", version: "3.4.0", filename: "pytorch_triton_rocm-3.4.0-cp313-cp313-linux_x86_64.whl", content: "rocm" },
+  cublas: {
+    name: "nvidia-cublas-cu12",
+    version: "12.8.4.1",
+    filename: "nvidia_cublas_cu12-12.8.4.1-py3-none-manylinux_2_27_x86_64.whl",
+    content: "cublas",
+  },
+  triton: {
+    name: "triton",
+    version: "3.4.0",
+    filename: "triton-3.4.0-cp313-cp313-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl",
+    content: "triton",
+  },
+  rocm: {
+    name: "pytorch-triton-rocm",
+    version: "3.4.0",
+    filename: "pytorch_triton_rocm-3.4.0-cp313-cp313-linux_x86_64.whl",
+    content: "rocm",
+  },
 };
 
-function pipReport(wheels: Wheel[], env: Record<string, string> = { python_full_version: "3.13.15", python_version: "3.13", platform_machine: "x86_64" }) {
+function pipReport(
+  wheels: Wheel[],
+  env: Record<string, string> = { python_full_version: "3.13.15", python_version: "3.13", platform_machine: "x86_64" },
+) {
   return {
     version: "1",
     environment: env,
@@ -186,7 +219,8 @@ const defaultRun: RunHandler = async (_args, mounts) => {
   if (wheels) {
     const pinned = await readFile(join(mounts.get("/in") ?? "", "pinned.txt"), "utf8");
     for (const wheel of Object.values(WHEELS)) {
-      if (pinned.includes(`${wheel.name}==${wheel.version} --hash=sha256:${sha(wheel.content)}`)) await writeFile(join(wheels, wheel.filename), wheel.content);
+      if (pinned.includes(`${wheel.name}==${wheel.version} --hash=sha256:${sha(wheel.content)}`))
+        await writeFile(join(wheels, wheel.filename), wheel.content);
     }
   }
   return ok("Would install ...");
@@ -236,7 +270,12 @@ async function failure(promise: Promise<unknown>): Promise<PrepError> {
 
 describe("DependencyPreparer.resolvePython", () => {
   it("builds the isolated topology with the exact docker argv", async () => {
-    const resolution = await preparer.resolvePython({ runId: "run-1", platform: AMD64_313, requirements: ["matplotlib>=3"], includeInstaller: true });
+    const resolution = await preparer.resolvePython({
+      runId: "run-1",
+      platform: AMD64_313,
+      requirements: ["matplotlib>=3"],
+      includeInstaller: true,
+    });
     const prepId = resolution.resolutionId;
     const id = prepId.slice(5);
     const network = `dejaml-prep-${id}`;
@@ -245,52 +284,96 @@ describe("DependencyPreparer.resolvePython", () => {
     expect(runtime.calls[0]).toEqual(["version", "--format", "{{.Server.Os}}/{{.Server.Arch}}"]);
     // Looked up by the pinned digest for one explicit platform, never by a mutable tag.
     expect(runtime.calls[1]).toEqual([
-      "image", "inspect", "--platform", "linux/amd64", "--format", "{{.Id}}|{{.Os}}|{{.Architecture}}|{{json .RepoDigests}}", REF_313,
+      "image",
+      "inspect",
+      "--platform",
+      "linux/amd64",
+      "--format",
+      "{{.Id}}|{{.Os}}|{{.Architecture}}|{{json .RepoDigests}}",
+      REF_313,
     ]);
     expect(runtime.find((args) => args[0] === "network" && args[1] === "create")).toEqual([
-      "network", "create", "--internal", ...labels, network,
+      "network",
+      "create",
+      "--internal",
+      ...labels,
+      network,
     ]);
 
     const proxy = runtime.find((args) => args[0] === "create");
     const proxyIndex = proxy.indexOf(REF_313);
     expect(proxy.slice(0, proxyIndex + 1)).toEqual([
       "create",
-      "--name", `${network}-egress`,
-      "--pull", "never",
-      "--platform", "linux/amd64",
+      "--name",
+      `${network}-egress`,
+      "--pull",
+      "never",
+      "--platform",
+      "linux/amd64",
       ...labels,
-      "--network", "bridge",
-      "--user", "65534:65534",
+      "--network",
+      "bridge",
+      "--user",
+      "65534:65534",
       "--read-only",
-      "--cap-drop", "ALL",
-      "--security-opt", "no-new-privileges",
-      "--pids-limit", "64",
-      "--memory", "128m",
-      "--memory-swap", "128m",
-      "--cpus", "0.5",
-      "--mount", expect.stringMatching(/^type=bind,src=.+egress_proxy\.py,dst=\/opt\/dejaml\/egress_proxy\.py,readonly$/u),
-      "--entrypoint", "python",
+      "--cap-drop",
+      "ALL",
+      "--security-opt",
+      "no-new-privileges",
+      "--pids-limit",
+      "64",
+      "--memory",
+      "128m",
+      "--memory-swap",
+      "128m",
+      "--cpus",
+      "0.5",
+      "--mount",
+      expect.stringMatching(/^type=bind,src=.+egress_proxy\.py,dst=\/opt\/dejaml\/egress_proxy\.py,readonly$/u),
+      "--entrypoint",
+      "python",
       REF_313,
     ]);
     expect(proxy.slice(proxyIndex + 1)).toEqual([
-      "-I", "-u", "/opt/dejaml/egress_proxy.py",
-      "--listen", "0.0.0.0:3128",
-      "--allow", "pypi.org",
-      "--allow", "files.pythonhosted.org",
-      "--budget-bytes", String(3 * 1024 ** 3 + 128 * 1024 * 1024),
-      "--idle-timeout", "60",
+      "-I",
+      "-u",
+      "/opt/dejaml/egress_proxy.py",
+      "--listen",
+      "0.0.0.0:3128",
+      "--allow",
+      "pypi.org",
+      "--allow",
+      "files.pythonhosted.org",
+      "--budget-bytes",
+      String(3 * 1024 ** 3 + 128 * 1024 * 1024),
+      "--idle-timeout",
+      "60",
     ]);
     expect(flagValues(proxy, "--env")).toEqual([]);
     expect(runtime.find((args) => args[0] === "network" && args[1] === "connect")).toEqual([
-      "network", "connect", "--alias", "egress", network, `${network}-egress`,
+      "network",
+      "connect",
+      "--alias",
+      "egress",
+      network,
+      `${network}-egress`,
     ]);
 
     const resolver = runtime.find((args) => args[0] === "run");
     const imageIndex = resolver.indexOf(REF_313);
     expect(resolver.slice(imageIndex)).toEqual([
       REF_313,
-      "-m", "pip", "install", "--dry-run", "--ignore-installed", "--only-binary=:all:", "--progress-bar=off",
-      "--report", "/out/report.json", "-r", "/in/requirements.in",
+      "-m",
+      "pip",
+      "install",
+      "--dry-run",
+      "--ignore-installed",
+      "--only-binary=:all:",
+      "--progress-bar=off",
+      "--report",
+      "/out/report.json",
+      "-r",
+      "/in/requirements.in",
     ]);
     const options = resolver.slice(0, imageIndex);
     expect(options.slice(0, 7)).toEqual(["run", "--name", `${network}-resolve`, "--pull", "never", "--platform", "linux/amd64"]);
@@ -338,10 +421,18 @@ describe("DependencyPreparer.resolvePython", () => {
     expect(resolution.platformKey).toBe(platformCacheKey(AMD64_313));
     expect(resolution.resolver).toEqual({ mode: "native", enginePlatform: "linux/amd64", targetPlatform: "linux/amd64", targetArgs: [] });
     expect(resolution.image).toBe(DEFAULT_PREP_IMAGES["3.13"]);
-    expect(resolution.imageIdentity).toMatchObject({ digestReference: REF_313, digest: DIGEST_313, imageId: MANIFEST_ID, platform: "linux/amd64", pythonVersion: "3.13" });
+    expect(resolution.imageIdentity).toMatchObject({
+      digestReference: REF_313,
+      digest: DIGEST_313,
+      imageId: MANIFEST_ID,
+      platform: "linux/amd64",
+      pythonVersion: "3.13",
+    });
     expect(resolution.packages.map((pkg) => pkg.name)).toEqual(["matplotlib", "six"]);
     expect(resolution.installer?.filename).toBe(WHEELS.pip?.filename);
-    expect(resolution.requirements).toEqual([{ spec: "matplotlib>=3", name: "matplotlib", source: "repository", reason: null, origin: null }]);
+    expect(resolution.requirements).toEqual([
+      { spec: "matplotlib>=3", name: "matplotlib", source: "repository", reason: null, origin: null },
+    ]);
     expect(resolution.cleanup).toEqual({
       prepId,
       containersRemoved: [`${network}-resolve`, `${network}-egress`],
@@ -364,25 +455,39 @@ describe("DependencyPreparer.resolvePython", () => {
   });
 
   it("rejects unsafe requirements and an invalid platform before touching Docker", async () => {
-    await expect(preparer.resolvePython({ runId: "run-1", platform: AMD64_313, requirements: ["--index-url https://evil"] })).rejects.toMatchObject({
+    await expect(
+      preparer.resolvePython({ runId: "run-1", platform: AMD64_313, requirements: ["--index-url https://evil"] }),
+    ).rejects.toMatchObject({
       code: "invalid_requirement",
     });
-    await expect(preparer.resolvePython({ runId: "run 1", platform: AMD64_313, requirements: ["six"] })).rejects.toMatchObject({ code: "invalid_requirement" });
+    await expect(preparer.resolvePython({ runId: "run 1", platform: AMD64_313, requirements: ["six"] })).rejects.toMatchObject({
+      code: "invalid_requirement",
+    });
     await expect(
-      preparer.resolvePython({ runId: "run-1", platform: { ...AMD64_313, accelerator: "cuda" } as unknown as PlatformSpec, requirements: ["six"] }),
+      preparer.resolvePython({
+        runId: "run-1",
+        platform: { ...AMD64_313, accelerator: "cuda" } as unknown as PlatformSpec,
+        requirements: ["six"],
+      }),
     ).rejects.toMatchObject({ code: "invalid_policy" });
     const rogueIndex = buildPlatformSpec({
       architecture: "amd64",
       python: "3.13",
       packageIndex: { id: "rogue", indexUrl: "https://evil.example/simple", allowedHosts: ["evil.example"], cpuOnly: true },
     });
-    await expect(preparer.resolvePython({ runId: "run-1", platform: rogueIndex, requirements: ["six"] })).rejects.toMatchObject({ code: "invalid_policy" });
+    await expect(preparer.resolvePython({ runId: "run-1", platform: rogueIndex, requirements: ["six"] })).rejects.toMatchObject({
+      code: "invalid_policy",
+    });
     expect(runtime.calls).toEqual([]);
   });
 
   it("cleans up and returns a typed error when pip fails", async () => {
     runtime.onRun = async () =>
-      ok("", "ERROR: Could not find a version that satisfies the requirement numpy==1.19.5\nERROR: No matching distribution found for numpy==1.19.5\n", 1);
+      ok(
+        "",
+        "ERROR: Could not find a version that satisfies the requirement numpy==1.19.5\nERROR: No matching distribution found for numpy==1.19.5\n",
+        1,
+      );
     const error = await failure(preparer.resolvePython({ runId: "run-1", platform: AMD64_313, requirements: ["numpy==1.19.5"] }));
     expect(error.code).toBe("no_compatible_wheel");
     expect(error.requirement).toBe("numpy");
@@ -394,7 +499,9 @@ describe("DependencyPreparer.resolvePython", () => {
   it("classifies a denied egress attempt from the proxy log", async () => {
     runtime.proxyLog = '{"event":"connect","host":"evil.example","ip":null,"allowed":false,"reason":"host_not_allowed"}\n';
     runtime.onRun = async () => ok("", "ProxyError: Tunnel connection failed: 403 Forbidden", 1);
-    await expect(preparer.resolvePython({ runId: "run-1", platform: AMD64_313, requirements: ["six"] })).rejects.toMatchObject({ code: "egress_denied" });
+    await expect(preparer.resolvePython({ runId: "run-1", platform: AMD64_313, requirements: ["six"] })).rejects.toMatchObject({
+      code: "egress_denied",
+    });
   });
 
   it("cleans up on cancellation", async () => {
@@ -404,7 +511,9 @@ describe("DependencyPreparer.resolvePython", () => {
         options.signal?.addEventListener("abort", () => resolve(aborted()), { once: true });
         setTimeout(() => controller.abort(), 5);
       });
-    const error = await failure(preparer.resolvePython({ runId: "run-1", platform: AMD64_313, requirements: ["six"], signal: controller.signal }));
+    const error = await failure(
+      preparer.resolvePython({ runId: "run-1", platform: AMD64_313, requirements: ["six"], signal: controller.signal }),
+    );
     expect(error.code).toBe("cancelled");
     expect(error.cleanup).toMatchObject({ networkRemoved: true, tempRemoved: true, verifiedAbsent: true });
     await expectNothingLeft();
@@ -425,7 +534,9 @@ describe("DependencyPreparer.resolvePython", () => {
 
   it("refuses an image whose ID does not match the policy", async () => {
     const strict = make({ expectedImageIds: { "3.13": `sha256:${"b".repeat(64)}` } });
-    await expect(strict.resolvePython({ runId: "run-1", platform: AMD64_313, requirements: ["six"] })).rejects.toMatchObject({ code: "image_mismatch" });
+    await expect(strict.resolvePython({ runId: "run-1", platform: AMD64_313, requirements: ["six"] })).rejects.toMatchObject({
+      code: "image_mismatch",
+    });
     expect(runtime.calls.some((args) => args[0] === "run" || args[0] === "create")).toBe(false);
   });
 
@@ -471,10 +582,14 @@ describe("platform-aware resolution", () => {
     expect(resolution.resolver.targetPlatform).toBe("linux/arm64");
     expect(resolution.imageIdentity.platform).toBe("linux/amd64");
     const resolver = runtime.runs("resolve")[0] ?? [];
-    expect(flagValues(resolver, "--platform")).toEqual(["linux/amd64", "manylinux_2_41_aarch64", ...Array.from({ length: 24 }, (_, i) => {
-      const minor = 40 - i;
-      return `manylinux_2_${minor}_aarch64`;
-    }).flatMap((tag) => (tag === "manylinux_2_17_aarch64" ? [tag, "manylinux2014_aarch64"] : [tag]))]);
+    expect(flagValues(resolver, "--platform")).toEqual([
+      "linux/amd64",
+      "manylinux_2_41_aarch64",
+      ...Array.from({ length: 24 }, (_, i) => {
+        const minor = 40 - i;
+        return `manylinux_2_${minor}_aarch64`;
+      }).flatMap((tag) => (tag === "manylinux_2_17_aarch64" ? [tag, "manylinux2014_aarch64"] : [tag])),
+    ]);
     expect(flagValues(resolver, "--python-version")).toEqual(["3.11"]);
     expect(flagValues(resolver, "--implementation")).toEqual(["cp"]);
     expect(flagValues(resolver, "--abi")).toEqual(["cp311"]);
@@ -484,7 +599,11 @@ describe("platform-aware resolution", () => {
     const downloader = runtime.runs("download")[0] ?? [];
     expect(flagValues(downloader, "--platform")).toContain("manylinux2014_aarch64");
     expect(manifest.platform).toEqual(ARM64_311);
-    expect(manifest.packages[0]?.platformTags).toEqual({ python: ["cp311"], abi: ["cp311"], platform: ["manylinux_2_26_aarch64", "manylinux_2_28_aarch64"] });
+    expect(manifest.packages[0]?.platformTags).toEqual({
+      python: ["cp311"],
+      abi: ["cp311"],
+      platform: ["manylinux_2_26_aarch64", "manylinux_2_28_aarch64"],
+    });
     expect(manifest.cache.key).toBe("linux-arm64-cp311-glibc2.41-cpu_only-pypi-cpu");
     expect(await readdir(join(root, "cache", "wheels"))).toEqual(["linux-arm64-cp311-glibc2.41-cpu_only-pypi-cpu"]);
 
@@ -505,11 +624,17 @@ describe("platform-aware resolution", () => {
     expect(error.code).toBe("platform_mismatch");
 
     reportWheels = [WHEELS.numpyAmd64!];
-    const amd = await preparer.downloadWheels(await preparer.resolvePython({ runId: "run-x", platform: AMD64_311, requirements: ["numpy"] }));
+    const amd = await preparer.downloadWheels(
+      await preparer.resolvePython({ runId: "run-x", platform: AMD64_311, requirements: ["numpy"] }),
+    );
     reportWheels = [WHEELS.numpyArm64!];
-    const arm = await preparer.downloadWheels(await preparer.resolvePython({ runId: "run-x", platform: ARM64_311, requirements: ["numpy"] }));
+    const arm = await preparer.downloadWheels(
+      await preparer.resolvePython({ runId: "run-x", platform: ARM64_311, requirements: ["numpy"] }),
+    );
     expect(amd.cache.key).not.toBe(arm.cache.key);
-    expect((await readdir(join(root, "cache", "wheels"))).sort()).toEqual([platformCacheKey(AMD64_311), platformCacheKey(ARM64_311)].sort());
+    expect((await readdir(join(root, "cache", "wheels"))).sort()).toEqual(
+      [platformCacheKey(AMD64_311), platformCacheKey(ARM64_311)].sort(),
+    );
 
     // A resolution cannot be downloaded for a different platform, and a tampered resolution is re-validated.
     const resolution = await preparer.resolvePython({ runId: "run-x", platform: ARM64_311, requirements: ["numpy"] });
@@ -579,7 +704,14 @@ describe("CPU-only policy", () => {
       ...resolution,
       packages: [
         ...resolution.packages,
-        { name: cublas.name, version: cublas.version, filename: cublas.filename, sha256: sha(cublas.content), url: `https://files.pythonhosted.org/x/${cublas.filename}`, requested: false },
+        {
+          name: cublas.name,
+          version: cublas.version,
+          filename: cublas.filename,
+          sha256: sha(cublas.content),
+          url: `https://files.pythonhosted.org/x/${cublas.filename}`,
+          requested: false,
+        },
       ],
     };
     await expect(preparer.downloadWheels(tampered)).rejects.toMatchObject({ code: "accelerator_package_refused" });
@@ -588,7 +720,12 @@ describe("CPU-only policy", () => {
 
   it("refuses a compatibility constraint that selects an accelerator build", async () => {
     await expect(
-      preparer.resolvePython({ runId: "run-1", platform: AMD64_313, requirements: ["torch"], constraints: [{ spec: "torch==2.3.0+cu121", reason: "x" }] }),
+      preparer.resolvePython({
+        runId: "run-1",
+        platform: AMD64_313,
+        requirements: ["torch"],
+        constraints: [{ spec: "torch==2.3.0+cu121", reason: "x" }],
+      }),
     ).rejects.toMatchObject({ code: "accelerator_package_refused" });
     expect(runtime.calls).toEqual([]);
   });
@@ -606,10 +743,21 @@ describe("compatibility constraints", () => {
       platform: AMD64_313,
       requirements: [{ spec: "matplotlib>=3", source: { file: "requirements.txt", line: 3 } }],
       constraints: [
-        { spec: "matplotlib<3.12", reason: "the paper's plotting code uses an API removed in 3.12", source: { file: "cases/demo/constraints.txt", line: 1 } },
+        {
+          spec: "matplotlib<3.12",
+          reason: "the paper's plotting code uses an API removed in 3.12",
+          source: { file: "cases/demo/constraints.txt", line: 1 },
+        },
         { spec: "six==1.17.0", reason: "transitive pin used in the original environment" },
       ],
-      rejected: [{ file: "requirements.txt", line: 1, text: "--extra-index-url https://download.pytorch.org/whl/cu118", reason: "accelerator package indexes are not allowed" }],
+      rejected: [
+        {
+          file: "requirements.txt",
+          line: 1,
+          text: "--extra-index-url https://download.pytorch.org/whl/cu118",
+          reason: "accelerator package indexes are not allowed",
+        },
+      ],
       includeInstaller: true,
     });
     expect(constraintsFile).toBe("matplotlib<3.12\nsix==1.17.0\n");
@@ -624,7 +772,13 @@ describe("compatibility constraints", () => {
         reason: "the paper's plotting code uses an API removed in 3.12",
         origin: { file: "cases/demo/constraints.txt", line: 1 },
       },
-      { spec: "six==1.17.0", name: "six", source: "compatibility_constraint", reason: "transitive pin used in the original environment", origin: null },
+      {
+        spec: "six==1.17.0",
+        name: "six",
+        source: "compatibility_constraint",
+        reason: "transitive pin used in the original environment",
+        origin: null,
+      },
     ]);
     expect(resolution.compatibilityChanges).toEqual([
       {
@@ -635,7 +789,14 @@ describe("compatibility constraints", () => {
         resolved: "3.11.2",
         origin: { file: "cases/demo/constraints.txt", line: 1 },
       },
-      { name: "six", constraint: "six==1.17.0", reason: "transitive pin used in the original environment", repository: [], resolved: "1.17.0", origin: null },
+      {
+        name: "six",
+        constraint: "six==1.17.0",
+        reason: "transitive pin used in the original environment",
+        repository: [],
+        resolved: "1.17.0",
+        origin: null,
+      },
     ]);
     const manifest = await preparer.downloadWheels(resolution);
     const onDisk = JSON.parse(await readFile(join(manifest.wheelhouseDir, "manifest.json"), "utf8")) as Record<string, unknown>;
@@ -650,7 +811,12 @@ describe("compatibility constraints", () => {
       preparer.resolvePython({ runId: "run-1", platform: AMD64_313, requirements: ["six"], constraints: [{ spec: "six<2", reason: " " }] }),
     ).rejects.toMatchObject({ code: "invalid_requirement" });
     await expect(
-      preparer.resolvePython({ runId: "run-1", platform: AMD64_313, requirements: ["six"], constraints: [{ spec: "six @ https://x/y.whl", reason: "r" }] }),
+      preparer.resolvePython({
+        runId: "run-1",
+        platform: AMD64_313,
+        requirements: ["six"],
+        constraints: [{ spec: "six @ https://x/y.whl", reason: "r" }],
+      }),
     ).rejects.toMatchObject({ code: "invalid_requirement" });
     expect(runtime.calls).toEqual([]);
   });
@@ -667,8 +833,18 @@ describe("DependencyPreparer.downloadWheels", () => {
 
     const downloader = runtime.runs("download")[0] ?? [];
     expect(downloader.slice(downloader.indexOf(REF_313))).toEqual([
-      REF_313, "-m", "pip", "download", "--no-deps", "--only-binary=:all:", "--require-hashes", "--progress-bar=off",
-      "--dest", "/wheels", "-r", "/in/pinned.txt",
+      REF_313,
+      "-m",
+      "pip",
+      "download",
+      "--no-deps",
+      "--only-binary=:all:",
+      "--require-hashes",
+      "--progress-bar=off",
+      "--dest",
+      "/wheels",
+      "-r",
+      "/in/pinned.txt",
     ]);
     expect(flagValues(downloader, "--network")).toEqual([expect.stringMatching(/^dejaml-prep-[a-f0-9]{32}$/u)]);
     expect(flagValues(downloader, "--user")).toEqual(["65534:65534"]);
@@ -677,7 +853,14 @@ describe("DependencyPreparer.downloadWheels", () => {
     expect(manifest.cache).toEqual({ hits: 0, downloaded: 3, evicted: 0, downloaderSkipped: false, key: platformCacheKey(AMD64_313) });
     const files = (await readdir(manifest.wheelhouseDir)).sort();
     expect(files).toEqual(
-      [WHEELS.matplotlib?.filename, WHEELS.pip?.filename, WHEELS.six?.filename, "installer.json", "manifest.json", "requirements.lock.txt"].sort(),
+      [
+        WHEELS.matplotlib?.filename,
+        WHEELS.pip?.filename,
+        WHEELS.six?.filename,
+        "installer.json",
+        "manifest.json",
+        "requirements.lock.txt",
+      ].sort(),
     );
     expect(await readFile(join(manifest.wheelhouseDir, "requirements.lock.txt"), "utf8")).toBe(
       `matplotlib==3.11.2 --hash=sha256:${sha("mpl-wheel")}\nsix==1.17.0 --hash=sha256:${sha("six-wheel")}\n`,
@@ -731,7 +914,8 @@ describe("DependencyPreparer.downloadWheels", () => {
     const resolution = await resolve();
     runtime.onRun = async (_args, mounts) => {
       const wheels = mounts.get("/wheels") ?? "";
-      for (const wheel of [WHEELS.matplotlib!, WHEELS.six!, WHEELS.pip!]) await writeFile(join(wheels, wheel.filename), `${wheel.content}!`);
+      for (const wheel of [WHEELS.matplotlib!, WHEELS.six!, WHEELS.pip!])
+        await writeFile(join(wheels, wheel.filename), `${wheel.content}!`);
       return ok();
     };
     const error = await failure(preparer.downloadWheels(resolution));
@@ -795,7 +979,12 @@ describe("disk-backed temporary storage", () => {
   });
 
   it("aborts a download that outgrows the byte quota mid-run and removes every partial file", async () => {
-    const resolution = await preparer.resolvePython({ runId: "run-1", platform: AMD64_313, requirements: ["matplotlib"], includeInstaller: true });
+    const resolution = await preparer.resolvePython({
+      runId: "run-1",
+      platform: AMD64_313,
+      requirements: ["matplotlib"],
+      includeInstaller: true,
+    });
     const tiny = make({ maxTempBytes: 64 * 1024, diskPollMs: 20 });
     let sawAbort = false;
     runtime.onRun = (_args, mounts, options) =>
@@ -821,7 +1010,12 @@ describe("disk-backed temporary storage", () => {
   });
 
   it("enforces the inode quota and catches writes that land between polls", async () => {
-    const resolution = await preparer.resolvePython({ runId: "run-1", platform: AMD64_313, requirements: ["matplotlib"], includeInstaller: true });
+    const resolution = await preparer.resolvePython({
+      runId: "run-1",
+      platform: AMD64_313,
+      requirements: ["matplotlib"],
+      includeInstaller: true,
+    });
     const few = make({ maxTempInodes: 20, diskPollMs: 60_000 });
     runtime.onRun = async (_args, mounts) => {
       for (let index = 0; index < 50; index += 1) await writeFile(join(mounts.get("/tmp") ?? "", `f${index}`), "");
@@ -834,7 +1028,12 @@ describe("disk-backed temporary storage", () => {
   });
 
   it("cleans up after cancellation mid-download", async () => {
-    const resolution = await preparer.resolvePython({ runId: "run-1", platform: AMD64_313, requirements: ["matplotlib"], includeInstaller: true });
+    const resolution = await preparer.resolvePython({
+      runId: "run-1",
+      platform: AMD64_313,
+      requirements: ["matplotlib"],
+      includeInstaller: true,
+    });
     const controller = new AbortController();
     runtime.onRun = (_args, mounts, options) =>
       new Promise((resolve) => {

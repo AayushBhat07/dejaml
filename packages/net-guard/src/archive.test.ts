@@ -7,13 +7,7 @@ import { gzipSync } from "node:zlib";
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import {
-  type ArchiveLimits,
-  detectArchiveFormat,
-  extractArchive,
-  listingDigest,
-  normalizeEntryPath,
-} from "./archive.js";
+import { type ArchiveLimits, detectArchiveFormat, extractArchive, listingDigest, normalizeEntryPath } from "./archive.js";
 import { DatasetError, type DatasetErrorCode } from "./dataset-errors.js";
 import { buildTar, buildZip, paxRecord } from "./test-archives.js";
 
@@ -101,18 +95,38 @@ describe("extractArchive", () => {
   });
 
   it("refuses duplicate and case-colliding entries and file/directory conflicts", async () => {
-    expect(await failure(buildZip([{ name: "a.csv", data: Buffer.from("1") }, { name: "a.csv", data: Buffer.from("2") }]))).toBe(
-      "archive_unsafe_path",
-    );
-    expect(await failure(buildZip([{ name: "A.csv", data: Buffer.from("1") }, { name: "a.csv", data: Buffer.from("2") }]))).toBe(
-      "archive_unsafe_path",
-    );
-    expect(await failure(buildZip([{ name: "a", data: Buffer.from("1") }, { name: "a/b", data: Buffer.from("2") }]))).toBe(
-      "archive_unsafe_path",
-    );
-    expect(await failure(buildZip([{ name: "a/b", data: Buffer.from("1") }, { name: "a", data: Buffer.from("2") }]))).toBe(
-      "archive_unsafe_path",
-    );
+    expect(
+      await failure(
+        buildZip([
+          { name: "a.csv", data: Buffer.from("1") },
+          { name: "a.csv", data: Buffer.from("2") },
+        ]),
+      ),
+    ).toBe("archive_unsafe_path");
+    expect(
+      await failure(
+        buildZip([
+          { name: "A.csv", data: Buffer.from("1") },
+          { name: "a.csv", data: Buffer.from("2") },
+        ]),
+      ),
+    ).toBe("archive_unsafe_path");
+    expect(
+      await failure(
+        buildZip([
+          { name: "a", data: Buffer.from("1") },
+          { name: "a/b", data: Buffer.from("2") },
+        ]),
+      ),
+    ).toBe("archive_unsafe_path");
+    expect(
+      await failure(
+        buildZip([
+          { name: "a/b", data: Buffer.from("1") },
+          { name: "a", data: Buffer.from("2") },
+        ]),
+      ),
+    ).toBe("archive_unsafe_path");
   });
 
   it("refuses a zip bomb by compression ratio before inflating", async () => {
@@ -128,9 +142,7 @@ describe("extractArchive", () => {
 
   it("enforces per-file and total extracted-size limits", async () => {
     const big = Buffer.alloc(2048, 7);
-    expect(await failure(buildZip([{ name: "big", data: big, method: 0 }]), { maxFileBytes: 1024 })).toBe(
-      "archive_too_large",
-    );
+    expect(await failure(buildZip([{ name: "big", data: big, method: 0 }]), { maxFileBytes: 1024 })).toBe("archive_too_large");
     const two = buildZip([
       { name: "a", data: big, method: 0 },
       { name: "b", data: big, method: 0 },
@@ -198,9 +210,7 @@ describe("extractArchive", () => {
   it("refuses a gzip bomb", async () => {
     const bomb = gzipSync(Buffer.alloc(8 * 1024 * 1024));
     expect(await failure(bomb)).toBe("archive_ratio_exceeded");
-    expect(await failure(gzipSync(Buffer.alloc(4096, 1)), { maxTotalBytes: 1024, maxFiles: 1, maxRatio: 1e9 })).toBe(
-      "archive_too_large",
-    );
+    expect(await failure(gzipSync(Buffer.alloc(4096, 1)), { maxTotalBytes: 1024, maxFiles: 1, maxRatio: 1e9 })).toBe("archive_too_large");
   });
 
   it("honours cancellation before writing", async () => {

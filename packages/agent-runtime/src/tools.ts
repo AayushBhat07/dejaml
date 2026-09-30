@@ -34,7 +34,15 @@ export const ROLE_LABELS: Record<AgentRole, string> = {
 export const ROLE_CAPABILITIES: Record<AgentRole, readonly string[]> = {
   paper_analyst: ["paper_list_pages", "paper_read_page", "paper_search"],
   repository_analyst: ["repo_acquire", "repo_list", "repo_read", "repo_search", "dependency_discover"],
-  reproduction_planner: ["board_read", "paper_read_page", "repo_list", "repo_read", "repo_search", "dependency_discover", "dependency_check"],
+  reproduction_planner: [
+    "board_read",
+    "paper_read_page",
+    "repo_list",
+    "repo_read",
+    "repo_search",
+    "dependency_discover",
+    "dependency_check",
+  ],
   lab_engineer: [
     "board_read",
     "lab_list",

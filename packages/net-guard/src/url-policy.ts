@@ -22,6 +22,7 @@ export interface FetchPolicy {
 export const MAX_URL_LENGTH = 4096;
 const DEFAULT_PORTS: readonly number[] = [443];
 const HOST_LABEL = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
+// eslint-disable-next-line no-control-regex -- rejects control characters
 const FORBIDDEN_RAW = /[\s\u0000-\u001f\u007f\\]/u;
 const SOCKET_SCHEMES = /^[a-z][a-z0-9+.-]*\+unix:|^unix:/i;
 

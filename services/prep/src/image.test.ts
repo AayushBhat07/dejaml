@@ -44,7 +44,7 @@ class StoreRuntime implements ContainerRuntime {
       const present = this.refs.get(reference);
       if (!present) return result("", `Error response from daemon: No such image: ${reference}`, 1);
       if (!this.legacyCli && !present.has(platform)) return result(`${PLATFORM_ID}|||["python@${DIGEST}"]\n`);
-      const actual = this.legacyCli ? [...present][0] ?? "linux/amd64" : platform;
+      const actual = this.legacyCli ? ([...present][0] ?? "linux/amd64") : platform;
       return result(`${PLATFORM_ID}|linux|${actual.split("/")[1]}|["python@${DIGEST}"]\n`);
     }
     if (args[0] === "pull") {
@@ -64,7 +64,13 @@ beforeEach(() => {
 
 describe("parsePinnedReference", () => {
   it("requires a digest and canonicalizes Docker Hub names", () => {
-    expect(parsePinnedReference(PINNED)).toEqual({ reference: PINNED, repository: "python", tag: "3.11-slim-trixie", digest: DIGEST, digestReference: BY_DIGEST });
+    expect(parsePinnedReference(PINNED)).toEqual({
+      reference: PINNED,
+      repository: "python",
+      tag: "3.11-slim-trixie",
+      digest: DIGEST,
+      digestReference: BY_DIGEST,
+    });
     expect(parsePinnedReference(`docker.io/library/python@${DIGEST}`).repository).toBe("python");
     expect(parsePinnedReference(`registry.example.org:5000/team/python:3.11@${DIGEST}`)).toMatchObject({
       repository: "registry.example.org:5000/team/python",
@@ -97,7 +103,9 @@ describe("DockerPrepImageProvider", () => {
 
   it("does not report a Docker failure as a missing image", async () => {
     store.failure = "permission denied while trying to connect to the Docker daemon socket";
-    const error = (await new DockerPrepImageProvider(store).ensure({ key: "k", reference: PINNED, platform: "linux/amd64" }).catch((e: unknown) => e)) as PrepError;
+    const error = (await new DockerPrepImageProvider(store)
+      .ensure({ key: "k", reference: PINNED, platform: "linux/amd64" })
+      .catch((e: unknown) => e)) as PrepError;
     expect(error.code).toBe("runtime_error");
     expect(error.detail).toContain("permission denied");
   });
@@ -116,8 +124,12 @@ describe("DockerPrepImageProvider", () => {
     store.legacyCli = true;
     store.refs.set(BY_DIGEST, new Set(["linux/amd64"]));
     const provider = new DockerPrepImageProvider(store);
-    await expect(provider.ensure({ key: "k", reference: PINNED, platform: "linux/arm64" })).rejects.toMatchObject({ code: "platform_mismatch" });
-    await expect(provider.ensure({ key: "k", reference: PINNED, platform: "linux/amd64" })).resolves.toMatchObject({ platform: "linux/amd64" });
+    await expect(provider.ensure({ key: "k", reference: PINNED, platform: "linux/arm64" })).rejects.toMatchObject({
+      code: "platform_mismatch",
+    });
+    await expect(provider.ensure({ key: "k", reference: PINNED, platform: "linux/amd64" })).resolves.toMatchObject({
+      platform: "linux/amd64",
+    });
   });
 
   it("pulls by digest for the exact platform, once for concurrent callers", async () => {
@@ -170,13 +182,21 @@ describe("DependencyPreparer with an injected image provider", () => {
       },
     };
     // The run itself fails (the fake runtime has no proxy), but the image request is what matters here.
-    await preparerWith(provider, calls).resolvePython({ runId: "r", platform, requirements: ["six"] }).catch(() => undefined);
-    expect(requests).toEqual([{ key: "prep-python-3.11-linux-amd64", reference: DEFAULT_PREP_IMAGES["3.11"], platform: "linux/amd64", pull: false }]);
+    await preparerWith(provider, calls)
+      .resolvePython({ runId: "r", platform, requirements: ["six"] })
+      .catch(() => undefined);
+    expect(requests).toEqual([
+      { key: "prep-python-3.11-linux-amd64", reference: DEFAULT_PREP_IMAGES["3.11"], platform: "linux/amd64", pull: false },
+    ]);
     expect(calls.find((args) => args[0] === "network" && args[1] === "create")).toBeDefined();
   });
 
   it.each([
-    ["a different digest", { imageId: PLATFORM_ID, repoDigests: [`python@sha256:${"9".repeat(64)}`], platform: "linux/amd64" }, "image_mismatch"],
+    [
+      "a different digest",
+      { imageId: PLATFORM_ID, repoDigests: [`python@sha256:${"9".repeat(64)}`], platform: "linux/amd64" },
+      "image_mismatch",
+    ],
     ["another platform", { imageId: PLATFORM_ID, repoDigests: [BY_DIGEST], platform: "linux/arm64" }, "platform_mismatch"],
   ])("refuses an image with %s before creating anything", async (_label, image, code) => {
     const calls: string[][] = [];
@@ -194,10 +214,14 @@ describe("DependencyPreparer with an injected image provider", () => {
         throw Object.assign(new Error(`not ready: ${code}`), { code });
       },
     });
-    await expect(preparerWith(notReady("image_missing"), calls).resolvePython({ runId: "r", platform, requirements: ["six"] })).rejects.toMatchObject({
+    await expect(
+      preparerWith(notReady("image_missing"), calls).resolvePython({ runId: "r", platform, requirements: ["six"] }),
+    ).rejects.toMatchObject({
       code: "image_unavailable",
     });
-    await expect(preparerWith(notReady("platform_mismatch"), calls).resolvePython({ runId: "r", platform, requirements: ["six"] })).rejects.toMatchObject({
+    await expect(
+      preparerWith(notReady("platform_mismatch"), calls).resolvePython({ runId: "r", platform, requirements: ["six"] }),
+    ).rejects.toMatchObject({
       code: "platform_mismatch",
     });
   });

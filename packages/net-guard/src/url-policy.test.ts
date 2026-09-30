@@ -81,12 +81,9 @@ describe("validateFetchUrl rejections", () => {
       expect(rejection(raw)).toBe("scheme_not_allowed");
     },
   );
-  it.each(["unix:/var/run/docker.sock", "http+unix://%2Fvar%2Frun%2Fdocker.sock/info"])(
-    "rejects unix socket URL %s",
-    (raw) => {
-      expect(rejection(raw)).toBe("unix_socket");
-    },
-  );
+  it.each(["unix:/var/run/docker.sock", "http+unix://%2Fvar%2Frun%2Fdocker.sock/info"])("rejects unix socket URL %s", (raw) => {
+    expect(rejection(raw)).toBe("unix_socket");
+  });
   it("rejects percent-encoded socket paths in the host", () => {
     expect(rejection("https://%2Fvar%2Frun%2Fdocker.sock/info")).toBe("invalid_url");
   });
@@ -111,9 +108,7 @@ describe("validateFetchUrl rejections", () => {
     "https://app.localhost/",
     "https://localhost./",
   ])("rejects unsafe hostname %s", (raw) => {
-    expect(rejection(raw, { allowedHosts: ["*.internal", "*.localhost", "localhost", "metadata"] })).toBe(
-      "unsafe_hostname",
-    );
+    expect(rejection(raw, { allowedHosts: ["*.internal", "*.localhost", "localhost", "metadata"] })).toBe("unsafe_hostname");
   });
   it("rejects empty labels and single-label names", () => {
     expect(["invalid_url", "unsafe_hostname"]).toContain(rejection("https://allowed..example.test/"));

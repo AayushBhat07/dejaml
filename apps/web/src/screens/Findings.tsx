@@ -62,15 +62,27 @@ const VERDICTS: Record<string, { label: string; tone: Tone; explanation: string 
 };
 
 const STUDY_RESULTS: Record<StudyResult["status"], { label: string; tone: Tone; explanation: string }> = {
-  reproduced: { label: "Reproduced", tone: "positive", explanation: "Independent engineers agree, reviewers approved, and nothing in the method was changed." },
+  reproduced: {
+    label: "Reproduced",
+    tone: "positive",
+    explanation: "Independent engineers agree, reviewers approved, and nothing in the method was changed.",
+  },
   partially_reproduced: {
     label: "Partially reproduced",
     tone: "accent",
     explanation: "The number matches, with declared deviations such as newer library versions or a wrapper script.",
   },
-  not_reproduced: { label: "Not reproduced", tone: "warning", explanation: "A faithful run was agreed and reviewed, and it lands outside the tolerance." },
+  not_reproduced: {
+    label: "Not reproduced",
+    tone: "warning",
+    explanation: "A faithful run was agreed and reviewed, and it lands outside the tolerance.",
+  },
   inconclusive: { label: "Inconclusive", tone: "neutral", explanation: "The evidence does not support a verdict either way." },
-  policy_blocked: { label: "Policy blocked", tone: "negative", explanation: "A safety policy stopped the study before it could measure the claim." },
+  policy_blocked: {
+    label: "Policy blocked",
+    tone: "negative",
+    explanation: "A safety policy stopped the study before it could measure the claim.",
+  },
 };
 
 function StudyResultCard({ result }: { result: StudyResult }) {
@@ -225,9 +237,7 @@ export function Findings({
         <p className="small">
           {lab.cleanup ? (
             <>
-              <Badge tone={lab.cleanup.clean ? "positive" : "negative"}>
-                {lab.cleanup.clean ? "Lab removed" : "Cleanup failed"}
-              </Badge>{" "}
+              <Badge tone={lab.cleanup.clean ? "positive" : "negative"}>{lab.cleanup.clean ? "Lab removed" : "Cleanup failed"}</Badge>{" "}
               {lab.cleanup.summary}
             </>
           ) : (

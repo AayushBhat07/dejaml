@@ -3,14 +3,7 @@ import { type FileHandle, lstat, open, rename, rm } from "node:fs/promises";
 import type { ClientRequest, IncomingMessage } from "node:http";
 import https, { type RequestOptions } from "node:https";
 
-import {
-  type AddressPolicy,
-  createPinnedLookup,
-  defaultResolver,
-  type ResolvedHost,
-  type Resolver,
-  resolvePublic,
-} from "./dns.js";
+import { type AddressPolicy, createPinnedLookup, defaultResolver, type ResolvedHost, type Resolver, resolvePublic } from "./dns.js";
 import { NetGuardError } from "./errors.js";
 import { isPublicAddress, parseIpLiteral } from "./ip.js";
 import { type FetchPolicy, validateFetchUrl } from "./url-policy.js";
@@ -21,10 +14,7 @@ const DEFAULT_IDLE_TIMEOUT_MS = 30_000;
 const SHA256_PATTERN = /^[a-f0-9]{64}$/;
 
 /** Same shape as `https.request(options, callback)`. */
-export type HttpsTransport = (
-  options: RequestOptions,
-  callback: (response: IncomingMessage) => void,
-) => ClientRequest;
+export type HttpsTransport = (options: RequestOptions, callback: (response: IncomingMessage) => void) => ClientRequest;
 
 export interface SafeDownloadOptions {
   readonly url: string;
@@ -64,8 +54,7 @@ export interface DownloadReceipt {
 }
 
 function assertPolicy(policy: FetchPolicy): void {
-  const positiveInt = (value: unknown): boolean =>
-    typeof value === "number" && Number.isSafeInteger(value) && value > 0;
+  const positiveInt = (value: unknown): boolean => typeof value === "number" && Number.isSafeInteger(value) && value > 0;
   if (
     !Array.isArray(policy.allowedHosts) ||
     !Number.isSafeInteger(policy.maxRedirects) ||
@@ -254,10 +243,7 @@ export async function safeDownload(options: SafeDownloadOptions): Promise<Downlo
   } else {
     options.signal?.addEventListener("abort", onCallerAbort, { once: true });
   }
-  const timer = setTimeout(
-    () => abort(new NetGuardError("timeout", `Download exceeded ${policy.timeoutMs} ms`)),
-    policy.timeoutMs,
-  );
+  const timer = setTimeout(() => abort(new NetGuardError("timeout", `Download exceeded ${policy.timeoutMs} ms`)), policy.timeoutMs);
 
   let response: IncomingMessage | undefined;
   const destroyResponse = (): void => {

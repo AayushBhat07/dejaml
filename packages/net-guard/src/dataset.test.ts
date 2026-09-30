@@ -194,8 +194,7 @@ describe.skipIf(!hasOpenssl())("acquireLabDataset against a local TLS server", (
       response.writeHead(200, { "Content-Type": "application/zip", "Content-Length": ZIP.length }).end(ZIP);
     };
     const dataset = await acquireLabDataset(options({ url: url("/latest"), expectedSha256: sha(ZIP), extract: true }));
-    const listing =
-      "dejaml-dataset-listing-v1\n" + `${sha("CC-BY")} 5 iris/LICENSE\n` + `${sha(CSV)} ${CSV.length} iris/train.csv\n`;
+    const listing = "dejaml-dataset-listing-v1\n" + `${sha("CC-BY")} 5 iris/LICENSE\n` + `${sha(CSV)} ${CSV.length} iris/train.csv\n`;
     expect(dataset.identity).toEqual({
       name: "iris",
       requestedUrl: url("/latest"),
@@ -335,10 +334,7 @@ describe.skipIf(!hasOpenssl())("acquireLabDataset against a local TLS server", (
     handler = (_request, response) => response.writeHead(302, { Location: "https://[fd00::1]/x" }).end();
     expect(await failure({ url: url("/r") })).toEqual(["ip_literal_not_allowed", "policy_blocked"]);
     handler = (request, response) => response.writeHead(302, { Location: `${request.url ?? "/"}x` }).end();
-    expect(await failure({ url: url("/r"), policy: policy({ maxRedirects: 2 }) })).toEqual([
-      "too_many_redirects",
-      "policy_blocked",
-    ]);
+    expect(await failure({ url: url("/r"), policy: policy({ maxRedirects: 2 }) })).toEqual(["too_many_redirects", "policy_blocked"]);
   });
 
   it("refuses an oversized declared Content-Length before reading the body", async () => {
@@ -381,10 +377,7 @@ describe.skipIf(!hasOpenssl())("acquireLabDataset against a local TLS server", (
       const keepAlive = setInterval(() => response.write(Buffer.alloc(1)), 50);
       response.on("close", () => clearInterval(keepAlive));
     };
-    expect(await failure({ url: url("/slow.csv"), policy: policy({ timeoutMs: 400 }) })).toEqual([
-      "timeout",
-      "inconclusive",
-    ]);
+    expect(await failure({ url: url("/slow.csv"), policy: policy({ timeoutMs: 400 }) })).toEqual(["timeout", "inconclusive"]);
   });
 
   it("cancels via AbortSignal", async () => {
@@ -423,9 +416,10 @@ describe.skipIf(!hasOpenssl())("acquireLabDataset against a local TLS server", (
   it("refuses an archive with too many files", async () => {
     const many = buildZip(Array.from({ length: 12 }, (_, index) => ({ name: `f${index}`, data: Buffer.from("1") })));
     handler = (_request, response) => response.writeHead(200).end(many);
-    expect(
-      await failure({ url: url("/many.zip"), extract: true, archiveLimits: { maxFiles: 10 } }),
-    ).toEqual(["archive_too_many_files", "policy_blocked"]);
+    expect(await failure({ url: url("/many.zip"), extract: true, archiveLimits: { maxFiles: 10 } })).toEqual([
+      "archive_too_many_files",
+      "policy_blocked",
+    ]);
   });
 
   it("refuses extraction of a non-archive", async () => {

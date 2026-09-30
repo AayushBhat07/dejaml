@@ -62,15 +62,15 @@ export function NewStudy({
       <div className="stack">
         <h1 id="new-study-title">Rerun one claim from a paper.</h1>
         <p className="hero-lede">
-          Upload a machine-learning paper. DéjàML finds its code, picks one reported number, runs the experiment in a
-          disposable lab, and shows how the new result compares, with evidence for every step.
+          Upload a machine-learning paper. DéjàML finds its code, picks one reported number, runs the experiment in a disposable lab, and
+          shows how the new result compares, with evidence for every step.
         </p>
         <ul className="scope-list">
           <li>Text-readable PDFs up to 20 MB. Scanned papers are not supported.</li>
           <li>The paper must link a public GitHub repository, or you can name one below.</li>
           <li>
-            Reviewed cases run their checked adapter. Other papers go to a team of separate agents: analysts, a planner,
-            independent engineers in their own offline labs, and reviewers who never see the engineers' reasoning.
+            Reviewed cases run their checked adapter. Other papers go to a team of separate agents: analysts, a planner, independent
+            engineers in their own offline labs, and reviewers who never see the engineers' reasoning.
           </li>
           <li>Unsupported papers end as Inconclusive rather than guessing.</li>
         </ul>
@@ -106,8 +106,8 @@ export function NewStudy({
                   </select>
                 </label>
                 <p className="muted small">
-                  Providers, models and their API keys are set by this server's administrator. Keys stay on the server and are
-                  never sent to the browser, saved with a study, shown in reports, or passed into a lab.
+                  Providers, models and their API keys are set by this server's administrator. Keys stay on the server and are never sent to
+                  the browser, saved with a study, shown in reports, or passed into a lab.
                 </p>
               </>
             )}

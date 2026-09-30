@@ -36,12 +36,8 @@ describe("RunStore", () => {
       publicPayload: {},
     });
 
-    expect(store.listEvents("run_demo").map((event) => event.sequence)).toEqual([
-      1, 2,
-    ]);
-    expect(store.listEvents("run_demo", 1).map((event) => event.actor)).toEqual([
-      "code_analyst",
-    ]);
+    expect(store.listEvents("run_demo").map((event) => event.sequence)).toEqual([1, 2]);
+    expect(store.listEvents("run_demo", 1).map((event) => event.actor)).toEqual(["code_analyst"]);
   });
 
   it("notifies live subscribers", () => {
@@ -95,18 +91,14 @@ describe("RunStore", () => {
     store = new RunStore();
     store.createRun({}, "run_state");
     expect(store.transitionRun("run_state", "ingesting").status).toBe("ingesting");
-    expect(() => store?.transitionRun("run_state", "running")).toThrow(
-      "invalid run transition",
-    );
+    expect(() => store?.transitionRun("run_state", "running")).toThrow("invalid run transition");
   });
 
   it("does not allow terminal runs to transition", () => {
     store = new RunStore();
     store.createRun({}, "run_terminal");
     store.transitionRun("run_terminal", "failed");
-    expect(() => store?.transitionRun("run_terminal", "ingesting")).toThrow(
-      "cannot transition terminal run",
-    );
+    expect(() => store?.transitionRun("run_terminal", "ingesting")).toThrow("cannot transition terminal run");
   });
 
   it("lists only non-terminal runs for restart recovery", () => {

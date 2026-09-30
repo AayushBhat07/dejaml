@@ -2,12 +2,7 @@ import { EventEmitter } from "node:events";
 import { randomUUID } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
 
-import {
-  type RunEvent,
-  type RunStatus,
-  RunEventSchema,
-  RunStatusSchema,
-} from "@dejaml/contracts";
+import { type RunEvent, type RunStatus, RunEventSchema, RunStatusSchema } from "@dejaml/contracts";
 
 import { AgentLedger } from "./ledger.js";
 import { StudyStages } from "./stages.js";
@@ -28,13 +23,7 @@ export type RunSnapshot = {
   input: Record<string, unknown>;
 };
 
-const TERMINAL_STATUSES = new Set<RunStatus>([
-  "completed",
-  "inconclusive",
-  "failed",
-  "cancelled",
-  "timed_out",
-]);
+const TERMINAL_STATUSES = new Set<RunStatus>(["completed", "inconclusive", "failed", "cancelled", "timed_out"]);
 
 const ALLOWED_TRANSITIONS: Record<RunStatus, readonly RunStatus[]> = {
   queued: ["ingesting", "cancelled", "failed"],
@@ -145,9 +134,7 @@ export class RunStore {
 
   /** Runs that have not reached a terminal status, oldest first. */
   listActiveRuns(): RunSnapshot[] {
-    const rows = this.#database
-      .prepare("SELECT id FROM runs ORDER BY created_at ASC, id ASC")
-      .all() as Array<{ id: string }>;
+    const rows = this.#database.prepare("SELECT id FROM runs ORDER BY created_at ASC, id ASC").all() as Array<{ id: string }>;
     return rows.map((row) => this.getRun(row.id)).filter((run) => !TERMINAL_STATUSES.has(run.status));
   }
 
@@ -166,9 +153,7 @@ export class RunStore {
     }
 
     const timestamp = new Date().toISOString();
-    this.#database
-      .prepare("UPDATE runs SET status = ?, updated_at = ? WHERE id = ?")
-      .run(parsedNext, timestamp, runId);
+    this.#database.prepare("UPDATE runs SET status = ?, updated_at = ? WHERE id = ?").run(parsedNext, timestamp, runId);
     return this.getRun(runId);
   }
 
@@ -177,9 +162,7 @@ export class RunStore {
     this.#database.exec("BEGIN IMMEDIATE");
     try {
       const row = this.#database
-        .prepare(
-          "SELECT COALESCE(MAX(sequence), 0) + 1 AS next_sequence FROM events WHERE run_id = ?",
-        )
+        .prepare("SELECT COALESCE(MAX(sequence), 0) + 1 AS next_sequence FROM events WHERE run_id = ?")
         .get(input.runId) as { next_sequence: number };
 
       const event = RunEventSchema.parse({
@@ -272,4 +255,3 @@ export class RunStore {
     return `run:${runId}:event`;
   }
 }
-

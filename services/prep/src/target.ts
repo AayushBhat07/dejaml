@@ -39,9 +39,12 @@ export function manylinuxTags(platform: PlatformSpec): string[] {
 /** pip options that make it resolve for `platform` regardless of the interpreter it runs on. */
 export function pipCrossTargetArgs(platform: PlatformSpec): string[] {
   return [
-    "--python-version", platform.python.version,
-    "--implementation", platform.python.implementation,
-    "--abi", platform.python.abi,
+    "--python-version",
+    platform.python.version,
+    "--implementation",
+    platform.python.implementation,
+    "--abi",
+    platform.python.abi,
     ...manylinuxTags(platform).flatMap((tag) => ["--platform", tag]),
   ];
 }
@@ -72,7 +75,10 @@ export function assertWheelsMatchPlatform(files: readonly { name: string; filena
   throw new PrepError(
     "platform_mismatch",
     `${mismatches.length} wheel(s) do not match ${platform.containerPlatform} / CPython ${platform.python.version}: ` +
-      mismatches.slice(0, 10).map((item) => item.reason).join("; "),
+      mismatches
+        .slice(0, 10)
+        .map((item) => item.reason)
+        .join("; "),
     { refused: [...new Set(mismatches.map((item) => item.name))].sort() },
   );
 }

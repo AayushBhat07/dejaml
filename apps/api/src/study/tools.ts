@@ -9,14 +9,13 @@ import {
   type ToolContext,
   type ToolDefinition,
   ToolDenied,
-  type ToolResult,
 } from "@dejaml/agent-runtime";
 import { discoverDependencies } from "@dejaml/prep";
 import { z } from "zod";
 
 import type { StudyContext } from "./context.js";
 import { labTools } from "./lab-tools.js";
-import { failed, MAX_READ_BYTES, MAX_SEARCH_MATCHES, ok, RelativePathInput, tail } from "./tool-helpers.js";
+import { MAX_READ_BYTES, MAX_SEARCH_MATCHES, ok, RelativePathInput } from "./tool-helpers.js";
 
 /**
  * The concrete tools behind each role's grants. Every tool enforces its own
@@ -134,7 +133,10 @@ function requireRepository(ctx: StudyContext): { dir: string; root: string } {
 // ---------------------------------------------------------------------------
 // Tools.
 
-export function buildStudyTools(ctx: StudyContext, agent: { agentId: string; role: AgentRole; grants: readonly string[] }): ToolDefinition[] {
+export function buildStudyTools(
+  ctx: StudyContext,
+  agent: { agentId: string; role: AgentRole; grants: readonly string[] },
+): ToolDefinition[] {
   const all: ToolDefinition[] = [boardRead(ctx), ...paperTools(ctx), ...repositoryTools(ctx), dependencyDiscover(ctx), ...labTools(ctx)];
   const granted = new Set(agent.grants);
   return all.filter((tool) => granted.has(tool.name));
@@ -158,7 +160,7 @@ export async function acquireRepository(ctx: StudyContext, repositoryUrl: string
   ctx.pinnedCommit = receipt.commitSha;
 }
 
-function boardRead(ctx: StudyContext): ToolDefinition {
+function boardRead(_ctx: StudyContext): ToolDefinition {
   return defineTool({
     name: "board_read",
     description:
@@ -168,7 +170,11 @@ function boardRead(ctx: StudyContext): ToolDefinition {
       key: z.string().max(100).optional().describe("Only entries with this key, such as an engineer's agent id."),
     }),
     async run(input, context: ToolContext) {
-      const entries = context.board.visibleTo(context.role, input.kinds as BoardKind[] | undefined, input.key === undefined ? {} : { key: input.key });
+      const entries = context.board.visibleTo(
+        context.role,
+        input.kinds as BoardKind[] | undefined,
+        input.key === undefined ? {} : { key: input.key },
+      );
       const view = entries.slice(-60).map((entry) => ({
         id: entry.id,
         kind: entry.kind,
@@ -189,11 +195,14 @@ function paperTools(ctx: StudyContext): ToolDefinition[] {
       description: "List the paper's pages with their length and first line.",
       input: z.object({}),
       async run() {
-        return ok(`Listed ${pages.length} pages`, pages.map((page) => ({
-          page: page.pageNumber,
-          chars: page.charCount,
-          firstLine: page.text.trim().split("\n")[0]?.slice(0, 160) ?? "",
-        })));
+        return ok(
+          `Listed ${pages.length} pages`,
+          pages.map((page) => ({
+            page: page.pageNumber,
+            chars: page.charCount,
+            firstLine: page.text.trim().split("\n")[0]?.slice(0, 160) ?? "",
+          })),
+        );
       },
     }),
     defineTool({
@@ -205,7 +214,10 @@ function paperTools(ctx: StudyContext): ToolDefinition[] {
         if (!page) throw new ToolDenied(`the paper has pages 1 to ${pages.length}`);
         const offset = input.offset ?? 0;
         const text = page.text.slice(offset, offset + MAX_READ_BYTES);
-        const more = offset + text.length < page.text.length ? `\n[… ${page.text.length - offset - text.length} more characters; read again with offset]` : "";
+        const more =
+          offset + text.length < page.text.length
+            ? `\n[… ${page.text.length - offset - text.length} more characters; read again with offset]`
+            : "";
         return ok(`Read page ${input.page}`, `page ${input.page}:\n${text}${more}`);
       },
     }),
@@ -272,20 +284,30 @@ function repositoryTools(ctx: StudyContext): ToolDefinition[] {
         const repo = requireRepository(ctx);
         const start = await resolveInside(repo.dir, input.path);
         const listing = await listTree(repo.dir, start, input.depth);
-        return ok(`Listed ${listing.entries.length} entries under ${input.path}`, listing.entries.join("\n") + (listing.truncated ? "\n[truncated]" : ""));
+        return ok(
+          `Listed ${listing.entries.length} entries under ${input.path}`,
+          listing.entries.join("\n") + (listing.truncated ? "\n[truncated]" : ""),
+        );
       },
     }),
     defineTool({
       name: "repo_read",
       description: "Read a text file from the pinned repository checkout.",
-      input: z.object({ path: RelativePathInput, offset: z.number().int().nonnegative().default(0), maxBytes: z.number().int().positive().max(MAX_READ_BYTES).default(MAX_READ_BYTES) }),
+      input: z.object({
+        path: RelativePathInput,
+        offset: z.number().int().nonnegative().default(0),
+        maxBytes: z.number().int().positive().max(MAX_READ_BYTES).default(MAX_READ_BYTES),
+      }),
       async run(input) {
         const repo = requireRepository(ctx);
         const file = await resolveInside(repo.dir, input.path);
         const result = await readBounded(file, input.offset, input.maxBytes);
         if (result.binary) return ok(`${input.path} is binary`, `${input.path} is a binary file of ${result.size} bytes.`);
         const end = input.offset + Buffer.byteLength(result.text);
-        return ok(`Read ${input.path}`, `${input.path} (${result.size} bytes${end < result.size ? `, showing ${input.offset}-${end}` : ""}):\n${result.text}`);
+        return ok(
+          `Read ${input.path}`,
+          `${input.path} (${result.size} bytes${end < result.size ? `, showing ${input.offset}-${end}` : ""}):\n${result.text}`,
+        );
       },
     }),
     defineTool({
@@ -296,7 +318,10 @@ function repositoryTools(ctx: StudyContext): ToolDefinition[] {
         const repo = requireRepository(ctx);
         const start = await resolveInside(repo.dir, input.path);
         const found = await searchTree(repo.dir, start, input.query);
-        return ok(`Found ${found.matches.length} matches for "${input.query}"`, found.matches.length ? found.matches.join("\n") + (found.truncated ? "\n[truncated]" : "") : "No matches.");
+        return ok(
+          `Found ${found.matches.length} matches for "${input.query}"`,
+          found.matches.length ? found.matches.join("\n") + (found.truncated ? "\n[truncated]" : "") : "No matches.",
+        );
       },
     }),
   ];

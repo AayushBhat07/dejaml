@@ -78,15 +78,7 @@ try {
   await run("python3", ["cases/urban-land-cover/fetch_data.py"]);
 
   heading("Building the pinned local CPU lab image");
-  await run("docker", [
-    "build",
-    "--provenance=false",
-    "--file",
-    "lab-images/python-cpu/Dockerfile",
-    "--tag",
-    image,
-    ".",
-  ]);
+  await run("docker", ["build", "--provenance=false", "--file", "lab-images/python-cpu/Dockerfile", "--tag", image, "."]);
   const imageId = capture("docker", ["image", "inspect", image, "--format", "{{.Id}}"]);
   if (!/^sha256:[a-f0-9]{64}$/u.test(imageId)) throw new Error(`Docker returned an invalid image ID: ${imageId}`);
 
@@ -124,7 +116,9 @@ try {
   process.stdout.write(`Result: ${resultPath} (${resultInfo.size} bytes)\n`);
   process.stdout.write(`Local image: ${imageId}\n\n`);
   process.stdout.write("Explore the labelled replay UI:\n  npm run demo:replay\n\n");
-  process.stdout.write("Put DEJAML_ANTHROPIC_API_KEY or DEJAML_OPENAI_API_KEY (with DEJAML_OPENAI_MODELS) in the server environment, then run npm run start:local. Keys are never entered in the page.\n");
+  process.stdout.write(
+    "Put DEJAML_ANTHROPIC_API_KEY or DEJAML_OPENAI_API_KEY (with DEJAML_OPENAI_MODELS) in the server environment, then run npm run start:local. Keys are never entered in the page.\n",
+  );
 } catch (error) {
   fail(error instanceof Error ? error.message : String(error));
 }

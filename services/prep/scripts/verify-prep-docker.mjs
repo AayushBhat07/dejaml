@@ -108,10 +108,17 @@ await step("orphan sweep before start", async () => {
 // (0) the pinned image is found by digest, even when its tag is not present locally.
 await step("0. image readiness by digest", async () => {
   const tag = docker(["image", "inspect", "--format", "{{.Id}}", `${pinned.repository}:${pinned.tag}`]);
-  const image = await new DockerCliImageProviderCheck().ensure({ key: "proof", reference: pinned.reference, platform: host.containerPlatform });
+  const image = await new DockerCliImageProviderCheck().ensure({
+    key: "proof",
+    reference: pinned.reference,
+    platform: host.containerPlatform,
+  });
   const foreignImage = await new DockerCliImageProviderCheck()
     .ensure({ key: "proof", reference: pinned.reference, platform: foreign.containerPlatform })
-    .then((found) => `present (${found.platform})`, (error) => `${error.code}`);
+    .then(
+      (found) => `present (${found.platform})`,
+      (error) => `${error.code}`,
+    );
   record(
     "0. image readiness by digest",
     image.platform === host.containerPlatform && image.repoDigests.some((entry) => entry.endsWith(pinned.digest)),
@@ -128,7 +135,12 @@ function wheelsOk(pkgs, platform) {
 // (1) numpy + scikit-learn for the host platform, every wheel validated.
 await step(`1. resolve + download numpy, scikit-learn for ${host.containerPlatform}`, async () => {
   const started = Date.now();
-  const resolution = await preparer.resolvePython({ runId: "proof-run", platform: host, requirements: ["numpy", "scikit-learn"], includeInstaller: true });
+  const resolution = await preparer.resolvePython({
+    runId: "proof-run",
+    platform: host,
+    requirements: ["numpy", "scikit-learn"],
+    includeInstaller: true,
+  });
   receipts.push(resolution.cleanup);
   manifest = await preparer.downloadWheels(resolution, { platform: host });
   if (manifest.cleanup.download) receipts.push(manifest.cleanup.download);
@@ -146,7 +158,12 @@ await step(`1. resolve + download numpy, scikit-learn for ${host.containerPlatfo
     `1. resolve + download numpy, scikit-learn for ${host.containerPlatform}`,
     pass,
     `${manifest.packages.length} packages, ${manifest.totalBytes} bytes, resolver=${manifest.resolver.mode}, image ${manifest.imageIdentity.digestReference.slice(0, 32)}… (${manifest.imageIdentity.platform}), python ${manifest.pythonVersion}, ${Date.now() - started} ms\n` +
-      checks.map(({ pkg, verdict }) => `${pkg.name}==${pkg.version} [${pkg.platformTags.platform.join(".")}] sha256 ${pkg.sha256.slice(0, 12)}… wheelMatchesPlatform=${verdict.ok}`).join("\n") +
+      checks
+        .map(
+          ({ pkg, verdict }) =>
+            `${pkg.name}==${pkg.version} [${pkg.platformTags.platform.join(".")}] sha256 ${pkg.sha256.slice(0, 12)}… wheelMatchesPlatform=${verdict.ok}`,
+        )
+        .join("\n") +
       `\ndisk peak=${manifest.disk.download?.peakBytes}B/${manifest.disk.download?.peakInodes} files (quota ${manifest.disk.download?.quotaBytes}B)`,
   );
 });
@@ -160,15 +177,36 @@ await step("2. offline install + import (network none)", async () => {
   else await chmod(workDir, 0o777);
   const name = `dejaml-prep-proof-offline-${process.pid}`;
   const created = docker([
-    "create", "--name", name, "--pull", "never", "--platform", host.containerPlatform,
-    "--label", "dejaml.prep=proof-offline",
-    "--network", "none", "--read-only", "--cap-drop", "ALL", "--security-opt", "no-new-privileges",
-    "--user", "10001:10001",
-    "--tmpfs", "/tmp:rw,noexec,nosuid,nodev,size=256m,mode=1777",
-    "--mount", `type=bind,src=${manifest.wheelhouseDir},dst=${LAB_WHEELS},readonly`,
-    "--mount", `type=bind,src=${workDir},dst=/workspace/case/work`,
-    "--env", "HOME=/tmp",
-    "--entrypoint", "sleep", pinned.digestReference, "infinity",
+    "create",
+    "--name",
+    name,
+    "--pull",
+    "never",
+    "--platform",
+    host.containerPlatform,
+    "--label",
+    "dejaml.prep=proof-offline",
+    "--network",
+    "none",
+    "--read-only",
+    "--cap-drop",
+    "ALL",
+    "--security-opt",
+    "no-new-privileges",
+    "--user",
+    "10001:10001",
+    "--tmpfs",
+    "/tmp:rw,noexec,nosuid,nodev,size=256m,mode=1777",
+    "--mount",
+    `type=bind,src=${manifest.wheelhouseDir},dst=${LAB_WHEELS},readonly`,
+    "--mount",
+    `type=bind,src=${workDir},dst=/workspace/case/work`,
+    "--env",
+    "HOME=/tmp",
+    "--entrypoint",
+    "sleep",
+    pinned.digestReference,
+    "infinity",
   ]);
   if (created.code !== 0) throw new Error(created.stderr);
   try {
@@ -178,8 +216,16 @@ await step("2. offline install + import (network none)", async () => {
       ...offlineInstallCommands({ wheelhouse: LAB_WHEELS, venv: LAB_VENV, installerWheel: manifest.installer.filename }),
       [`${LAB_VENV}/bin/python`, "-c", "import numpy, sklearn, scipy; print(numpy.__version__, sklearn.__version__)"],
       inspectEnvironmentCommand(LAB_VENV),
-      ["python", "-c", "import socket\ntry:\n socket.create_connection(('1.1.1.1',443),timeout=3); print('network reachable')\nexcept OSError as e: print('network blocked', type(e).__name__)"],
-      ["python", "-c", "import os\ntry:\n open('/workspace/case/wheels/x','w'); print('wheelhouse writable')\nexcept OSError as e: print('wheelhouse read-only', type(e).__name__)"],
+      [
+        "python",
+        "-c",
+        "import socket\ntry:\n socket.create_connection(('1.1.1.1',443),timeout=3); print('network reachable')\nexcept OSError as e: print('network blocked', type(e).__name__)",
+      ],
+      [
+        "python",
+        "-c",
+        "import os\ntry:\n open('/workspace/case/wheels/x','w'); print('wheelhouse writable')\nexcept OSError as e: print('wheelhouse read-only', type(e).__name__)",
+      ],
     ];
     let ok = true;
     for (const argv of commands) {
@@ -192,11 +238,20 @@ await step("2. offline install + import (network none)", async () => {
     const receipt = installationReceipt(manifest, JSON.parse(outputs[3]?.stdout || "{}"));
     record(
       "2. offline install + import (network none)",
-      ok && versions === expected && receipt.ok && outputs[4]?.stdout.startsWith("network blocked") && outputs[5]?.stdout.startsWith("wheelhouse read-only"),
+      ok &&
+        versions === expected &&
+        receipt.ok &&
+        outputs[4]?.stdout.startsWith("network blocked") &&
+        outputs[5]?.stdout.startsWith("wheelhouse read-only"),
       `install: ${outputs[1]?.stdout.split("\n").at(-1)}\nimport numpy, sklearn -> ${versions} (expected ${expected})\n` +
         `receipt: ok=${receipt.ok} python ${receipt.python.actual} (expected ${receipt.python.expected}), ${receipt.packages.length} packages matched, missing=[${receipt.missing}] unexpected=[${receipt.unexpected}]\n` +
         `${outputs[4]?.stdout}; ${outputs[5]?.stdout}` +
-        (ok ? "" : `\n${outputs.filter((o) => o.code !== 0).map((o) => `${o.argv.join(" ")}: ${o.stderr}`).join("\n")}`),
+        (ok
+          ? ""
+          : `\n${outputs
+              .filter((o) => o.code !== 0)
+              .map((o) => `${o.argv.join(" ")}: ${o.stderr}`)
+              .join("\n")}`),
     );
   } finally {
     docker(["rm", "--force", name]);
@@ -228,8 +283,15 @@ await step("3. CPU-only policy refuses CUDA", async () => {
     pass = pass && error.code === "accelerator_package_refused" && error.cleanup === undefined;
   }
   const cachedNvidia = [];
-  for (const dir of cached) cachedNvidia.push(...(await readdir(join(root, "cache", "wheels", platformCacheKey(amd64), dir))).filter((f) => /^nvidia|^torch|^triton/u.test(f)));
-  record("3. CPU-only policy refuses CUDA", pass && cachedNvidia.length === 0, `torch (transitive): ${transitive}\nnvidia-cublas-cu12 (direct): ${direct}\naccelerator wheels in cache: ${cachedNvidia.length}`);
+  for (const dir of cached)
+    cachedNvidia.push(
+      ...(await readdir(join(root, "cache", "wheels", platformCacheKey(amd64), dir))).filter((f) => /^nvidia|^torch|^triton/u.test(f)),
+    );
+  record(
+    "3. CPU-only policy refuses CUDA",
+    pass && cachedNvidia.length === 0,
+    `torch (transitive): ${transitive}\nnvidia-cublas-cu12 (direct): ${direct}\naccelerator wheels in cache: ${cachedNvidia.length}`,
+  );
 });
 
 // (4) cross-platform: the other architecture's wheels only, never the host's.
@@ -287,7 +349,13 @@ await step("6. egress restriction", async () => {
     String(r["CONNECT 1.1.1.1:443"]).includes("403") &&
     String(r["CONNECT 169.254.169.254:443"]).includes("403") &&
     String(r["CONNECT pypi.org:443"]).includes("200");
-  record("6. egress restriction", pass, Object.entries(r).map(([key, value]) => `${key} -> ${value}`).join("\n"));
+  record(
+    "6. egress restriction",
+    pass,
+    Object.entries(r)
+      .map(([key, value]) => `${key} -> ${value}`)
+      .join("\n"),
+  );
 });
 
 // (7) a tiny temp quota: the download is refused as insufficient_preparation_space and cleaned up.
@@ -311,7 +379,11 @@ await step("7. temp quota -> insufficient_preparation_space", async () => {
     const cached = await readdir(join(tinyRoot, "cache", "wheels", platformCacheKey(host))).catch(() => []);
     record(
       "7. temp quota -> insufficient_preparation_space",
-      error.code === "insufficient_preparation_space" && error.cleanup?.tempRemoved === true && error.cleanup.verifiedAbsent && temps.length === 0 && cached.length === 0,
+      error.code === "insufficient_preparation_space" &&
+        error.cleanup?.tempRemoved === true &&
+        error.cleanup.verifiedAbsent &&
+        temps.length === 0 &&
+        cached.length === 0,
       `numpy wheel ${size} B vs 4 MiB quota: code=${error.code} "${error.message}"\ntemp dirs left=${temps.length} cached wheels=${cached.length}`,
     );
   }
@@ -342,7 +414,11 @@ await step("8. cancellation mid-download", async () => {
     const temps = await readdir(join(cancelRoot, "work")).catch(() => []);
     record(
       "8. cancellation mid-download",
-      sawDownload && error.code === "cancelled" && error.cleanup?.verifiedAbsent === true && error.cleanup.tempRemoved && temps.length === 0,
+      sawDownload &&
+        error.code === "cancelled" &&
+        error.cleanup?.verifiedAbsent === true &&
+        error.cleanup.tempRemoved &&
+        temps.length === 0,
       `downloader seen running=${sawDownload} code=${error.code} cleanup=${JSON.stringify(error.cleanup)} temp dirs left=${temps.length}`,
     );
   } finally {

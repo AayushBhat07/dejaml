@@ -20,7 +20,9 @@ describe("lanes", () => {
     expect(laneFor(midway, "paper_analyst").status).toBe("working");
     expect(laneFor(midway, "lead_researcher").status).toBe("waiting");
     expect(laneFor(events, "code_analyst")).toMatchObject({ status: "done", warnings: 1 });
-    expect(laneFor([...events.slice(0, 2), { ...events[1]!, id: "x", sequence: 99, status: "failed" }], "paper_analyst").status).toBe("failed");
+    expect(laneFor([...events.slice(0, 2), { ...events[1]!, id: "x", sequence: 99, status: "failed" }], "paper_analyst").status).toBe(
+      "failed",
+    );
     expect(analystsOverlapped(events)).toBe(true);
     expect(analystsOverlapped(upTo("analysis_started", "paper_analyst"))).toBe(false);
   });

@@ -7,7 +7,8 @@ import { PrepError } from "./errors.js";
 
 const MIB = 1024 * 1024;
 const GIB = 1024 * MIB;
-const HOST_PATTERN = /^(?=.{1,253}$)[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)*\.[a-z][a-z0-9-]*[a-z0-9]$/u;
+const HOST_PATTERN =
+  /^(?=.{1,253}$)[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)*\.[a-z][a-z0-9-]*[a-z0-9]$/u;
 /** `name[:tag]@sha256:<64 hex>`: preparation images are always pinned by digest. */
 const PINNED_IMAGE_PATTERN = /^[a-z0-9][a-z0-9._/:-]{0,200}@sha256:[a-f0-9]{64}$/u;
 const IMAGE_ID_PATTERN = /^sha256:[a-f0-9]{64}$/u;
@@ -43,7 +44,10 @@ export const PrepPolicySchema = z
   .object({
     /** Digest-pinned preparation image per Python version (`python:<version>-slim-trixie@sha256:…`). */
     images: z
-      .partialRecord(PythonVersionSchema, z.string().regex(PINNED_IMAGE_PATTERN, "preparation images must be pinned by digest (name:tag@sha256:<64 hex>)"))
+      .partialRecord(
+        PythonVersionSchema,
+        z.string().regex(PINNED_IMAGE_PATTERN, "preparation images must be pinned by digest (name:tag@sha256:<64 hex>)"),
+      )
       .default(DEFAULT_PREP_IMAGES),
     /** Optional `docker image inspect --platform` ID each version's image must have. */
     expectedImageIds: z.partialRecord(PythonVersionSchema, z.string().regex(IMAGE_ID_PATTERN)).default({}),
@@ -65,14 +69,34 @@ export const PrepPolicySchema = z
     /** Upper bound on egress: every host of the platform's package index profile must be listed here. */
     allowedHosts: z.array(AllowedHostSchema).min(1).max(16).default(["pypi.org", "files.pythonhosted.org"]),
     maxPackages: z.number().int().min(1).max(2000).default(150),
-    maxFileBytes: z.number().int().min(1).max(8 * GIB).default(1 * GIB),
-    maxTotalBytes: z.number().int().min(1).max(64 * GIB).default(3 * GIB),
+    maxFileBytes: z
+      .number()
+      .int()
+      .min(1)
+      .max(8 * GIB)
+      .default(1 * GIB),
+    maxTotalBytes: z
+      .number()
+      .int()
+      .min(1)
+      .max(64 * GIB)
+      .default(3 * GIB),
     /** Byte quota of the per-run, disk-backed temp directory (pip's /tmp, the report and the downloads). */
-    maxTempBytes: z.number().int().min(1).max(256 * GIB).default(6 * GIB),
+    maxTempBytes: z
+      .number()
+      .int()
+      .min(1)
+      .max(256 * GIB)
+      .default(6 * GIB),
     /** File-count quota of the per-run temp directory. */
     maxTempInodes: z.number().int().min(1).max(10_000_000).default(200_000),
     /** Free space that must remain on the work, cache and wheelhouse filesystems. */
-    minFreeBytes: z.number().int().min(0).max(1024 * GIB).default(1 * GIB),
+    minFreeBytes: z
+      .number()
+      .int()
+      .min(0)
+      .max(1024 * GIB)
+      .default(1 * GIB),
     /** How often the temp directory is measured while a worker runs. */
     diskPollMs: z.number().int().min(20).max(60_000).default(1000),
     timeoutSeconds: z.number().int().min(1).max(7200).default(600),
@@ -118,20 +142,29 @@ export function parsePrepPolicy(input: PrepPolicyInput = {}): PrepPolicy {
 /** The index profile a run may use, validated against the administrator's policy. */
 export function effectivePackageIndex(policy: PrepPolicy, profile: PackageIndexProfile): { indexUrl: string; allowedHosts: string[] } {
   const index = HttpsIndexSchema.safeParse(profile.indexUrl);
-  if (!index.success) throw new PrepError("invalid_policy", `package index profile ${profile.id}: ${index.error.issues[0]?.message ?? "invalid index URL"}`);
+  if (!index.success)
+    throw new PrepError("invalid_policy", `package index profile ${profile.id}: ${index.error.issues[0]?.message ?? "invalid index URL"}`);
   const hosts: string[] = [];
   for (const raw of profile.allowedHosts) {
     const host = AllowedHostSchema.safeParse(raw);
-    if (!host.success) throw new PrepError("invalid_policy", `package index profile ${profile.id}: ${host.error.issues[0]?.message ?? "invalid host"}`);
+    if (!host.success)
+      throw new PrepError("invalid_policy", `package index profile ${profile.id}: ${host.error.issues[0]?.message ?? "invalid host"}`);
     if (!policy.allowedHosts.includes(host.data)) {
-      throw new PrepError("invalid_policy", `package index profile ${profile.id} allows ${host.data}, which the administrator's DEJAML_PREP_ALLOWED_HOSTS does not`);
+      throw new PrepError(
+        "invalid_policy",
+        `package index profile ${profile.id} allows ${host.data}, which the administrator's DEJAML_PREP_ALLOWED_HOSTS does not`,
+      );
     }
     if (!hosts.includes(host.data)) hosts.push(host.data);
   }
   const indexHost = new URL(profile.indexUrl).hostname.toLowerCase();
-  if (!hosts.includes(indexHost)) throw new PrepError("invalid_policy", `package index profile ${profile.id}: index host ${indexHost} must be one of its allowed hosts`);
+  if (!hosts.includes(indexHost))
+    throw new PrepError("invalid_policy", `package index profile ${profile.id}: index host ${indexHost} must be one of its allowed hosts`);
   if (policy.indexUrl && policy.indexUrl.replace(/\/+$/u, "") !== profile.indexUrl.replace(/\/+$/u, "")) {
-    throw new PrepError("invalid_policy", `package index profile ${profile.id} uses ${profile.indexUrl}, but the administrator requires ${policy.indexUrl}`);
+    throw new PrepError(
+      "invalid_policy",
+      `package index profile ${profile.id} uses ${profile.indexUrl}, but the administrator requires ${policy.indexUrl}`,
+    );
   }
   if (profile.cpuOnly !== true) throw new PrepError("invalid_policy", "only CPU-only package index profiles are supported");
   return { indexUrl: profile.indexUrl, allowedHosts: hosts };
@@ -175,7 +208,10 @@ export function loadPrepPolicy(env: Record<string, string | undefined> = process
   if (legacy) {
     const match = /^(?:docker\.io\/)?(?:library\/)?python:(3\.1[0-3])(?:\.\d+)?-slim-trixie(@sha256:[a-f0-9]{64})?$/u.exec(legacy);
     if (!match?.[1]) {
-      throw new PrepError("invalid_policy", "DEJAML_PREP_IMAGE must be python:3.X[.Y]-slim-trixie[@sha256:…]; use DEJAML_PREP_IMAGES for other images");
+      throw new PrepError(
+        "invalid_policy",
+        "DEJAML_PREP_IMAGE must be python:3.X[.Y]-slim-trixie[@sha256:…]; use DEJAML_PREP_IMAGES for other images",
+      );
     }
     const version = match[1] as PythonVersion;
     if (match[2]) images[version] = legacy;
@@ -186,10 +222,14 @@ export function loadPrepPolicy(env: Record<string, string | undefined> = process
   }
   const configured = read("DEJAML_PREP_IMAGES");
   if (configured) {
-    for (const entry of configured.split(",").map((item) => item.trim()).filter((item) => item !== "")) {
+    for (const entry of configured
+      .split(",")
+      .map((item) => item.trim())
+      .filter((item) => item !== "")) {
       const equals = entry.indexOf("=");
       const version = PythonVersionSchema.safeParse(entry.slice(0, equals).trim());
-      if (equals <= 0 || !version.success) throw new PrepError("invalid_policy", "DEJAML_PREP_IMAGES entries must look like 3.11=<image>@sha256:<digest>");
+      if (equals <= 0 || !version.success)
+        throw new PrepError("invalid_policy", "DEJAML_PREP_IMAGES entries must look like 3.11=<image>@sha256:<digest>");
       images[version.data] = entry.slice(equals + 1).trim();
     }
   }
@@ -202,7 +242,11 @@ export function loadPrepPolicy(env: Record<string, string | undefined> = process
   const indexUrl = read("DEJAML_PREP_INDEX_URL");
   if (indexUrl) input.indexUrl = indexUrl;
   const hosts = read("DEJAML_PREP_ALLOWED_HOSTS");
-  if (hosts) input.allowedHosts = hosts.split(",").map((host) => host.trim()).filter((host) => host !== "");
+  if (hosts)
+    input.allowedHosts = hosts
+      .split(",")
+      .map((host) => host.trim())
+      .filter((host) => host !== "");
   const maxPackages = read("DEJAML_PREP_MAX_PACKAGES");
   if (maxPackages) input.maxPackages = positiveInteger("DEJAML_PREP_MAX_PACKAGES", maxPackages);
   const maxFile = read("DEJAML_PREP_MAX_FILE_MB");

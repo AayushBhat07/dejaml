@@ -34,7 +34,9 @@ try {
   // Keys come through the secret boundary (the environment here; a secret manager in a deployment).
   providers = loadProviderConfig(withSecrets(process.env, environmentSecrets(process.env)));
 } catch (error) {
-  process.stderr.write(`Model provider configuration is invalid:\n${error instanceof ProviderConfigError ? error.problems.join("\n") : String(error)}\n`);
+  process.stderr.write(
+    `Model provider configuration is invalid:\n${error instanceof ProviderConfigError ? error.problems.join("\n") : String(error)}\n`,
+  );
   process.exit(1);
 }
 // The lab platform: Apple Silicon → linux/arm64, Intel Mac or an AWS x86 host → linux/amd64 (or DEJAML_PLATFORM).
@@ -59,9 +61,9 @@ const prep =
         imageProvider: readiness,
       });
 const prepOrphans = await prep?.cleanupOrphans().catch(() => null);
-const trustedConstraints = (await loadCompatibilityConstraints(join(projectRoot, "config/compatibility-constraints.txt"), "config/compatibility-constraints.txt")).map(
-  (item) => ({ requirement: item.spec, reason: item.reason }),
-);
+const trustedConstraints = (
+  await loadCompatibilityConstraints(join(projectRoot, "config/compatibility-constraints.txt"), "config/compatibility-constraints.txt")
+).map((item) => ({ requirement: item.spec, reason: item.reason }));
 const datasetHosts = parseAllowedHosts(process.env.DEJAML_DATASET_ALLOWED_HOSTS ?? "");
 const number = (name: string, fallback: number): number => {
   const value = Number(process.env[name] ?? "");
@@ -89,7 +91,10 @@ const api = createApiServer({
     datasets: datasetHosts.length ? localDatasetPort({ ...DEFAULT_DATASET_POLICY, allowedHosts: datasetHosts }) : null,
     config: {
       platform,
-      resources: { ...DEFAULT_STUDY_RESOURCES, timeoutSeconds: number("DEJAML_LAB_TIMEOUT_SECONDS", DEFAULT_STUDY_RESOURCES.timeoutSeconds) },
+      resources: {
+        ...DEFAULT_STUDY_RESOURCES,
+        timeoutSeconds: number("DEJAML_LAB_TIMEOUT_SECONDS", DEFAULT_STUDY_RESOURCES.timeoutSeconds),
+      },
       engineers: Math.min(3, Math.floor(number("DEJAML_LAB_ENGINEERS", 1))),
       datasetPolicy: { ...DEFAULT_DATASET_POLICY, allowedHosts: datasetHosts },
       maxStudyMs: number("DEJAML_STUDY_MAX_MINUTES", 180) * 60_000,
@@ -102,7 +107,15 @@ const api = createApiServer({
   health: () => ({
     platform: platform.containerPlatform,
     python: platform.python.version,
-    images: readiness.status().map((item) => ({ key: item.key, reference: item.reference, platform: item.platform, state: item.state, imageId: item.image?.imageId ?? null, digest: item.image?.digest ?? null, error: item.error?.code ?? null })),
+    images: readiness.status().map((item) => ({
+      key: item.key,
+      reference: item.reference,
+      platform: item.platform,
+      state: item.state,
+      imageId: item.image?.imageId ?? null,
+      digest: item.image?.digest ?? null,
+      error: item.error?.code ?? null,
+    })),
     dependencyPreparation: prep ? "enabled" : "disabled",
     datasetHosts: datasetHosts.length,
   }),
@@ -110,7 +123,11 @@ const api = createApiServer({
 
 api.server.listen(port, host, () => {
   process.stdout.write(
-    `DéjàML API on http://${host}:${port} (data: ${dataDir}; platform ${platform.containerPlatform}; recovered ${recovery.interruptedRuns.length} interrupted run(s), resuming ${recovery.resumableRuns.length} study(ies), ${recovery.orphanLabs} orphan lab(s), ${prepOrphans?.containersRemoved.length ?? 0} orphan prep container(s); providers: ${publicProviders(providers).map((item) => item.id).join(", ") || "none"})\n`,
+    `DéjàML API on http://${host}:${port} (data: ${dataDir}; platform ${platform.containerPlatform}; recovered ${recovery.interruptedRuns.length} interrupted run(s), resuming ${recovery.resumableRuns.length} study(ies), ${recovery.orphanLabs} orphan lab(s), ${prepOrphans?.containersRemoved.length ?? 0} orphan prep container(s); providers: ${
+      publicProviders(providers)
+        .map((item) => item.id)
+        .join(", ") || "none"
+    })\n`,
   );
   // Studies that were mid-flight resume from their last completed stage.
   void api.resume(recovery.resumableRuns);

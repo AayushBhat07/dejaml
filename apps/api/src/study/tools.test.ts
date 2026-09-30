@@ -17,7 +17,14 @@ let runCalls: Array<{ executable: string; args: string[]; cwd: string }>;
 let integrity: { workRepo: string; venv: string; adapter: string | null };
 
 function context(role: ToolContext["role"], agentId = "agt_eng"): ToolContext {
-  return { runId: "run_t", agentId, role, signal: new AbortController().signal, board: new EvidenceBoard(store.ledger, "run_t"), receiptId: "rcp_t" };
+  return {
+    runId: "run_t",
+    agentId,
+    role,
+    signal: new AbortController().signal,
+    board: new EvidenceBoard(store.ledger, "run_t"),
+    receiptId: "rcp_t",
+  };
 }
 
 function tool(name: string, role: ToolContext["role"] = "repository_analyst"): ToolDefinition {
@@ -57,14 +64,35 @@ beforeEach(async () => {
   integrity = { workRepo: "w:1", venv: "v:1", adapter: "a:1" };
   ctx = {
     runId: "run_t",
-    paper: { schemaVersion: 1, file: { originalName: "p.pdf", bytes: 1, sha256: "a".repeat(64) }, pageCount: 1, pages: [{ pageNumber: 1, text: "We report accuracy 81.66.", charCount: 25 }], totalTextChars: 25, warnings: [] },
-    candidates: [{ repositoryUrl: "https://github.com/example/paper", owner: "example", name: "paper", occurrences: [{ pageNumber: 1, rawUrl: "x" }] }],
+    paper: {
+      schemaVersion: 1,
+      file: { originalName: "p.pdf", bytes: 1, sha256: "a".repeat(64) },
+      pageCount: 1,
+      pages: [{ pageNumber: 1, text: "We report accuracy 81.66.", charCount: 25 }],
+      totalTextChars: 25,
+      warnings: [],
+    },
+    candidates: [
+      { repositoryUrl: "https://github.com/example/paper", owner: "example", name: "paper", occurrences: [{ pageNumber: 1, rawUrl: "x" }] },
+    ],
     store,
     labs: {
       runCommand: async (_labId: string, command: { executable: string; args: string[]; cwd: string }) => {
         runCalls.push(command);
         const stdout = command.args.some((arg) => arg.includes("hashlib")) ? JSON.stringify(integrity) : "accuracy: 0.8";
-        return { command, exitCode: 0, timedOut: false, stdout: { text: stdout, bytes: stdout.length, truncated: false }, stderr: { text: "", bytes: 0, truncated: false }, startedAt: "", endedAt: "", durationMs: 5, artifacts: [], strayProcesses: [], scratchBytes: 0 };
+        return {
+          command,
+          exitCode: 0,
+          timedOut: false,
+          stdout: { text: stdout, bytes: stdout.length, truncated: false },
+          stderr: { text: "", bytes: 0, truncated: false },
+          startedAt: "",
+          endedAt: "",
+          durationMs: 5,
+          artifacts: [],
+          strayProcesses: [],
+          scratchBytes: 0,
+        };
       },
     } as unknown as StudyContext["labs"],
     dependencies: null,
@@ -99,7 +127,11 @@ beforeEach(async () => {
       repository: { url: "https://github.com/example/paper", commitSha: "b".repeat(40) },
       entrypoint: "src/train.py",
       command: { argv: ["python", "src/train.py"], cwd: "work/repo" },
-      environment: { platform: buildPlatformSpec({ architecture: "amd64", python: "3.11" }), requirements: [], compatibilityConstraints: [] },
+      environment: {
+        platform: buildPlatformSpec({ architecture: "amd64", python: "3.11" }),
+        requirements: [],
+        compatibilityConstraints: [],
+      },
       expectedRuntimeSeconds: 10,
       metricParser: { source: "stdout", pattern: "accuracy: ([0-9.]+)" },
       tolerance: 0.02,
@@ -125,7 +157,9 @@ afterEach(async () => {
 
 describe("study tools", () => {
   it("gives each role only its granted tools", () => {
-    const names = buildStudyTools(ctx, { agentId: "a", role: "independent_reviewer", grants: ["board_read", "artifact_read"] }).map((item) => item.name);
+    const names = buildStudyTools(ctx, { agentId: "a", role: "independent_reviewer", grants: ["board_read", "artifact_read"] }).map(
+      (item) => item.name,
+    );
     expect(names.sort()).toEqual(["artifact_read", "board_read"]);
   });
 
@@ -144,13 +178,19 @@ describe("study tools", () => {
 
   it("acquires only the paper's candidate repositories", async () => {
     ctx.repository = null;
-    await expect(call("repo_acquire", { repositoryUrl: "https://github.com/attacker/other" })).rejects.toThrow(/only the candidate repositories/u);
+    await expect(call("repo_acquire", { repositoryUrl: "https://github.com/attacker/other" })).rejects.toThrow(
+      /only the candidate repositories/u,
+    );
   });
 
   it("runs lab commands inside the workspace, wrapping absolute executables with env", async () => {
     const run = tool("lab_run", "lab_engineer");
     await run.run(run.input.parse({ argv: ["/workspace/case/work/.venv/bin/python", "-V"], cwd: "work" }), context("lab_engineer"));
-    expect(runCalls.at(-1)).toMatchObject({ executable: "env", args: ["--", "/workspace/case/work/.venv/bin/python", "-V"], cwd: "/workspace/case/work" });
+    expect(runCalls.at(-1)).toMatchObject({
+      executable: "env",
+      args: ["--", "/workspace/case/work/.venv/bin/python", "-V"],
+      cwd: "/workspace/case/work",
+    });
     await expect(run.run(run.input.parse({ argv: ["ls"], cwd: "../.." }), context("lab_engineer"))).rejects.toBeInstanceOf(ToolDenied);
     await expect(run.run(run.input.parse({ argv: ["ls"], cwd: "/etc" }), context("lab_engineer"))).rejects.toBeInstanceOf(ToolDenied);
     const receipts = new EvidenceBoard(store.ledger, "run_t").list(["command_receipt"]);
@@ -162,7 +202,11 @@ describe("study tools", () => {
     const official = tool("lab_run_official", "lab_engineer");
     const first = await official.run({}, context("lab_engineer"));
     expect(first.status).not.toBe("denied");
-    expect(runCalls.at(-1)).toMatchObject({ executable: "env", args: ["--", "/workspace/case/work/.venv/bin/python", "src/train.py"], cwd: "/workspace/case/work/repo" });
+    expect(runCalls.at(-1)).toMatchObject({
+      executable: "env",
+      args: ["--", "/workspace/case/work/.venv/bin/python", "src/train.py"],
+      cwd: "/workspace/case/work/repo",
+    });
     const lab = ctx.labsByAgent.get("agt_eng")!;
     expect(lab.official).toMatchObject({ official: true, exitCode: 0, stdoutFull: "accuracy: 0.8" });
     await expect(official.run({}, context("lab_engineer"))).rejects.toThrow(/already succeeded/u);
@@ -185,8 +229,12 @@ describe("study tools", () => {
     const result = await run.run(run.input.parse({ argv: ["ls"] }), context("lab_engineer"));
     const receiptId = JSON.parse(result.content).receiptId as string;
     const logs = tool("logs_read", "independent_reviewer");
-    await expect(logs.run({ engineerAgentId: "agt_eng", receiptId }, context("independent_reviewer", "agt_rev"))).resolves.toMatchObject({ summary: `Logs of ${receiptId}` });
-    await expect(logs.run({ engineerAgentId: "agt_eng", receiptId: "nope" }, context("independent_reviewer", "agt_rev"))).rejects.toBeInstanceOf(ToolDenied);
+    await expect(logs.run({ engineerAgentId: "agt_eng", receiptId }, context("independent_reviewer", "agt_rev"))).resolves.toMatchObject({
+      summary: `Logs of ${receiptId}`,
+    });
+    await expect(
+      logs.run({ engineerAgentId: "agt_eng", receiptId: "nope" }, context("independent_reviewer", "agt_rev")),
+    ).rejects.toBeInstanceOf(ToolDenied);
   });
 
   it("destroys the lab on request and refuses lab tools afterwards", async () => {

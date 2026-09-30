@@ -16,8 +16,7 @@ import { RunStore } from "@dejaml/run-store";
 
 import { DEFAULT_LAB_LIMITS, LAB_ENV_ALLOWLIST, LabManager } from "../dist/index.js";
 
-const BASE_IMAGE =
-  "python:3.13.15-slim-trixie@sha256:7c61056e61ac89e852de05f3dc6fa51a6dd2181797bceed46aa725dd7cb2cd3b";
+const BASE_IMAGE = "python:3.13.15-slim-trixie@sha256:7c61056e61ac89e852de05f3dc6fa51a6dd2181797bceed46aa725dd7cb2cd3b";
 const PROOF_IMAGE = "dejaml/lab-manager-proof:local";
 const PLATFORM = platformFromEnv(process.env, process.arch).containerPlatform;
 const OTHER_PLATFORM = PLATFORM === "linux/amd64" ? "linux/arm64" : "linux/amd64";
@@ -198,7 +197,10 @@ try {
   assert(sealedLab.platform === PLATFORM, "lab handle records the platform");
   assert(`${imageInfo.Os}/${imageInfo.Architecture}` === PLATFORM, "image is built for the lab's platform");
   const descriptorPlatform = inspected.ImageManifestDescriptor?.platform;
-  assert(!descriptorPlatform || `${descriptorPlatform.os}/${descriptorPlatform.architecture}` === PLATFORM, "container runs the platform's manifest");
+  assert(
+    !descriptorPlatform || `${descriptorPlatform.os}/${descriptorPlatform.architecture}` === PLATFORM,
+    "container runs the platform's manifest",
+  );
   assert(inspected.Image === imageId && sealedLab.imageId === imageId, "container runs the verified image ID");
   assert(checks.machine === MACHINE, `processes run on ${MACHINE}`);
   assert(inspected.Config.Labels["dejaml.platform"] === PLATFORM, "container is labelled with its platform");
@@ -219,8 +221,14 @@ try {
   assert(!inspected.Mounts.some((mount) => /docker\.sock/u.test(`${mount.Source} ${mount.Destination}`)), "no Docker socket mount");
   // Environment allowlist; host credentials never arrive.
   // Docker sets HOSTNAME (and HOME when the image has none) for every process; Python's locale coercion sets LC_CTYPE.
-  assert(checks.envKeys.every((key) => LAB_ENV_ALLOWLIST.has(key) || key === "HOSTNAME"), `environment is allowlisted: ${checks.envKeys.join(",")}`);
-  assert(inspected.Config.Env.every((entry) => LAB_ENV_ALLOWLIST.has(entry.split("=")[0])), "container config environment is allowlisted");
+  assert(
+    checks.envKeys.every((key) => LAB_ENV_ALLOWLIST.has(key) || key === "HOSTNAME"),
+    `environment is allowlisted: ${checks.envKeys.join(",")}`,
+  );
+  assert(
+    inspected.Config.Env.every((entry) => LAB_ENV_ALLOWLIST.has(entry.split("=")[0])),
+    "container config environment is allowlisted",
+  );
   for (const [key, value] of Object.entries(HOST_SECRETS)) {
     assert(!checks.envKeys.includes(key) && !checks.envValues.includes(value), `${key} does not reach the lab`);
     assert(!JSON.stringify(inspected.Config.Env).includes(value), `${key} is not in the container config`);
@@ -235,7 +243,10 @@ try {
   // Mounts.
   const writable = inspected.Mounts.filter((mount) => mount.RW).map((mount) => mount.Destination);
   assert(JSON.stringify(writable) === JSON.stringify(["/workspace/case/artifacts"]), "the artifact directory is the only writable mount");
-  assert(checks.inputWritable === false && checks.wheelhouseWritable === false && checks.repoWritable === false, "dataset, wheelhouse and repository mounts are read-only");
+  assert(
+    checks.inputWritable === false && checks.wheelhouseWritable === false && checks.repoWritable === false,
+    "dataset, wheelhouse and repository mounts are read-only",
+  );
   assert(checks.artifactsWritable === true && checks.artifactsInitially.length === 0, "a fresh, empty writable artifact directory");
   // Outcome and cleanup.
   assert(success.value.outcome.attempt.exitCode === 0, "probe exits 0");
@@ -266,7 +277,11 @@ try {
   const perCommand = await manager.withLab(spec(60), async (lab) => {
     const slow = await manager.runCommand(lab.labId, command("sleep"), { timeoutSeconds: 2, step: 1 });
     const state = manager.state(lab.labId);
-    const next = await manager.runCommand(lab.labId, { executable: "python", args: ["-c", "print('still here')"], cwd: "/workspace/case", env: {} }, { timeoutSeconds: 10, step: 2 });
+    const next = await manager.runCommand(
+      lab.labId,
+      { executable: "python", args: ["-c", "print('still here')"], cwd: "/workspace/case", env: {} },
+      { timeoutSeconds: 10, step: 2 },
+    );
     return { slow, state, next };
   });
   assert(perCommand.value.slow.timedOut && perCommand.value.slow.durationMs < 15_000, "per-command limit enforced");
@@ -326,11 +341,20 @@ try {
   const attemptDone = live.findIndex((event) => event.type === "attempt" && event.status === "completed");
   const firstLine = live.findIndex((event) => event.type === "lab_output");
   assert(observed.value.attempt.exitCode === 0, "observed attempt exits 0");
-  assert(JSON.stringify(liveLines) === JSON.stringify([1, 2, 3, 4, 5, 6].map((n) => `epoch ${n}/6`).concat("done")), "live lines are complete and sanitized");
+  assert(
+    JSON.stringify(liveLines) === JSON.stringify([1, 2, 3, 4, 5, 6].map((n) => `epoch ${n}/6`).concat("done")),
+    "live lines are complete and sanitized",
+  );
   assert(firstLine >= 0 && firstLine < attemptDone, "output streamed before the attempt finished");
   assert(telemetry.length >= 2, "telemetry sampled repeatedly");
-  assert(telemetry.every((event) => event.publicPayload.memoryBytes > 0 && event.publicPayload.memoryLimitBytes <= 512 * 1024 * 1024), "telemetry reports memory under the limit");
-  assert(changes.some((event) => event.publicPayload.path === "artifacts/progress.json"), "artifact change observed");
+  assert(
+    telemetry.every((event) => event.publicPayload.memoryBytes > 0 && event.publicPayload.memoryLimitBytes <= 512 * 1024 * 1024),
+    "telemetry reports memory under the limit",
+  );
+  assert(
+    changes.some((event) => event.publicPayload.path === "artifacts/progress.json"),
+    "artifact change observed",
+  );
   report.observed = {
     durationMs: observed.value.durationMs,
     outputEvents: live.filter((event) => event.type === "lab_output").length,
@@ -349,7 +373,10 @@ try {
   const crashed = new LabManager({ labRoot });
   const orphan = await crashed.createLab(spec(60));
   const recovered = await new LabManager({ labRoot }).cleanupOrphans();
-  assert(recovered.some((receipt) => receipt.labId === orphan.labId && receipt.verifiedAbsent && receipt.platform === PLATFORM), "orphan removed");
+  assert(
+    recovered.some((receipt) => receipt.labId === orphan.labId && receipt.verifiedAbsent && receipt.platform === PLATFORM),
+    "orphan removed",
+  );
   report.orphans = recovered;
 
   const leftovers = docker(["ps", "--all", "--quiet", "--filter", "label=dejaml.lab"]);

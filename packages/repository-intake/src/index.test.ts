@@ -48,7 +48,6 @@ function githubResponse(overrides: Record<string, unknown> = {}): Response {
   );
 }
 
-
 const tempRoots: string[] = [];
 async function tempRoot(prefix: string): Promise<string> {
   const root = await mkdtemp(join(tmpdir(), prefix));
@@ -191,7 +190,10 @@ describe("GitHub repository acquisition", () => {
     expect(result.commitSha).toBe(PINNED);
     await cleanupAcquiredRepository({ destination: result.destination, destinationRoot });
     await expect(
-      acquireGithubRepository({ repositoryUrl: "https://github.com/mtesha/tdl-vs-ml-urbanlandcover", destinationRoot, commitSha: "main" }, { runGit, resolveHost: publicDns, fetch: (async () => githubResponse()) as typeof fetch }),
+      acquireGithubRepository(
+        { repositoryUrl: "https://github.com/mtesha/tdl-vs-ml-urbanlandcover", destinationRoot, commitSha: "main" },
+        { runGit, resolveHost: publicDns, fetch: (async () => githubResponse()) as typeof fetch },
+      ),
     ).rejects.toMatchObject({ code: "commit_unavailable" });
   });
 
@@ -289,8 +291,7 @@ describe("GitHub repository acquisition", () => {
           destinationRoot,
         },
         {
-          fetch: (async () =>
-            githubResponse({ size: MAX_REPOSITORY_SIZE_KB + 1 })) as typeof fetch,
+          fetch: (async () => githubResponse({ size: MAX_REPOSITORY_SIZE_KB + 1 })) as typeof fetch,
           runGit,
         },
       ),
@@ -301,8 +302,8 @@ describe("GitHub repository acquisition", () => {
 
   it("refuses cleanup outside its managed acquisition directory", async () => {
     const destinationRoot = await tempRoot("dejaml-cleanup-policy-test-");
-    await expect(
-      cleanupAcquiredRepository({ destination: destinationRoot, destinationRoot }),
-    ).rejects.toMatchObject<Partial<RepositoryIntakeError>>({ code: "unsafe_destination" });
+    await expect(cleanupAcquiredRepository({ destination: destinationRoot, destinationRoot })).rejects.toMatchObject<
+      Partial<RepositoryIntakeError>
+    >({ code: "unsafe_destination" });
   });
 });

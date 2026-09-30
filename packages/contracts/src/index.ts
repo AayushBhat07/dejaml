@@ -2,13 +2,9 @@ import { z } from "zod";
 
 import { StudyResultStatusSchema } from "./study.js";
 
-export const Sha256Schema = z
-  .string()
-  .regex(/^[a-f0-9]{64}$/, "expected a lowercase SHA-256 digest");
+export const Sha256Schema = z.string().regex(/^[a-f0-9]{64}$/, "expected a lowercase SHA-256 digest");
 
-export const CommitShaSchema = z
-  .string()
-  .regex(/^[a-f0-9]{40}$/, "expected a full lowercase Git commit SHA");
+export const CommitShaSchema = z.string().regex(/^[a-f0-9]{40}$/, "expected a full lowercase Git commit SHA");
 
 export const GithubRepositoryUrlSchema = z
   .url()
@@ -57,21 +53,23 @@ export const PaperDocumentSchema = z.object({
   warnings: z.array(z.string()),
 });
 
-export const RepositoryCandidateSchema = z.object({
-  repositoryUrl: GithubRepositoryUrlSchema,
-  owner: z.string().min(1),
-  name: z.string().min(1),
-  occurrences: z.array(
-    z.object({
-      pageNumber: z.number().int().positive(),
-      rawUrl: z.string().min(1),
-    }),
-  ),
-  /** The person starting the study named this repository; it may not appear in the paper. */
-  providedByUser: z.boolean().optional(),
-}).refine((value) => value.providedByUser === true || value.occurrences.length > 0, {
-  message: "a repository found in the paper needs at least one occurrence",
-});
+export const RepositoryCandidateSchema = z
+  .object({
+    repositoryUrl: GithubRepositoryUrlSchema,
+    owner: z.string().min(1),
+    name: z.string().min(1),
+    occurrences: z.array(
+      z.object({
+        pageNumber: z.number().int().positive(),
+        rawUrl: z.string().min(1),
+      }),
+    ),
+    /** The person starting the study named this repository; it may not appear in the paper. */
+    providedByUser: z.boolean().optional(),
+  })
+  .refine((value) => value.providedByUser === true || value.occurrences.length > 0, {
+    message: "a repository found in the paper needs at least one occurrence",
+  });
 
 export const RepositoryAcquisitionSchema = z.object({
   schemaVersion: z.literal(1),
@@ -363,7 +361,9 @@ export const ClaimEvidenceSchema = z.object({
     paperReferences: z.array(z.string()),
   }),
   repository: z.object({ url: z.string(), commitSha: CommitShaSchema, manifestSha256: Sha256Schema.nullable() }),
-  datasets: z.array(z.object({ name: z.string(), source: z.string(), sha256: Sha256Schema, bytes: z.number().int().nonnegative().nullable() })),
+  datasets: z.array(
+    z.object({ name: z.string(), source: z.string(), sha256: Sha256Schema, bytes: z.number().int().nonnegative().nullable() }),
+  ),
   environment: z.object({
     image: z.string(),
     imageId: z.string().nullable(),
@@ -441,11 +441,7 @@ export const AssessmentSchema = z.object({
   signedDifference: z.number().finite().nullable(),
   absoluteDifference: z.number().finite().nonnegative().nullable(),
   tolerance: z.number().finite().nonnegative().nullable(),
-  verdict: z.enum([
-    "reproduced_within_tolerance",
-    "different_result",
-    "inconclusive",
-  ]),
+  verdict: z.enum(["reproduced_within_tolerance", "different_result", "inconclusive"]),
   discrepancyHypotheses: z.array(z.string()),
   evidence: z.array(EvidencePointerSchema),
   limitations: z.array(z.string()),

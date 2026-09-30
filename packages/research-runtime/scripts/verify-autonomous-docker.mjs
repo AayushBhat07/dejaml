@@ -21,8 +21,7 @@ import { findConsensus, parseStructuredJson, runAutonomousLabAgent, schemaInstru
 
 const LIVE = process.argv.includes("--live");
 
-const BASE_IMAGE =
-  "python:3.13.15-slim-trixie@sha256:7c61056e61ac89e852de05f3dc6fa51a6dd2181797bceed46aa725dd7cb2cd3b";
+const BASE_IMAGE = "python:3.13.15-slim-trixie@sha256:7c61056e61ac89e852de05f3dc6fa51a6dd2181797bceed46aa725dd7cb2cd3b";
 const PROOF_IMAGE = "dejaml/lab-manager-proof:local";
 
 function docker(args, input) {
@@ -73,7 +72,15 @@ async function liveModel() {
       const value = parseStructuredJson(response.text ?? "", request.schema);
       sessions.set(request.sessionId, {
         system: session.system,
-        messages: [...messages, { role: "assistant", text: response.text, toolCalls: [], ...(response.providerContent ? { providerContent: response.providerContent } : {}) }],
+        messages: [
+          ...messages,
+          {
+            role: "assistant",
+            text: response.text,
+            toolCalls: [],
+            ...(response.providerContent ? { providerContent: response.providerContent } : {}),
+          },
+        ],
       });
       return { value, provider: provider.id, model: response.model };
     },
@@ -246,10 +253,16 @@ try {
     labs,
     model,
     store,
-    budget: LIVE ? { maxSteps: 20, wallSeconds: 600, commandTimeoutSeconds: 30 } : { maxSteps: 15, wallSeconds: 180, commandTimeoutSeconds: 30 },
+    budget: LIVE
+      ? { maxSteps: 20, wallSeconds: 600, commandTimeoutSeconds: 30 }
+      : { maxSteps: 15, wallSeconds: 180, commandTimeoutSeconds: 30 },
   });
   if (LIVE) {
-    report.transcript = result.transcript.map((entry) => ({ step: entry.step, action: entry.action, exitCode: entry.observation.exitCode }));
+    report.transcript = result.transcript.map((entry) => ({
+      step: entry.step,
+      action: entry.action,
+      exitCode: entry.observation.exitCode,
+    }));
     assert(result.status === "submitted", `agent submitted (got ${result.status}: ${result.reason})`);
     report.metric = JSON.parse(result.artifact.content.toString("utf8"));
     const receipt = await labs.destroyLab(labId, "live proof finished");
@@ -328,7 +341,18 @@ try {
         runId: "run_autonomous_proof",
         labId: lab.labId,
         agentName,
-        claim: { experimentLabel: "x", dataset: "bundled toy data", split: "test", model: "nearest centroid", metric: { name: "accuracy", unit: "fraction", reportedValue: 0.9 }, seed: 11, hyperparameters: {}, evidence: [{ kind: "paper_page", reference: "page 1" }], missingFields: [], confidence: "high" },
+        claim: {
+          experimentLabel: "x",
+          dataset: "bundled toy data",
+          split: "test",
+          model: "nearest centroid",
+          metric: { name: "accuracy", unit: "fraction", reportedValue: 0.9 },
+          seed: 11,
+          hyperparameters: {},
+          evidence: [{ kind: "paper_page", reference: "page 1" }],
+          missingFields: [],
+          confidence: "high",
+        },
         mapping: null,
         layout: { workdir: "/workspace/case", repoDir: "repo", scratchDir: "work", artifactsDir: "artifacts" },
         labs,
@@ -350,14 +374,20 @@ try {
   assert(team[0].container !== team[1].container, "each agent has its own container");
   for (const member of team) {
     const listing = member.outcome.transcript[0].observation.stdout;
-    assert(listing.trim() === "artifacts:\n\nwork:", `${member.agentName} starts with empty work and artifacts (got ${JSON.stringify(listing)})`);
+    assert(
+      listing.trim() === "artifacts:\n\nwork:",
+      `${member.agentName} starts with empty work and artifacts (got ${JSON.stringify(listing)})`,
+    );
     assert(member.outcome.status === "submitted", `${member.agentName} submitted`);
     assert(member.sessions.length === 1 && member.sessions[0].endsWith(member.agentName), `${member.agentName} has its own model session`);
   }
   const consensus = findConsensus(
     [
       { agentName: "agent-1", value: metric.test_accuracy },
-      ...team.map((member) => ({ agentName: member.agentName, value: JSON.parse(member.outcome.artifact.content.toString("utf8")).test_accuracy })),
+      ...team.map((member) => ({
+        agentName: member.agentName,
+        value: JSON.parse(member.outcome.artifact.content.toString("utf8")).test_accuracy,
+      })),
     ],
     0.02,
     2,

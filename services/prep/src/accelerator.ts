@@ -72,7 +72,9 @@ export function findAcceleratorRequirements(
 export function findAcceleratorPackages(packages: readonly { name: string; version: string }[]): AcceleratorFinding[] {
   return packages.flatMap((pkg) => {
     const reason = acceleratorReason(pkg.name, pkg.version);
-    return reason ? [{ name: normalizePackageName(pkg.name), spec: `${pkg.name}==${pkg.version}`, reason, origin: "resolved" as const }] : [];
+    return reason
+      ? [{ name: normalizePackageName(pkg.name), spec: `${pkg.name}==${pkg.version}`, reason, origin: "resolved" as const }]
+      : [];
   });
 }
 

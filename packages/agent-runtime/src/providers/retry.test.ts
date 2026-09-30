@@ -53,7 +53,10 @@ describe("rate-limit reset headers", () => {
     expect(parseRateLimitReset(new Headers({ "x-ratelimit-remaining-tokens": "0", "x-ratelimit-reset-tokens": "250ms" }), now)).toBe(250);
     // A reset already in the past means "now", not a negative wait.
     expect(
-      parseRateLimitReset(new Headers({ "anthropic-ratelimit-tokens-remaining": "0", "anthropic-ratelimit-tokens-reset": "2026-09-30T11:59:00Z" }), now),
+      parseRateLimitReset(
+        new Headers({ "anthropic-ratelimit-tokens-remaining": "0", "anthropic-ratelimit-tokens-reset": "2026-09-30T11:59:00Z" }),
+        now,
+      ),
     ).toBe(0);
   });
 });
@@ -151,7 +154,7 @@ describe("withRetries", () => {
 
 describe("readSse", () => {
   it("handles CRLF, comments, multi-line data and a missing final blank line", async () => {
-    const res = sseResponse(': keepalive\r\nevent: a\r\ndata: 1\r\ndata: 2\r\n\r\ndata: last', 3);
+    const res = sseResponse(": keepalive\r\nevent: a\r\ndata: 1\r\ndata: 2\r\n\r\ndata: last", 3);
     const out = [];
     for await (const ev of readSse(res.body!, new AbortController().signal)) out.push(ev);
     expect(out).toEqual([

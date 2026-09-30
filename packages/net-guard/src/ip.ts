@@ -264,23 +264,8 @@ export function isPublicAddress(ip: string | ParsedIp): boolean {
   return classifyAddress(ip) === "public";
 }
 
-const BLOCKED_HOSTNAMES = new Set([
-  "localhost",
-  "localdomain",
-  "metadata",
-  "metadata.google.internal",
-  "instance-data",
-  "kubernetes",
-]);
-const BLOCKED_SUFFIXES = [
-  ".localhost",
-  ".internal",
-  ".local",
-  ".localdomain",
-  ".home.arpa",
-  ".arpa",
-  ".svc",
-];
+const BLOCKED_HOSTNAMES = new Set(["localhost", "localdomain", "metadata", "metadata.google.internal", "instance-data", "kubernetes"]);
+const BLOCKED_SUFFIXES = [".localhost", ".internal", ".local", ".localdomain", ".home.arpa", ".arpa", ".svc"];
 
 /**
  * True for names that point at the local machine, cloud metadata services or

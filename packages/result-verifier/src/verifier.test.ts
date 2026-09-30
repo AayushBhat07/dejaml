@@ -1,12 +1,7 @@
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 
-import {
-  ExperimentPolicySchema,
-  RunEventSchema,
-  type Attempt,
-  type ExperimentPlan,
-} from "@dejaml/contracts";
+import { ExperimentPolicySchema, RunEventSchema, type Attempt, type ExperimentPlan } from "@dejaml/contracts";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -19,9 +14,10 @@ import {
   type VerifierEventInput,
 } from "./index.js";
 
-const caseManifest = JSON.parse(
-  readFileSync(new URL("../../../cases/urban-land-cover/case.json", import.meta.url), "utf8"),
-) as { comparison: { tolerance: number }; knownDiscrepancies: string[] };
+const caseManifest = JSON.parse(readFileSync(new URL("../../../cases/urban-land-cover/case.json", import.meta.url), "utf8")) as {
+  comparison: { tolerance: number };
+  knownDiscrepancies: string[];
+};
 const policy = ExperimentPolicySchema.parse(
   JSON.parse(readFileSync(new URL("../../../cases/urban-land-cover/policy.json", import.meta.url), "utf8")),
 );
@@ -162,9 +158,7 @@ describe("assessResult", () => {
     expect(assessment.checks.find((item) => item.name === "seed")?.passed).toBe(false);
     expect(assessment.discrepancyHypotheses.every((text) => text.startsWith("Hypothesis: "))).toBe(true);
     expect(assessment.discrepancyHypotheses).toHaveLength(caseManifest.knownDiscrepancies.length + 1);
-    expect(describeAssessment(assessment, "percent")).toBe(
-      "Observed 79.88%, which is 1.78 percentage points below the paper",
-    );
+    expect(describeAssessment(assessment, "percent")).toBe("Observed 79.88%, which is 1.78 percentage points below the paper");
   });
 
   it("reproduces within tolerance after converting a fraction", () => {

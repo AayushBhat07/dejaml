@@ -15,12 +15,20 @@ const amd = buildPlatformSpec({ architecture: "amd64", python: "3.11" });
 
 describe("platform spec", () => {
   it("maps each target to one container platform and Python ABI", () => {
-    expect(arm).toMatchObject({ os: "linux", containerPlatform: "linux/arm64", python: { version: "3.11", abi: "cp311" }, accelerator: "cpu_only" });
+    expect(arm).toMatchObject({
+      os: "linux",
+      containerPlatform: "linux/arm64",
+      python: { version: "3.11", abi: "cp311" },
+      accelerator: "cpu_only",
+    });
     expect(amd.containerPlatform).toBe("linux/amd64");
     expect(platformFromEnv({ DEJAML_PLATFORM: "apple-silicon-dev" }, "x64").containerPlatform).toBe("linux/arm64");
     expect(platformFromEnv({ DEJAML_PLATFORM: "intel-dev" }, "arm64").containerPlatform).toBe("linux/amd64");
     expect(platformFromEnv({ DEJAML_PLATFORM: "aws-cpu" }, "arm64").containerPlatform).toBe("linux/amd64");
-    expect(platformFromEnv({ DEJAML_PLATFORM: "linux/arm64", DEJAML_PYTHON_VERSION: "3.10" }, "x64")).toMatchObject({ architecture: "arm64", python: { abi: "cp310" } });
+    expect(platformFromEnv({ DEJAML_PLATFORM: "linux/arm64", DEJAML_PYTHON_VERSION: "3.10" }, "x64")).toMatchObject({
+      architecture: "arm64",
+      python: { abi: "cp310" },
+    });
     expect(platformFromEnv({}, "arm64").architecture).toBe("arm64");
     expect(platformFromEnv({}, "x64").architecture).toBe("amd64");
     expect(() => platformFromEnv({}, "ia32")).toThrow(/unsupported host architecture/u);
@@ -47,7 +55,11 @@ describe("platform spec", () => {
     expect(wheelMatchesPlatform("pkg-1.0-cp311-cp311-manylinux_2_45_x86_64.whl", amd).ok).toBe(false);
     expect(wheelMatchesPlatform("pkg-1.0-cp311-cp311-macosx_14_0_arm64.whl", arm).ok).toBe(false);
     expect(wheelMatchesPlatform("pkg-1.0.tar.gz", arm).ok).toBe(false);
-    expect(parseWheelTags("pkg-1.0-1-cp311-cp311-manylinux2014_x86_64.whl")).toEqual({ python: ["cp311"], abi: ["cp311"], platform: ["manylinux2014_x86_64"] });
+    expect(parseWheelTags("pkg-1.0-1-cp311-cp311-manylinux2014_x86_64.whl")).toEqual({
+      python: ["cp311"],
+      abi: ["cp311"],
+      platform: ["manylinux2014_x86_64"],
+    });
   });
 });
 

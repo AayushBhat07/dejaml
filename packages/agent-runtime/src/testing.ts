@@ -6,7 +6,11 @@ import type { ChatProvider, ChatRequest, ChatResponse, ToolCall } from "./provid
  */
 export type ScriptedTurn =
   | { text?: string; calls?: Array<{ name: string; input: unknown; id?: string }> }
-  | ((request: ChatRequest) => { text?: string; calls?: Array<{ name: string; input: unknown; id?: string }> } | Promise<{ text?: string; calls?: Array<{ name: string; input: unknown; id?: string }> }>);
+  | ((
+      request: ChatRequest,
+    ) =>
+      | { text?: string; calls?: Array<{ name: string; input: unknown; id?: string }> }
+      | Promise<{ text?: string; calls?: Array<{ name: string; input: unknown; id?: string }> }>);
 
 export class ScriptedChatProvider implements ChatProvider {
   readonly id = "scripted";

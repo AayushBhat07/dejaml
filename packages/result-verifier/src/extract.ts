@@ -1,13 +1,6 @@
 import { createHash } from "node:crypto";
 
-import {
-  AttemptSchema,
-  ExperimentPlanSchema,
-  MetricSchema,
-  type Attempt,
-  type Metric,
-  type ExperimentPlan,
-} from "@dejaml/contracts";
+import { AttemptSchema, ExperimentPlanSchema, MetricSchema, type Attempt, type Metric, type ExperimentPlan } from "@dejaml/contracts";
 
 export type MetricUnit = Metric["unit"];
 
@@ -136,9 +129,7 @@ function readJsonKey(content: string, key: string): number {
 }
 
 function readCsvColumn(content: string, column: string): number {
-  const rows = content
-    .split(/\r?\n/u)
-    .filter((line) => line.trim() !== "");
+  const rows = content.split(/\r?\n/u).filter((line) => line.trim() !== "");
   const [header, ...data] = rows;
   if (!header || data.length === 0) {
     throw new MetricExtractionError("artifact_invalid", "metric CSV needs a header and at least one row");
@@ -146,7 +137,10 @@ function readCsvColumn(content: string, column: string): number {
   if (content.includes('"')) {
     throw new MetricExtractionError("artifact_invalid", "quoted CSV fields are not supported");
   }
-  const index = header.split(",").map((name) => name.trim()).indexOf(column);
+  const index = header
+    .split(",")
+    .map((name) => name.trim())
+    .indexOf(column);
   if (index < 0) throw new MetricExtractionError("metric_missing", `metric column ${column} is missing`);
   const cell = data.at(-1)?.split(",")[index]?.trim();
   if (cell === undefined || cell === "") {

@@ -25,10 +25,14 @@ try {
   // Provider keys live only in the server environment; the page never asks for one.
   const removed = ["DEJAML_MODEL", "DEJAML_MODEL_BASE_URL", "DEJAML_MODEL_API_KEY"].filter((name) => env[name]?.trim());
   if (removed.length > 0) {
-    throw new Error(`${removed.join(", ")} ${removed.length === 1 ? "is" : "are"} no longer supported; use DEJAML_ANTHROPIC_API_KEY, DEJAML_OPENAI_API_KEY with DEJAML_OPENAI_MODELS, or DEJAML_CUSTOM_BASE_URL with DEJAML_CUSTOM_MODELS (see .env.example)`);
+    throw new Error(
+      `${removed.join(", ")} ${removed.length === 1 ? "is" : "are"} no longer supported; use DEJAML_ANTHROPIC_API_KEY, DEJAML_OPENAI_API_KEY with DEJAML_OPENAI_MODELS, or DEJAML_CUSTOM_BASE_URL with DEJAML_CUSTOM_MODELS (see .env.example)`,
+    );
   }
   if (env.DEJAML_ALLOW_UPLOADER_KEYS?.trim() && !["0", "false"].includes(env.DEJAML_ALLOW_UPLOADER_KEYS.trim())) {
-    throw new Error("DEJAML_ALLOW_UPLOADER_KEYS is no longer supported: uploaders cannot bring keys; put a provider key in the server environment");
+    throw new Error(
+      "DEJAML_ALLOW_UPLOADER_KEYS is no longer supported: uploaders cannot bring keys; put a provider key in the server environment",
+    );
   }
   const providerSet = ["DEJAML_ANTHROPIC_API_KEY", "DEJAML_OPENAI_API_KEY", "DEJAML_CUSTOM_BASE_URL"].some((name) => env[name]?.trim());
   if (!providerSet) {
@@ -40,11 +44,11 @@ try {
   await access(join(root, "cases/urban-land-cover/data/testing.csv"));
   await access(join(root, "apps/web/dist/index.html"));
 
-  const imageId = spawnSync(
-    "docker",
-    ["image", "inspect", "dejaml/python-cpu:0.1.0", "--format", "{{.Id}}"],
-    { env, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] },
-  );
+  const imageId = spawnSync("docker", ["image", "inspect", "dejaml/python-cpu:0.1.0", "--format", "{{.Id}}"], {
+    env,
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+  });
   if (imageId.status !== 0) throw new Error("the DéjàML lab image is missing; rerun npm run bootstrap");
   if (imageId.stdout.trim() !== env.DEJAML_EXPECTED_IMAGE_ID) {
     throw new Error("the local image ID differs from .env.local; rerun npm run bootstrap");
