@@ -45,6 +45,17 @@ server errors and network failures with jittered backoff, honour abort
 signals, and report token usage. Cost is reported only for models listed in
 `DEJAML_MODEL_PRICES`; no prices are built in.
 
+## Native runtime guard
+
+`installNativeRuntimeGuard({ allow? })` proves at run time that no agent
+reaches OpenClaw. Until `uninstall()`, it wraps `fetch`, the
+`node:child_process` launchers, `node:http`/`node:https` requests, and
+`net.Socket#connect`; it records `processes` and `destinations` and throws a
+`NativeRuntimeViolation` (recorded in `blocked`) for an `openclaw` executable,
+port 18789, a host or URL naming openclaw, or a loopback `/v1` compatibility
+bridge. `allow` lets a test permit a specific destination. The static
+counterpart is `npm run check:native` at the repository root.
+
 ## Tests
 
 ```bash

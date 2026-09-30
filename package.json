@@ -11,7 +11,8 @@
   "scripts": {
     "bootstrap": "node scripts/bootstrap.mjs",
     "build": "node scripts/run-workspaces.mjs build",
-    "check": "npm run build && npm run typecheck && npm test",
+    "check": "npm run build && npm run typecheck && npm run check:native && npm test",
+    "check:native": "node scripts/check-native-runtime.mjs && node --test scripts/check-native-runtime.test.mjs",
     "demo:replay": "npm run dev --workspace @dejaml/web",
     "verify:lab-image": "node lab-images/python-cpu/verify.mjs",
     "start:local": "node scripts/start-local.mjs",
