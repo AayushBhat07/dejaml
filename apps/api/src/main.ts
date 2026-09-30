@@ -28,6 +28,7 @@ const model = new OpenClawGatewayStructuredClient({
     paper_analyst: process.env.DEJAML_PAPER_AGENT ?? "dejaml-paper",
     code_analyst: process.env.DEJAML_CODE_AGENT ?? "dejaml-code",
     lead_researcher: process.env.DEJAML_LEAD_AGENT ?? "dejaml-lead",
+    lab_agent: process.env.DEJAML_LAB_AGENT ?? "dejaml-lab",
     audit_agent: process.env.DEJAML_AUDIT_AGENT ?? "dejaml-audit",
   },
   timeoutSeconds: 180,
@@ -47,6 +48,7 @@ const api = createApiServer({
     // The lock's ID was verified on linux/arm64; other platforms must rebuild and override.
     expectedImageId: process.env.DEJAML_EXPECTED_IMAGE_ID ?? imageLock.verifiedImageId,
   },
+  labAgentEnabled: process.env.DEJAML_LAB_AGENT_ENABLED === "1",
   webRoot: join(projectRoot, "apps/web/dist"),
 });
 

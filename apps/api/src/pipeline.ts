@@ -14,14 +14,14 @@ import type {
   RunEvent,
   RunStatus,
 } from "@dejaml/contracts";
-import { type CleanupReceipt, type LabManager, labSpecFromPlan } from "@dejaml/lab-manager";
+import { type ArtifactContent, type AttemptOutcome, type CleanupReceipt, type LabManager, labSpecFromPlan } from "@dejaml/lab-manager";
 import { ingestPdf, PaperIntakeError } from "@dejaml/paper-intake";
 import {
   acquireGithubRepository,
   cleanupAcquiredRepository,
   discoverGithubRepositories,
 } from "@dejaml/repository-intake";
-import { runAudit, runLeadResearch, runParallelAnalysis, type StructuredModelClient } from "@dejaml/research-runtime";
+import { runAudit, runLabAgent, runLeadResearch, runParallelAnalysis, type StructuredModelClient } from "@dejaml/research-runtime";
 import { verifyResult } from "@dejaml/result-verifier";
 import type { RunStore } from "@dejaml/run-store";
 
@@ -37,6 +37,8 @@ export type PipelineDependencies = {
   workRoot: string;
   image: { name: string; expectedImageId: string };
   acquire?: typeof acquireGithubRepository;
+  /** Experimental tool-driven lab execution; the curated path remains the default. */
+  labAgentEnabled?: boolean;
 };
 
 export type StudyReport = {
@@ -257,6 +259,65 @@ export async function runStudy(
       cleanup: null,
     };
     const lab = report.lab;
+    const verifyAndAudit = async (outcome: AttemptOutcome, artifact?: ArtifactContent): Promise<void> => {
+      lab.attempt = outcome.attempt;
+      lab.stdout = outcome.stdout.text;
+      lab.stderr = outcome.stderr.text;
+      lab.logsTruncated = outcome.stdout.truncated || outcome.stderr.truncated;
+      if (outcome.attempt.timedOut) return finish("timed_out");
+      if (outcome.attempt.cancelled) return finish("cancelled");
+
+      store.transitionRun(runId, "comparing");
+      const verification = verifyResult({
+        runId,
+        plan,
+        attempt: outcome.attempt,
+        ...(artifact ? { artifact } : {}),
+        stdout: outcome.stdout.text,
+        tolerance: match.manifest.comparison.tolerance,
+        knownDiscrepancies: match.manifest.knownDiscrepancies,
+        events: (item) => store.appendEvent(item),
+      });
+      report.metric = verification.metric;
+      report.assessment = verification.assessment;
+      if (verification.metric && verification.assessment.verdict !== "inconclusive" && paperAnalysis) {
+        store.transitionRun(runId, "auditing");
+        checkCancelled();
+        try {
+          const auditResult = await runAudit({
+            runId, runStore: store, paperAnalysis, metric: verification.metric,
+            assessment: verification.assessment, plan, modelClient: deps.model, signal,
+          });
+          report.audit = auditResult.decision.value;
+        } catch {
+          // Semantic audit remains optional; deterministic verification is authoritative.
+        }
+      }
+      finish(verification.assessment.verdict === "inconclusive" ? "inconclusive" : "completed");
+    };
+
+    if (deps.labAgentEnabled) {
+      const agent = await runLabAgent({
+        runId, plan, spec, labs: deps.labs, model: deps.model, store, signal,
+        onLabCreated: (id) => { activeLabId = id; },
+        onLabDestroyed: () => { activeLabId = null; },
+      });
+      lab.imageId = agent.imageId;
+      try {
+        const path = plan.metricExtraction.path;
+        const digest = path ? agent.outcome.attempt.artifactDigests[path] : undefined;
+        const artifact = path && digest && agent.metricArtifact
+          ? { path, sha256: digest, bytes: agent.metricArtifact.length, content: agent.metricArtifact }
+          : undefined;
+        await verifyAndAudit(agent.outcome, artifact);
+      } finally {
+        activeLabId = null;
+        lab.cleanup = await deps.labs.destroyLab(agent.labId, `run ${store.getRun(runId).status}`);
+      }
+      if (!lab.cleanup.verifiedAbsent) report.failure = "lab cleanup could not be verified";
+      return await finalize();
+    }
+
     const handle = await deps.labs.createLab(spec);
     activeLabId = handle.labId;
     let labFailure: unknown = null;
@@ -271,57 +332,11 @@ export async function runStudy(
         command: plan.command,
         observe: true,
       });
-      lab.attempt = outcome.attempt;
-      lab.stdout = outcome.stdout.text;
-      lab.stderr = outcome.stderr.text;
-      lab.logsTruncated = outcome.stdout.truncated || outcome.stderr.truncated;
-      if (outcome.attempt.timedOut) {
-        finish("timed_out");
-      } else if (outcome.attempt.cancelled) {
-        finish("cancelled");
-      } else {
-        // 5. Verification from the exported artifact.
-        store.transitionRun(runId, "comparing");
-        const path = plan.metricExtraction.path;
-        const artifact =
-          path && outcome.attempt.artifactDigests[path]
-            ? await deps.labs.readArtifact(handle.labId, path).catch(() => undefined)
-            : undefined;
-        const verification = verifyResult({
-          runId,
-          plan,
-          attempt: outcome.attempt,
-          ...(artifact ? { artifact } : {}),
-          stdout: outcome.stdout.text,
-          tolerance: match.manifest.comparison.tolerance,
-          knownDiscrepancies: match.manifest.knownDiscrepancies,
-          events: (item) => store.appendEvent(item),
-        });
-        report.metric = verification.metric;
-        report.assessment = verification.assessment;
-
-        // 6. Audit Agent: semantic verification of metric alignment.
-        if (verification.metric && verification.assessment.verdict !== "inconclusive" && paperAnalysis) {
-          store.transitionRun(runId, "auditing");
-          checkCancelled();
-          try {
-            const auditResult = await runAudit({
-              runId,
-              runStore: store,
-              paperAnalysis,
-              metric: verification.metric,
-              assessment: verification.assessment,
-              plan,
-              modelClient: deps.model,
-              signal,
-            });
-            report.audit = auditResult.decision.value;
-          } catch {
-            // Audit failure is non-fatal: the run still completes with its deterministic verdict.
-          }
-        }
-        finish(verification.assessment.verdict === "inconclusive" ? "inconclusive" : "completed");
-      }
+      const path = plan.metricExtraction.path;
+      const artifact = path && outcome.attempt.artifactDigests[path]
+        ? await deps.labs.readArtifact(handle.labId, path).catch(() => undefined)
+        : undefined;
+      await verifyAndAudit(outcome, artifact);
     } catch (error) {
       labFailure = error;
     } finally {

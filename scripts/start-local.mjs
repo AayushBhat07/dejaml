@@ -34,6 +34,7 @@ try {
   if (agents.status !== 0) throw new Error("OpenClaw could not list the dedicated DéjàML agents");
   const configuredAgents = new Set(JSON.parse(agents.stdout).map((agent) => agent.id));
   const requiredAgents = [env.DEJAML_PAPER_AGENT, env.DEJAML_CODE_AGENT, env.DEJAML_LEAD_AGENT].filter(Boolean);
+  if (env.DEJAML_LAB_AGENT_ENABLED === "1") requiredAgents.push(env.DEJAML_LAB_AGENT ?? "dejaml-lab");
   const missingAgents = requiredAgents.filter((agent) => !configuredAgents.has(agent));
   if (missingAgents.length > 0) throw new Error(`missing required OpenClaw agents: ${missingAgents.join(", ")}`);
   await access(join(root, "cases/urban-land-cover/data/training.csv"));

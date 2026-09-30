@@ -107,12 +107,25 @@ export class ScriptedModel implements StructuredModelClient {
     private readonly delayMs = 0,
     /** Lets a test alter the Lead Researcher's plan, for example to exceed policy. */
     private readonly editPlan: (plan: ExperimentPlan) => ExperimentPlan = (plan) => plan,
+    private readonly labActionOverride?: (state: string, action: string) => string,
   ) {}
 
   async complete<T>(request: StructuredCompletionRequest<T>): Promise<{ value: T }> {
     if (this.delayMs > 0) await new Promise((resolve) => setTimeout(resolve, this.delayMs));
     if (request.signal?.aborted) throw new Error("cancelled");
     const policy = this.curated.policy;
+    if (request.role === "lab_agent") {
+      const observation = JSON.parse(request.prompt) as { state: string };
+      const action = ({
+        not_created: "request_lab",
+        ready: "run_approved_experiment",
+        attempt_completed: "inspect_result",
+        inspected: "finish",
+      } as Record<string, string>)[observation.state];
+      if (!action) throw new Error("unrecognized lab observation");
+      const chosen = this.labActionOverride?.(observation.state, action) ?? action;
+      return { value: request.schema.parse({ action: chosen, summary: `Lab Agent: ${chosen}` }) };
+    }
     const claim = {
       experimentLabel: "Random Forest on UCI Urban Land Cover",
       dataset: policy.claim.dataset,

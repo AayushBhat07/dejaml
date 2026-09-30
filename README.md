@@ -54,6 +54,21 @@ npm run start:local
 
 Open <http://127.0.0.1:8787> and upload `artifacts/demo/paper.pdf`. The command reads `.env.local`, verifies the local image identity and required files, and starts the real API. The API is intentionally bound to loopback because it has no authentication.
 
+### Experimental Lab Agent path
+
+The Lab Agent can now request the reviewed disposable lab, run the approved
+experiment, inspect its output/artifact, and finish through a bounded four-action
+tool loop. The Lab Manager executes each request and rejects out-of-order actions;
+the model cannot provide its own shell command or Docker arguments.
+
+To try this path locally, create a dedicated no-binding `dejaml-lab` OpenClaw
+agent with the same model and minimal tool policy as the analysts, then set
+`DEJAML_LAB_AGENT_ENABLED=1` in `.env.local` and run `npm run start:local`.
+This path still uses the externally installed OpenClaw CLI and the reviewed
+Urban Land Cover adapter. It is a first agent-operated lab slice, **not** hosted
+deployment, arbitrary-paper execution, environment repair, or embedded
+OpenClaw source reuse.
+
 If the bootstrap stops, fix the first reported prerequisite and rerun the same command. See [Restoration and troubleshooting](docs/runbooks/RESTORE.md) for individual verification commands.
 
 ## Current status

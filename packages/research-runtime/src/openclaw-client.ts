@@ -53,7 +53,7 @@ export type OpenClawClientOptions = {
 export type OpenClawGatewayClientOptions = {
   binaryPath: string;
   analystAgents: Record<"paper_analyst" | "code_analyst", string> &
-    Partial<Record<"lead_researcher" | "audit_agent", string>>;
+    Partial<Record<"lead_researcher" | "lab_agent" | "audit_agent", string>>;
   model?: string;
   timeoutSeconds?: number;
   thinking?: "off" | "minimal" | "low" | "medium" | "high";

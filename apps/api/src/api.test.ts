@@ -26,7 +26,7 @@ let checkoutsCreated: string[];
 let curated: CuratedCase;
 
 async function startServer(
-  options: { timeoutSeconds?: number; editPlan?: (plan: ExperimentPlan) => ExperimentPlan; commitSha?: string } = {},
+  options: { timeoutSeconds?: number; editPlan?: (plan: ExperimentPlan) => ExperimentPlan; commitSha?: string; labAgentEnabled?: boolean; labActionOverride?: (state: string, action: string) => string } = {},
 ): Promise<void> {
   // A private project root holding the reviewed adapter and placeholder data files.
   const projectRoot = join(work, "project");
@@ -46,12 +46,13 @@ async function startServer(
   api = createApiServer({
     store,
     labs,
-    model: new ScriptedModel(cases[0]!, options.timeoutSeconds ?? 120, 0, options.editPlan),
+    model: new ScriptedModel(cases[0]!, options.timeoutSeconds ?? 120, 0, options.editPlan, options.labActionOverride),
     cases,
     projectRoot,
     workRoot: join(work, "data"),
     image: { name: "dejaml/python-cpu:0.1.0", expectedImageId: STAND_IN_IMAGE_ID },
     acquire: standInAcquire(cases[0]!, checkoutsCreated, options.commitSha),
+    ...(options.labAgentEnabled ? { labAgentEnabled: true } : {}),
   });
   await mkdir(join(work, "data"), { recursive: true });
   await new Promise<void>((resolve) => api.server.listen(0, "127.0.0.1", resolve));
@@ -159,6 +160,34 @@ describe("Run API", () => {
     // Refresh-safe replay from a later sequence.
     const resumed = await collectEvents(runId, events.length - 3);
     expect(resumed.map((event) => event.sequence)).toEqual([events.length - 2, events.length - 1, events.length]);
+  });
+
+  it("lets a bounded Lab Agent call real lab tools and records each decision", async () => {
+    await startServer({ labAgentEnabled: true });
+    const { runId } = (await (await upload(await paperPdf())).json()) as { runId: string };
+    await api.idle();
+    const report = (await (await fetch(`${base}/api/runs/${runId}/report`)).json()) as StudyReport;
+    expect(report.status).toBe("completed");
+    expect(report.metric?.value).toBe(79.88);
+    expect(report.lab?.cleanup?.verifiedAbsent).toBe(true);
+    expect(runtime.containers.size).toBe(0);
+    expect(report.events.filter((event) => event.type === "lab_agent_action").map((event) => event.publicPayload.action))
+      .toEqual(["request_lab", "run_approved_experiment", "inspect_result", "finish"]);
+    expect(report.events.some((event) => event.type === "lab_agent_finished")).toBe(true);
+  });
+
+  it("rejects an out-of-order Lab Agent action and removes the created lab", async () => {
+    await startServer({
+      labAgentEnabled: true,
+      labActionOverride: (state, action) => state === "ready" ? "finish" : action,
+    });
+    const { runId } = (await (await upload(await paperPdf())).json()) as { runId: string };
+    await api.idle();
+    const report = (await (await fetch(`${base}/api/runs/${runId}/report`)).json()) as StudyReport;
+    expect(report.status).toBe("failed");
+    expect(report.events.some((event) => event.type === "lab_agent_rejected")).toBe(true);
+    expect(report.events.some((event) => event.type === "lab_cleanup")).toBe(true);
+    expect(runtime.containers.size).toBe(0);
   });
 
   it("ends as inconclusive without a lab when the paper links no supported repository", async () => {

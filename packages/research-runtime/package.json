@@ -18,6 +18,7 @@
   },
   "dependencies": {
     "@dejaml/contracts": "0.1.0",
+    "@dejaml/lab-manager": "0.1.0",
     "@dejaml/paper-intake": "0.1.0",
     "@dejaml/repository-intake": "0.1.0",
     "@dejaml/run-store": "0.1.0",

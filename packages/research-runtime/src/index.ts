@@ -1,6 +1,7 @@
 export * from "./audit.js";
 export * from "./evidence.js";
 export * from "./lead.js";
+export * from "./lab-agent.js";
 export * from "./model.js";
 export * from "./openclaw-client.js";
 export * from "./orchestrator.js";
