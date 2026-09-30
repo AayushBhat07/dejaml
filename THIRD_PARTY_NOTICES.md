@@ -2,7 +2,9 @@
 
 ## OpenClaw
 
-DéjàML integrates with the external OpenClaw runtime through its documented CLI JSON contracts.
+> **Note (2026-09-30):** OpenClaw is not required and not used. DéjàML runs its own native agents and calls OpenAI or Anthropic directly; the CLI integration described below was removed, and no OpenClaw code, package, or binary is part of DéjàML. This entry is kept as a historical record.
+
+DéjàML previously integrated with the external OpenClaw runtime through its documented CLI JSON contracts.
 
 - Project: OpenClaw
 - Version tested: `2026.9.5`

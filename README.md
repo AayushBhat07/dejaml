@@ -45,8 +45,11 @@ the website may offer in `.env.local` (`DEJAML_ANTHROPIC_MODELS`,
 environment secret. The browser only picks a configured provider and model; it
 never sees a key or a base URL. When `DEJAML_ALLOW_UPLOADER_KEYS=1` and a listed
 provider has no server key, the website asks the uploader for one, which is used
-in memory for that study only. No OpenClaw installation or personal agent
-configuration is needed.
+in memory for that study only. OpenClaw is not required and not used: the
+backend's agents run on DéjàML's native runtime (`packages/agent-runtime`)
+and reach OpenAI or Anthropic through its own provider adapters. No personal
+agent configuration is needed, and `npm run check:native` fails if OpenClaw
+or a localhost compatibility bridge reappears in production code.
 
 Then run:
 
@@ -71,7 +74,7 @@ the model cannot provide its own shell command or Docker arguments.
 
 This path uses the reviewed Urban Land Cover adapter. It is a first
 agent-operated lab slice, **not** hosted deployment, arbitrary-paper
-execution, environment repair, or embedded OpenClaw source reuse.
+execution, or environment repair. It does not use OpenClaw.
 
 If the bootstrap stops, fix the first reported prerequisite and rerun the same command. See [Restoration and troubleshooting](docs/runbooks/RESTORE.md) for individual verification commands.
 

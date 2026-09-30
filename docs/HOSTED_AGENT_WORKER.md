@@ -27,6 +27,8 @@ not imply more simultaneous training jobs.
    can be reused in the agent worker without bringing its CLI, Gateway,
    channel system, or global user configuration into the deployed app.
    Pin the source revision and preserve upstream/third-party notices.
+   *(2026-09-30: superseded. DéjàML's own runtime, `packages/agent-runtime`,
+   is the agent worker; OpenClaw is not required and not used.)*
 2. Move Lab Agent's typed actions to that runtime's native tool registration surface.
    Keep the Lab Manager as the policy-enforcing executor. Do not expose the
    host shell or Docker socket to the model.

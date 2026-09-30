@@ -3,6 +3,8 @@
 **Status:** Accepted
 **Date:** 2026-09-28
 
+> **Note (2026-09-30):** OpenClaw is not required and not used. The real end-to-end run needs no OpenClaw agents. DéjàML runs its own native agents (`packages/agent-runtime`) and reaches OpenAI or Anthropic through its own provider adapters; the OpenClaw adapters and scripts referenced below were removed. This historical note is otherwise unchanged.
+
 ## Context
 
 Phases 1 to 4 built each stage and the interface separately. Phase 5.1 connects an uploaded PDF to every stage and serves the result to the web app.

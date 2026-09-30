@@ -5,6 +5,8 @@
 **Commit:** `e84de5c`
 **Owner:** `Codex`
 
+> **Note (2026-09-30):** OpenClaw is not required and not used. The OpenClaw setup steps below no longer apply. DéjàML runs its own native agents (`packages/agent-runtime`) and reaches OpenAI or Anthropic through its own provider adapters; the OpenClaw adapters and scripts referenced below were removed. This historical note is otherwise unchanged.
+
 ## Objective
 
 Reconcile the validated Paper Analyst and Code Analyst records into one bounded experiment proposal, then permit lab preparation only when deterministic application policy approves every material field.

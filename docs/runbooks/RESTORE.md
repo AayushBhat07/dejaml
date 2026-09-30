@@ -66,8 +66,9 @@ agent creation is part of the application path. Run `npm run check` for the
 deterministic runtime tests, then exercise the live API in section 13 with the
 curated paper.
 
-The old `verify:curated:live` command exercises a legacy OpenClaw adapter
-only; it is not an acceptance test for the default application.
+OpenClaw is not required and not used. The old `verify:curated:live` scripts
+and the legacy OpenClaw adapters were removed on 2026-09-30; `npm run
+check:native` fails if any OpenClaw or localhost-bridge path returns.
 
 ## 9. Restore Lead Researcher and policy gate
 
@@ -82,8 +83,8 @@ Require `276fa3d9b5d4677139c20ab71ceee491b7c849b74278b9a655c122ade8460f6b` unles
 3. Run a live study through the API with the curated paper. Require all three
 role statuses to be `ready`, `policyApproved: true`, no failed policy checks, a
 SHA-256 plan digest, and ordered public events. Confirm the temporary repository
-checkout was removed. The legacy `verify:curated:plan:live` command still uses
-the optional external adapter and is not required by the API.
+checkout was removed. (The legacy `verify:curated:plan:live` command was
+removed on 2026-09-30 with the OpenClaw adapter it used.)
 
 ## 10. Restore the Python CPU lab image
 

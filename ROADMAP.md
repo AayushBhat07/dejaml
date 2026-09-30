@@ -121,6 +121,8 @@ Add an LLM-based post-run step that checks whether the measured metric semantica
 
 The agent is non-fatal: a model or network error does not abort the run. The `dejaml-audit` OpenClaw agent must be created on the Mac before production runs can call a real model.
 
+> **Note (2026-09-30):** No longer applies. OpenClaw is not required and not used; the Audit Agent's model calls go through DéjàML's native provider adapters.
+
 See `docs/phases/phase-06/subphase-06-01-audit-agent.md`.
 
 ### 6.2 Auto-execution (host preparation) — `REGRESSED / BLOCKED`

@@ -4,9 +4,11 @@
 // the repository, the network, or a planted symlink, and submits a metric
 // that a real run produced. No model provider or dataset download is needed.
 //
-// With --live, a real model (DEJAML_MODEL, DEJAML_MODEL_BASE_URL,
-// DEJAML_MODEL_API_KEY) drives the same lab instead of the script, and only
-// the outcome is checked.
+// With --live, a real model drives the same lab instead of the script, and
+// only the outcome is checked. The model is reached through DéjàML's own
+// provider adapters (@dejaml/agent-runtime): DEJAML_MODEL_PROVIDER is
+// "openai" (DEJAML_OPENAI_API_KEY) or "anthropic" (DEJAML_ANTHROPIC_API_KEY),
+// and DEJAML_MODEL names the model.
 import { spawnSync } from "node:child_process";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -15,7 +17,7 @@ import { join } from "node:path";
 import { DEFAULT_LAB_LIMITS, LabManager } from "@dejaml/lab-manager";
 import { RunStore } from "@dejaml/run-store";
 
-import { findConsensus, HostedModelClient, runAutonomousLabAgent } from "../dist/index.js";
+import { findConsensus, parseStructuredJson, runAutonomousLabAgent, schemaInstruction } from "../dist/index.js";
 
 const LIVE = process.argv.includes("--live");
 
@@ -31,6 +33,51 @@ function docker(args, input) {
 
 function assert(condition, message) {
   if (!condition) throw new Error(`assertion failed: ${message}`);
+}
+
+// A structured client over DéjàML's native provider adapters. Each session
+// keeps its own history; a turn is committed only after a valid response.
+async function liveModel() {
+  const { AnthropicChatProvider, OpenAIChatProvider } = await import("@dejaml/agent-runtime");
+  const providerId = process.env.DEJAML_MODEL_PROVIDER ?? "openai";
+  const modelName = (process.env.DEJAML_MODEL ?? "").trim();
+  if (!modelName) throw new Error("DEJAML_MODEL is required with --live");
+  let provider;
+  if (providerId === "openai") {
+    const apiKey = process.env.DEJAML_OPENAI_API_KEY;
+    if (!apiKey) throw new Error("DEJAML_OPENAI_API_KEY is required for the openai provider");
+    provider = new OpenAIChatProvider({ apiKey });
+  } else if (providerId === "anthropic") {
+    const apiKey = process.env.DEJAML_ANTHROPIC_API_KEY;
+    if (!apiKey) throw new Error("DEJAML_ANTHROPIC_API_KEY is required for the anthropic provider");
+    provider = new AnthropicChatProvider({ apiKey });
+  } else {
+    throw new Error(`DEJAML_MODEL_PROVIDER must be "openai" or "anthropic", got ${providerId}`);
+  }
+  const sessions = new Map();
+  return {
+    async complete(request) {
+      const session = sessions.get(request.sessionId) ?? { system: request.systemPrompt, messages: [] };
+      const messages = [
+        ...session.messages,
+        { role: "user", content: `${request.prompt}\n\nReturn only JSON matching this schema:\n${schemaInstruction(request.schema)}` },
+      ];
+      const response = await provider.chat({
+        model: modelName,
+        system: session.system,
+        messages,
+        tools: [],
+        maxOutputTokens: 8_000,
+        ...(request.signal ? { signal: request.signal } : {}),
+      });
+      const value = parseStructuredJson(response.text ?? "", request.schema);
+      sessions.set(request.sessionId, {
+        system: session.system,
+        messages: [...messages, { role: "assistant", text: response.text, toolCalls: [], ...(response.providerContent ? { providerContent: response.providerContent } : {}) }],
+      });
+      return { value, provider: provider.id, model: response.model };
+    },
+  };
 }
 
 // A tiny stdlib-only "paper repository": nearest-centroid on a bundled, seeded dataset.
@@ -176,13 +223,7 @@ try {
     },
   };
 
-  const model = LIVE
-    ? new HostedModelClient({
-        baseUrl: process.env.DEJAML_MODEL_BASE_URL ?? "https://api.openai.com/v1",
-        model: process.env.DEJAML_MODEL ?? "",
-        ...(process.env.DEJAML_MODEL_API_KEY ? { apiKey: process.env.DEJAML_MODEL_API_KEY } : {}),
-      })
-    : scripted;
+  const model = LIVE ? await liveModel() : scripted;
   const started = Date.now();
   const result = await runAutonomousLabAgent({
     runId: "run_autonomous_proof",

@@ -4,17 +4,16 @@ Runs Paper Analyst and Code Analyst concurrently, reconciles their validated out
 
 ## Runtime choices
 
-- `HostedModelClient` is the application path. It connects to a
-  server-configured OpenAI-compatible endpoint and keeps separate in-process
-  transcripts per run/role; no OpenClaw installation or agent setup is needed.
-- `OpenClawGatewayStructuredClient` and `OpenClawStructuredClient` remain
-  legacy adapters for explicit compatibility experiments. The API does not use
-  them.
+- This package defines the `StructuredModelClient` interface only. The API
+  serves it through DéjàML's native provider adapters in
+  `@dejaml/agent-runtime` (OpenAI or Anthropic), with separate in-process
+  transcripts per run/role.
+- OpenClaw is not required and not used: no OpenClaw binary, Gateway, SDK,
+  agent, session, or localhost compatibility bridge. The former
+  `OpenClaw*StructuredClient` and `HostedModelClient` adapters were removed on
+  2026-09-30; `npm run check:native` fails if such a path returns.
 - The Lab Agent chooses bounded lab actions through the application loop;
   the Lab Manager owns execution and validates the approved plan.
-
-OpenClaw source has not yet been embedded. The next runtime extraction must
-preserve upstream and third-party notices.
 
 Curated examples may provide a visible model/dataset/metric target hint to both concurrent analysts. The hint narrows selection but never overrides evidence; either analyst must return `inconclusive` when the target is unsupported.
 
@@ -51,13 +50,10 @@ Inside each lab the agent works as a team (`team: true`, the API default). After
 npm run check
 ```
 
-The older `verify:curated:live` scripts explicitly exercise the legacy
-OpenClaw adapter and are not part of the hosted application path.
-
 To prove the autonomous tools against real Docker with a scripted model (isolation, symlink escape, per-command timeout, failed command, adapter run, freeze, cleanup):
 
 ```bash
 npm run verify:autonomous:docker --workspace @dejaml/research-runtime
 ```
 
-With `DEJAML_MODEL`, `DEJAML_MODEL_BASE_URL`, and `DEJAML_MODEL_API_KEY` set, `verify:autonomous:live` lets a real model drive the same lab.
+With `DEJAML_MODEL_PROVIDER` (`openai` or `anthropic`), `DEJAML_MODEL`, and the matching `DEJAML_OPENAI_API_KEY` or `DEJAML_ANTHROPIC_API_KEY` set, `verify:autonomous:live` lets a real model drive the same lab through the native provider adapters.

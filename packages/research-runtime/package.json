@@ -13,10 +13,11 @@
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run src",
-    "verify:curated:live": "node scripts/verify-curated-live.mjs",
     "verify:autonomous:docker": "node scripts/verify-autonomous-docker.mjs",
-    "verify:autonomous:live": "node scripts/verify-autonomous-docker.mjs --live",
-    "verify:curated:plan:live": "node scripts/verify-curated-plan-live.mjs"
+    "verify:autonomous:live": "node scripts/verify-autonomous-docker.mjs --live"
+  },
+  "devDependencies": {
+    "@dejaml/agent-runtime": "0.1.0"
   },
   "dependencies": {
     "@dejaml/contracts": "0.1.0",

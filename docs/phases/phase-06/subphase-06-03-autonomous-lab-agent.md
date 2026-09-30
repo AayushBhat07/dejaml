@@ -7,6 +7,8 @@
 
 > **Superseded.** 6.4 replaced this path in the API, in the same pull request. It accepted arbitrary model base URLs from uploaders, and its roles were not persisted agents with their own tools, receipts, cancellation and resume. It also had no controlled path for packages or datasets. The library code and `verify:autonomous:docker` still pass, but the API no longer calls them. Rerun the 6.4 checks instead.
 
+> **Note (2026-09-30):** OpenClaw is not required and not used. DéjàML runs its own native agents (`packages/agent-runtime`) and reaches OpenAI or Anthropic through its own provider adapters; the OpenClaw adapters and scripts referenced below were removed. This historical note is otherwise unchanged.
+
 ## Objective
 
 Let the Lab Agent reproduce a paper that has no reviewed case, without a hand-written runner. It works on its own inside the disposable lab. The lab's isolation is the safety boundary, and nothing leaves the lab without host-side provenance checks.

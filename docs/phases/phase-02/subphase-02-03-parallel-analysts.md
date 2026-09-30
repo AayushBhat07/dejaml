@@ -5,6 +5,8 @@
 **Commit:** `resolve with git log for parallel analysts`  
 **Owner:** `Codex`
 
+> **Note (2026-09-30):** OpenClaw is not required and not used. The OpenClaw setup steps below no longer apply. DéjàML runs its own native agents (`packages/agent-runtime`) and reaches OpenAI or Anthropic through its own provider adapters; the OpenClaw adapters and scripts referenced below were removed. This historical note is otherwise unchanged.
+
 ## Objective
 
 Run Paper Analyst and Code Analyst as independent, truly concurrent sessions with bounded evidence, validated structured outputs, separate live events, and no general host or repository tools.
