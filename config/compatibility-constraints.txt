@@ -7,3 +7,5 @@
 #   numpy<2  # reason: code written for NumPy 1.x uses np.float, removed in NumPy 1.24
 #
 # The list is empty by default.
+
+pip<24.1  # reason: installer only; pip 24.1 and later refuse wheels whose Requires-Dist metadata uses the legacy malformed form (for example pyts 0.10.0), which pip 24.0 installs unchanged

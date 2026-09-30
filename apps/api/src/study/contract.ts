@@ -35,8 +35,19 @@ export function planDigest(contract: ClaimContract, adapter: Plan["adapter"]): s
 export type Reconciled = { ok: true; contract: ClaimContract; adapter: Plan["adapter"] } | { ok: false; reasons: string[] };
 
 /** Builds the claim contract from the claim, the plan, the pinned repository, and the platform. */
-export function reconcile(input: { claim: PaperClaim; plan: Plan; repository: { url: string; commitSha: string }; platform: PlatformSpec }): Reconciled {
+export function reconcile(input: {
+  claim: PaperClaim;
+  plan: Plan;
+  repository: { url: string; commitSha: string };
+  platform: PlatformSpec;
+  /** The paper's extracted pages; when given, the excerpt must be on the cited page and hold the reported value. */
+  pages?: ReadonlyArray<{ pageNumber: number; text: string }>;
+}): Reconciled {
   const { claim, plan } = input;
+  if (input.pages) {
+    const problem = checkExcerpt(claim, input.pages);
+    if (problem) return { ok: false, reasons: [problem] };
+  }
   const platform = buildPlatformSpec({
     architecture: input.platform.architecture,
     python: plan.python,
@@ -67,6 +78,22 @@ export function reconcile(input: { claim: PaperClaim; plan: Plan; repository: { 
     return { ok: false, reasons: parsed.error.issues.map((issue) => `${issue.path.join(".") || "contract"}: ${issue.message}`) };
   }
   return { ok: true, contract: parsed.data, adapter: plan.adapter };
+}
+
+/** Whitespace- and compatibility-normalized text, so PDF line breaks and ligatures do not matter. */
+function normalizeText(text: string): string {
+  return text.normalize("NFKC").replace(/\s+/gu, " ").trim();
+}
+
+/** The claim's excerpt must be copied from its page and contain the reported value as a number. */
+export function checkExcerpt(claim: Pick<PaperClaim, "page" | "excerpt" | "reportedValue">, pages: ReadonlyArray<{ pageNumber: number; text: string }>): string | null {
+  const page = pages.find((item) => item.pageNumber === claim.page);
+  if (!page) return `the claim cites page ${claim.page}, which the paper does not have`;
+  const excerpt = normalizeText(claim.excerpt);
+  if (!normalizeText(page.text).includes(excerpt)) return `the claim's excerpt is not on page ${claim.page} verbatim`;
+  const numbers = excerpt.match(/-?\d+(?:\.\d+)?/gu) ?? [];
+  if (!numbers.some((item) => Number(item) === claim.reportedValue)) return `the claim's excerpt does not contain the reported value ${claim.reportedValue}`;
+  return null;
 }
 
 export type PolicyReview = {
@@ -140,6 +167,15 @@ export function reviewPolicy(input: {
   if (source.kind === "repository") {
     const missing = source.paths.filter((path) => !exists(path));
     if (missing.length) unusable.push(`dataset paths not in the pinned checkout: ${missing.join(", ")}`);
+  } else if (source.kind === "package") {
+    // The data is identified by the wheel's hash, so the package must be pinned exactly.
+    const name = packageName(source.package);
+    const pinned = contract.environment.requirements.some((line) => {
+      const match = /^\s*([A-Za-z0-9][A-Za-z0-9._-]*)\s*===?\s*[A-Za-z0-9.+!_-]+\s*$/u.exec(line);
+      return match !== null && packageName(match[1] ?? "") === name;
+    });
+    if (!pinned) unusable.push(`the dataset comes from package ${source.package}, which the plan must pin exactly (${source.package}==<version>)`);
+    if (source.path.split("/").includes("..") || source.path.startsWith("/")) unusable.push("the dataset path inside the package must be relative");
   } else {
     let host = "";
     try {
@@ -191,4 +227,9 @@ export function reviewPolicy(input: {
 /** Whitespace- and case-insensitive form of a constraint line, for matching against the trusted file. */
 function normalizeConstraint(requirement: string): string {
   return requirement.replace(/\s+/gu, "").toLowerCase();
+}
+
+/** PEP 503 normalized package name. */
+function packageName(name: string): string {
+  return name.toLowerCase().replace(/[-_.]+/gu, "-");
 }

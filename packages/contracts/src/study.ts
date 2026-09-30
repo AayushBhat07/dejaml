@@ -137,10 +137,12 @@ export const ClaimContractSchema = z.object({
   method: z.string().min(1).max(300),
   dataset: z.object({
     name: z.string().min(1).max(300),
-    /** Where the data comes from: files in the checkout, or an allowlisted download with a checksum. */
+    /** Where the data comes from: files in the checkout, an allowlisted download with a checksum, or a pinned wheel. */
     source: z.discriminatedUnion("kind", [
       z.object({ kind: z.literal("repository"), paths: z.array(RepoPath).min(1).max(20) }),
       z.object({ kind: z.literal("download"), url: z.url(), sha256: Sha256.nullable(), extract: z.boolean() }),
+      /** Data shipped inside an exactly pinned, hash-verified wheel from the prepared environment. */
+      z.object({ kind: z.literal("package"), package: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/u), path: z.string().min(1).max(300) }),
     ]),
   }),
   split: z.string().min(1).max(300),

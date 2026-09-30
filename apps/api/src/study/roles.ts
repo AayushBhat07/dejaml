@@ -74,6 +74,9 @@ export const PlanSchema = z.object({
     source: z.discriminatedUnion("kind", [
       z.object({ kind: z.literal("repository"), paths: z.array(RelativePath).min(1).max(20) }),
       z.object({ kind: z.literal("download"), url: z.string().max(2_000), sha256: z.string().regex(/^[a-f0-9]{64}$/u).nullable(), extract: z.boolean() }),
+      z
+        .object({ kind: z.literal("package"), package: z.string().min(1).max(100), path: z.string().min(1).max(300) })
+        .describe("Data bundled inside a Python package the plan pins exactly with == in requirements (path inside that package)."),
     ]),
   }),
   metricParser: MetricParserSchema,

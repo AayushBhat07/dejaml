@@ -79,6 +79,24 @@ describe("claim contract and policy review", () => {
     expect(untrusted.violations.join(" ")).toMatch(/not in the project's trusted constraints file/u);
   });
 
+  it("accepts data bundled in a package only when that package is pinned exactly", () => {
+    const dataset = { name: "UCR GunPoint", source: { kind: "package" as const, package: "pyts", path: "datasets/cached_datasets/UCR/GunPoint" } };
+    expect(policy(contractFor({ dataset, requirements: ["pyts==0.10.0", "numpy==1.23.5"] })).outcome).toBe("approved");
+    const loose = policy(contractFor({ dataset, requirements: ["pyts>=0.10"] }));
+    expect(loose.outcome).toBe("inconclusive");
+    expect(loose.violations.join(" ")).toMatch(/must pin exactly/u);
+  });
+
+  it("requires the claim's excerpt verbatim on its cited page with the reported value", () => {
+    const pages = [{ pageNumber: 4, text: "Adiac ECG200 GunPoint\npyts 0.752 0.870 1.000\nTable 2: Accuracy scores" }];
+    const cited = { ...claim, page: 4, excerpt: "pyts 0.752 0.870 1.000", reportedValue: 1 };
+    const repository = { url: "https://github.com/x/y", commitSha: COMMIT };
+    expect(reconcile({ claim: cited, plan, repository, platform, pages }).ok).toBe(true);
+    expect(reconcile({ claim: { ...cited, excerpt: "pyts 0.99" }, plan, repository, platform, pages })).toMatchObject({ ok: false, reasons: [expect.stringMatching(/not on page 4/u)] });
+    expect(reconcile({ claim: { ...cited, reportedValue: 0.9 }, plan, repository, platform, pages })).toMatchObject({ ok: false, reasons: [expect.stringMatching(/reported value/u)] });
+    expect(reconcile({ claim: { ...cited, page: 9 }, plan, repository, platform, pages }).ok).toBe(false);
+  });
+
   it("approves a faithful plan with a stable digest", () => {
     const contract = contractFor();
     const review = policy(contract);

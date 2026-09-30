@@ -154,3 +154,30 @@ describe("lab image port", () => {
     });
   });
 });
+
+describe("deployment boundaries", () => {
+  it("runs one job at a time, cancels by run id, and reads keys only through the secret provider", async () => {
+    const { InProcessJobDispatcher, LocalArtifactStore, environmentSecrets, withSecrets } = await import("../boundaries.js");
+    const jobs = new InProcessJobDispatcher();
+    let release!: () => void;
+    const seen: string[] = [];
+    expect(jobs.submit({ runId: "run_a", kind: "study", run: (signal) => new Promise<void>((resolve) => { release = resolve; signal.addEventListener("abort", () => { seen.push("aborted"); resolve(); }); }) })).toBe(true);
+    expect(jobs.submit({ runId: "run_b", kind: "study", run: async () => undefined })).toBe(false);
+    const queued = jobs.enqueue({ runId: "run_c", kind: "resume", run: async () => void seen.push("c") });
+    expect(jobs.cancel("run_a")).toBe(true);
+    expect(jobs.cancel("run_x")).toBe(false);
+    await queued;
+    await jobs.idle();
+    release();
+    expect(seen).toEqual(["aborted", "c"]);
+
+    const store = new LocalArtifactStore(await mkdtemp(join(tmpdir(), "store-")));
+    const put = await store.put({ runId: "run_a", scope: "engineer-1", path: "artifacts/m.json", content: Buffer.from("{}") });
+    expect(put).toMatchObject({ bytes: 2, sha256: expect.stringMatching(/^[a-f0-9]{64}$/u) });
+    await expect(store.put({ runId: "run_a", scope: "e", path: "../../x", content: Buffer.from("") })).rejects.toThrow(/escapes/u);
+
+    const env = withSecrets({ DEJAML_OPENAI_MODELS: "m", DEJAML_OPENAI_API_KEY: "from-env" }, { get: (name) => (name === "DEJAML_ANTHROPIC_API_KEY" ? "from-vault" : undefined) });
+    expect(env).toEqual({ DEJAML_OPENAI_MODELS: "m", DEJAML_ANTHROPIC_API_KEY: "from-vault" });
+    expect(environmentSecrets({ A: "1" }).get("A")).toBe("1");
+  });
+});

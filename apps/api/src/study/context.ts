@@ -1,6 +1,6 @@
 import type { ClaimContract, CommandReceipt, ContainerPlatform, PaperDocument, PlatformSpec, RepositoryCandidate, ResourceBudgetSchema, RunEvent } from "@dejaml/contracts";
 import type { BoundedAgentRuntime } from "@dejaml/agent-runtime";
-import type { ArtifactSummary, LabManager } from "@dejaml/lab-manager";
+import type { ArtifactSummary, LabWorker } from "@dejaml/lab-manager";
 import type { FetchPolicy } from "@dejaml/net-guard";
 import type { acquireGithubRepository, RepositoryReceipt } from "@dejaml/repository-intake";
 import type { RunStore } from "@dejaml/run-store";
@@ -160,7 +160,7 @@ export type StudyContext = {
   paper: PaperDocument;
   candidates: RepositoryCandidate[];
   store: RunStore;
-  labs: LabManager;
+  labs: LabWorker;
   dependencies: DependencyPort | null;
   runtime: BoundedAgentRuntime;
   config: StudyConfig;

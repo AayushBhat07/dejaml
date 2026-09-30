@@ -16,6 +16,7 @@ import { MAX_PDF_BYTES } from "@dejaml/paper-intake";
 import { canonicalizeGithubRepositoryUrl } from "@dejaml/repository-intake";
 import type { StructuredModelClient } from "@dejaml/research-runtime";
 
+import { InProcessJobDispatcher, type JobDispatcher } from "./boundaries.js";
 import { runStudy, type PipelineDependencies, type StudyReport } from "./pipeline.js";
 import { ChatStructuredClient } from "./structured.js";
 import { removeStaleStudyDirs } from "./study/index.js";
@@ -45,6 +46,8 @@ export type ApiOptions = Omit<PipelineDependencies, "model"> & {
   structuredModel?: (provider: ChatProvider, model: string) => StructuredModelClient;
   /** Built web app to serve at `/`, if present. */
   webRoot?: string;
+  /** Runs studies; one at a time in this process unless a deployment supplies a queue-backed dispatcher. */
+  jobs?: JobDispatcher;
   /** Internal diagnostics (image readiness, platform) served at /api/health to loopback clients only. */
   health?: () => Record<string, unknown>;
 };
@@ -173,13 +176,13 @@ export function createApiServer(options: ApiOptions): ApiServer {
   const { store } = options;
   const providerFactory =
     options.providerFactory ?? ((providerId: string, model: string) => createChatProvider(options.providers, providerId, model));
-  const controllers = new Map<string, AbortController>();
+  const jobs = options.jobs ?? new InProcessJobDispatcher();
   const reports = new Map<string, StudyReport>();
-  let active: Promise<void> | null = null;
+  let busy = false;
 
   const startRun = async (request: IncomingMessage, response: ServerResponse): Promise<void> => {
-    // One lab at a time (ARCHITECTURE.md §17: no parallel labs).
-    if (active) throw new HttpError(409, "Another study is still running. Try again when it finishes.");
+    // One lab at a time (ARCHITECTURE.md §17: no parallel labs); the dispatcher decides.
+    if (busy) throw new HttpError(409, "Another study is still running. Try again when it finishes.");
     const upload = await readUpload(request);
     const selection = parseSelection(upload, options.providers, request);
     const rawRepository = upload.field("repositoryUrl");
@@ -202,28 +205,35 @@ export function createApiServer(options: ApiOptions): ApiServer {
     const runId = `run_${randomUUID()}`;
     // Only the file's name and size are stored; the model key is never written anywhere.
     store.createRun({ fileName: upload.fileName, bytes: upload.data.byteLength }, runId);
-    const controller = new AbortController();
-    controllers.set(runId, controller);
-    active = runStudy(
-      {
-        runId,
-        fileName: upload.fileName,
-        data: upload.data,
-        signal: controller.signal,
-        ...(repositoryUrl ? { repositoryUrl } : {}),
-        modelSource: "server",
-        agents: { provider, selection: { id: selection.providerId, model: selection.model } },
+    const accepted = jobs.submit({
+      runId,
+      kind: "study",
+      run: async (signal) => {
+        busy = true;
+        try {
+          const report = await runStudy(
+            {
+              runId,
+              fileName: upload.fileName,
+              data: upload.data,
+              signal,
+              ...(repositoryUrl ? { repositoryUrl } : {}),
+              modelSource: "server",
+              agents: { provider, selection: { id: selection.providerId, model: selection.model } },
+            },
+            { ...options, model },
+          );
+          reports.set(runId, report);
+        } finally {
+          busy = false;
+        }
       },
-      { ...options, model },
-    )
-      .then((report) => {
-        reports.set(runId, report);
-      })
-      .catch(() => undefined)
-      .finally(() => {
-        controllers.delete(runId);
-        active = null;
-      });
+    });
+    if (!accepted) {
+      store.appendEvent({ runId, actor: "system", type: "run_rejected", status: "failed", summary: "No worker was free to run the study", evidence: [], publicPayload: {} });
+      store.transitionRun(runId, "failed");
+      throw new HttpError(409, "Another study is still running. Try again when it finishes.");
+    }
     sendJson(response, 202, { runId });
   };
 
@@ -304,9 +314,7 @@ export function createApiServer(options: ApiOptions): ApiServer {
       if (!action && method === "GET") return sendJson(response, 200, snapshot);
       if (action === "events" && method === "GET") return streamEvents(request, response, runId, url);
       if (action === "cancel" && method === "POST") {
-        const controller = controllers.get(runId);
-        if (!controller) throw new HttpError(409, "This study has already finished.");
-        controller.abort();
+        if (!jobs.cancel(runId)) throw new HttpError(409, "This study has already finished.");
         return sendJson(response, 202, { runId, cancelling: true });
       }
       if (action === "report" && method === "GET") {
@@ -343,7 +351,7 @@ export function createApiServer(options: ApiOptions): ApiServer {
     });
   });
 
-  const resumeOne = async (runId: string): Promise<void> => {
+  const resumeOne = async (runId: string, signal: AbortSignal): Promise<void> => {
     const state = store.stages.state(runId);
     const inputs = (state?.inputs ?? {}) as {
       paperDocument?: PaperDocument;
@@ -363,15 +371,13 @@ export function createApiServer(options: ApiOptions): ApiServer {
       return fail("The study's model provider is no longer configured on this server, so it cannot resume");
     }
     const model = options.structuredModel ? options.structuredModel(provider, inputs.provider.model) : new ChatStructuredClient(provider, inputs.provider.model);
-    const controller = new AbortController();
-    controllers.set(runId, controller);
     try {
       const report = await runStudy(
         {
           runId,
           fileName: inputs.paperDocument.file.originalName,
           data: new Uint8Array(),
-          signal: controller.signal,
+          signal,
           modelSource: "server",
           agents: { provider, selection: inputs.provider },
           resume: { paper: inputs.paperDocument, candidates: inputs.candidates },
@@ -381,28 +387,30 @@ export function createApiServer(options: ApiOptions): ApiServer {
       reports.set(runId, report);
     } catch {
       // runStudy records its own failure.
-    } finally {
-      controllers.delete(runId);
     }
   };
 
   return {
     server,
-    idle: async () => {
-      await active;
-    },
+    idle: () => jobs.idle(),
     resume: async (runIds) => {
       for (const runId of runIds) {
-        await active;
-        active = resumeOne(runId).finally(() => {
-          active = null;
+        await jobs.enqueue({
+          runId,
+          kind: "resume",
+          run: async (signal) => {
+            busy = true;
+            try {
+              await resumeOne(runId, signal);
+            } finally {
+              busy = false;
+            }
+          },
         });
-        await active;
       }
     },
     close: async () => {
-      for (const controller of controllers.values()) controller.abort();
-      await active;
+      await jobs.close();
       server.closeAllConnections();
       await new Promise<void>((resolvePromise) => server.close(() => resolvePromise()));
     },

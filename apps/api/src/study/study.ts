@@ -1,7 +1,7 @@
 import { execFile } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
-import { chmod, mkdir, mkdtemp, readdir, rm, stat, writeFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { chmod, mkdir, mkdtemp, readdir, rm, stat } from "node:fs/promises";
+import { join } from "node:path";
 import { promisify } from "node:util";
 
 import { type AgentOutcome, type AgentRole, BoundedAgentRuntime, type ChatProvider, ROLE_LABELS } from "@dejaml/agent-runtime";
@@ -19,11 +19,12 @@ import type {
   WorkStage,
 } from "@dejaml/contracts";
 import { WORK_STAGES } from "@dejaml/contracts";
-import { type CleanupReceipt, DEFAULT_LAB_LIMITS, type LabManager, LabSpecSchema } from "@dejaml/lab-manager";
+import { type CleanupReceipt, DEFAULT_LAB_LIMITS, type LabWorker, LabSpecSchema } from "@dejaml/lab-manager";
 import { acquireGithubRepository, cleanupAcquiredRepository } from "@dejaml/repository-intake";
 import type { RunStore, StageRecord } from "@dejaml/run-store";
 import type { z } from "zod";
 
+import { type ArtifactStore, LocalArtifactStore } from "../boundaries.js";
 import {
   type AcquiredDataset,
   type DatasetPort,
@@ -110,7 +111,7 @@ export const dockerLeakCheck: LeakCheck = async (runId) => {
 
 export type MultiAgentDependencies = {
   store: RunStore;
-  labs: LabManager;
+  labs: LabWorker;
   dependencies: DependencyPort | null;
   images: LabImagePort;
   datasets: DatasetPort | null;
@@ -118,6 +119,8 @@ export type MultiAgentDependencies = {
   /** The model behind every agent of this run. Keys stay inside the provider object. */
   chatProvider: ChatProvider;
   workRoot: string;
+  /** Where exported lab artifacts are kept; files under `workRoot/exports` by default. */
+  artifacts?: ArtifactStore;
   acquire?: typeof acquireGithubRepository;
   leakCheck?: LeakCheck;
   /** This process as a stage owner; defaults to a fresh id. */
@@ -297,7 +300,7 @@ export async function runMultiAgentStudy(
   const workDir = await mkdtemp(join(deps.workRoot, "study-"));
   // Lab users read the checkout and datasets through read-only mounts.
   await chmod(workDir, 0o711);
-  const exportRoot = join(deps.workRoot, "exports", runId);
+  const artifactStore = deps.artifacts ?? new LocalArtifactStore(join(deps.workRoot, "exports"));
 
   const study = new AbortController();
   const onAbort = (): void => study.abort(input.signal.reason);
@@ -484,9 +487,8 @@ export async function runMultiAgentStudy(
     for (const summary of [...lab.artifacts.values()].slice(0, DEFAULT_LAB_LIMITS.maxArtifactFiles)) {
       try {
         const artifact = await deps.labs.readArtifact(lab.labId, summary.path);
-        const hostPath = join(exportRoot, lab.label, artifact.path);
-        await mkdir(dirname(hostPath), { recursive: true, mode: 0o700 });
-        await writeFile(hostPath, artifact.content, { mode: 0o600 });
+        const stored = await artifactStore.put({ runId, scope: lab.label, path: artifact.path, content: artifact.content });
+        const hostPath = stored.uri;
         const text = artifact.content.subarray(0, 1024).includes(0) ? null : artifact.content.toString("utf8");
         exported.push({ path: artifact.path, sha256: artifact.sha256, bytes: artifact.bytes, hostPath, text: text === null ? null : text.slice(0, 200_000) });
       } catch {
@@ -650,7 +652,7 @@ export async function runMultiAgentStudy(
       let contract: ClaimContract | null = null;
       let reconcileErrors: string[] = [];
       if (plan?.status === "ready" && claim && repository) {
-        const reconciled = reconcile({ claim, plan, repository, platform: config.platform });
+        const reconciled = reconcile({ claim, plan, repository, platform: config.platform, pages: ctx.paper.pages });
         if (reconciled.ok) contract = reconciled.contract;
         else reconcileErrors = reconciled.reasons;
       }
@@ -748,8 +750,27 @@ export async function runMultiAgentStudy(
           board.post({ kind: "dataset_receipt", authorAgentId: null, authorRole: "system", payload: { ...dataset.identity, labPath: dataset.labPath } });
           event("dataset_acquired", "completed", `Downloaded dataset ${contract.dataset.name} (${dataset.identity.bytes} bytes, checksum verified)`, { sha256: dataset.identity.sha256 });
         }
+        const datasets = ctx.datasets.map((item) => item.identity);
+        if (source.kind === "package") {
+          // The dataset's identity is the verified wheel that carries it.
+          const normalized = source.package.toLowerCase().replace(/[-_.]+/gu, "-");
+          const wheel = ctx.prepared?.packages.find((item) => item.name.toLowerCase().replace(/[-_.]+/gu, "-") === normalized);
+          if (!wheel) throw new PreparationFailure("dataset_package_missing", `the dataset package ${source.package} was not prepared`, "inconclusive", source.package);
+          const identity = {
+            name: contract.dataset.name,
+            requestedUrl: `wheel:${wheel.filename}#${source.path}`,
+            finalUrl: `wheel:${wheel.filename}#${source.path}`,
+            sha256: wheel.sha256,
+            bytes: wheel.bytes,
+            checksumVerified: true,
+            extracted: null,
+            fetchedAt: new Date().toISOString(),
+          };
+          datasets.push(identity);
+          board.post({ kind: "dataset_receipt", authorAgentId: null, authorRole: "system", payload: { ...identity, labPath: `${LAB_LAYOUT.venv} (${source.package} ${wheel.version})` } });
+        }
         const { wheelhouseDir: _dir, ...recorded } = ctx.prepared ?? { wheelhouseDir: "" };
-        return { dependencies: ctx.prepared ? (recorded as Omit<PreparedDependencies, "wheelhouseDir">) : null, datasets: ctx.datasets.map((item) => item.identity), labImage, failure: null };
+        return { dependencies: ctx.prepared ? (recorded as Omit<PreparedDependencies, "wheelhouseDir">) : null, datasets, labImage, failure: null };
       } catch (error) {
         if (!(error instanceof PreparationFailure)) throw error;
         await releasePrepared();

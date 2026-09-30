@@ -12,6 +12,7 @@ import { RunStore } from "@dejaml/run-store";
 
 import { loadCases } from "./cases.js";
 import { DEFAULT_STUDY_RESOURCES } from "./pipeline.js";
+import { environmentSecrets, withSecrets } from "./boundaries.js";
 import { createApiServer, recoverAfterRestart } from "./server.js";
 import { localDatasetPort, preparerPort, readinessLabImagePort } from "./study/index.js";
 
@@ -30,7 +31,8 @@ const labs = new LabManager({ labRoot: join(dataDir, "labs"), events: (event) =>
 // Providers and models come only from the server's environment; the browser picks among them.
 let providers;
 try {
-  providers = loadProviderConfig(process.env);
+  // Keys come through the secret boundary (the environment here; a secret manager in a deployment).
+  providers = loadProviderConfig(withSecrets(process.env, environmentSecrets(process.env)));
 } catch (error) {
   process.stderr.write(`Model provider configuration is invalid:\n${error instanceof ProviderConfigError ? error.problems.join("\n") : String(error)}\n`);
   process.exit(1);
