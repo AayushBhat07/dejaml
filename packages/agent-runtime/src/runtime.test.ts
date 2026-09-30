@@ -68,7 +68,7 @@ function setup(scripts: Record<string, ScriptedTurn[]>, tools: ToolDefinition[] 
 function task(runId: string, model: string, overrides: Partial<AgentTask<z.infer<typeof Result>>> = {}): AgentTask<z.infer<typeof Result>> {
   return {
     runId,
-    role: "paper_analyst",
+    role: "reproduction_planner",
     instructions: "Test instructions.",
     objective: "Answer.",
     inputs: { secretNote: `only for ${model}` },
@@ -87,7 +87,7 @@ describe("BoundedAgentRuntime", () => {
     });
     const [first, second] = await Promise.all([
       runtime.startAgent(task(runId, "a")),
-      runtime.startAgent(task(runId, "b", { role: "repository_analyst" })),
+      runtime.startAgent(task(runId, "b", { role: "debugger" })),
     ]);
     expect(first.agentId).not.toBe(second.agentId);
     const [a, b] = await Promise.all([first.done, second.done]);

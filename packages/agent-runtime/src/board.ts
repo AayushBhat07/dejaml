@@ -25,6 +25,11 @@ export const BOARD_KINDS = [
   "policy_block",
   "status_decision",
   "note",
+  "claim_contract",
+  "dependency_request",
+  "supervisor_decision",
+  "metric",
+  "stage",
 ] as const;
 export type BoardKind = (typeof BOARD_KINDS)[number];
 
@@ -48,6 +53,11 @@ const PAYLOAD_SCHEMAS: Record<BoardKind, z.ZodType<Record<string, unknown>>> = {
   policy_block: Loose.and(z.object({ reason: z.string() })),
   status_decision: Loose.and(z.object({ status: z.string() })),
   note: Loose,
+  claim_contract: Loose.and(z.object({ planDigest: z.string().regex(/^[a-f0-9]{64}$/u), contract: z.record(z.string(), z.unknown()) })),
+  dependency_request: Loose.and(z.object({ requirements: z.array(z.string()), reason: z.string() })),
+  supervisor_decision: Loose.and(z.object({ checkpoint: z.string(), action: z.string() })),
+  metric: Loose.and(z.object({ value: z.number().nullable(), receiptId: z.string().nullable() })),
+  stage: Loose.and(z.object({ stage: z.string(), status: z.string() })),
 };
 
 /**
@@ -56,8 +66,9 @@ const PAYLOAD_SCHEMAS: Record<BoardKind, z.ZodType<Record<string, unknown>>> = {
  * Engineer's diagnoses or notes, which carry the Engineer's reasoning.
  */
 export const BOARD_VISIBILITY: Record<AgentRole, readonly BoardKind[] | "all"> = {
-  paper_analyst: ["paper_claim", "repository_receipt"],
-  repository_analyst: ["paper_claim", "repository_receipt"],
+  // The analysts work independently and concurrently: neither reads the other's findings.
+  paper_analyst: ["repository_receipt"],
+  repository_analyst: ["repository_receipt"],
   reproduction_planner: "all",
   lab_engineer: [
     "paper_claim",
@@ -67,6 +78,7 @@ export const BOARD_VISIBILITY: Record<AgentRole, readonly BoardKind[] | "all"> =
     "dependency_manifest",
     "dataset_receipt",
     "plan",
+    "claim_contract",
     "policy_block",
   ],
   debugger: [
@@ -75,6 +87,7 @@ export const BOARD_VISIBILITY: Record<AgentRole, readonly BoardKind[] | "all"> =
     "dependency_manifest",
     "dataset_receipt",
     "plan",
+    "claim_contract",
     "command_receipt",
   ],
   independent_reviewer: [
@@ -87,9 +100,35 @@ export const BOARD_VISIBILITY: Record<AgentRole, readonly BoardKind[] | "all"> =
     "artifact",
     "adapter_record",
     "submission",
+    "claim_contract",
+    "metric",
   ],
   supervisor: "all",
 };
+
+/**
+ * Fields a role must not see even inside entries it may read. A submission's
+ * free-text summary and failure reason are the Engineer's own words about
+ * its work; the Reviewer judges the evidence (receipts, artifacts, declared
+ * adapters and deviations, the parsed metric) without them.
+ */
+export const BOARD_REDACTIONS: Partial<Record<AgentRole, Partial<Record<BoardKind, readonly string[]>>>> = {
+  independent_reviewer: { submission: ["summary", "failureReason", "reasoning", "notes"] },
+};
+
+function redact(role: AgentRole, entry: BoardEntry): BoardEntry {
+  const fields = BOARD_REDACTIONS[role]?.[entry.kind as BoardKind];
+  if (!fields) return entry;
+  return { ...entry, payload: stripFields(entry.payload, new Set(fields)) as Record<string, unknown> };
+}
+
+function stripFields(value: unknown, fields: ReadonlySet<string>): unknown {
+  if (Array.isArray(value)) return value.map((item) => stripFields(item, fields));
+  if (value && typeof value === "object") {
+    return Object.fromEntries(Object.entries(value).filter(([key]) => !fields.has(key)).map(([key, item]) => [key, stripFields(item, fields)]));
+  }
+  return value;
+}
 
 export class EvidenceBoard {
   readonly #ledger: AgentLedger;
@@ -136,7 +175,7 @@ export class EvidenceBoard {
     const allowed = BOARD_VISIBILITY[role];
     const permitted = allowed === "all" ? [...BOARD_KINDS] : allowed;
     const requested = kinds ? kinds.filter((kind) => permitted.includes(kind)) : permitted;
-    return this.list(requested, options);
+    return this.list(requested, options).map((entry) => redact(role, entry));
   }
 
   latest(kind: BoardKind, key?: string): BoardEntry | null {

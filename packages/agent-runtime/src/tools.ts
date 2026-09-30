@@ -32,32 +32,27 @@ export const ROLE_LABELS: Record<AgentRole, string> = {
  * is the `dependency.discover` tool of the design.
  */
 export const ROLE_CAPABILITIES: Record<AgentRole, readonly string[]> = {
-  paper_analyst: ["paper_list_pages", "paper_read_page", "paper_search", "board_read"],
-  repository_analyst: ["repo_acquire", "repo_list", "repo_read", "repo_search", "dependency_discover", "board_read"],
-  reproduction_planner: [
-    "board_read",
-    "repo_list",
-    "repo_read",
-    "repo_search",
-    "dependency_discover",
-    "dependency_resolvePython",
-    "dependency_downloadWheels",
-    "dataset_fetch",
-  ],
+  paper_analyst: ["paper_list_pages", "paper_read_page", "paper_search"],
+  repository_analyst: ["repo_acquire", "repo_list", "repo_read", "repo_search", "dependency_discover"],
+  reproduction_planner: ["board_read", "paper_read_page", "repo_list", "repo_read", "repo_search", "dependency_discover", "dependency_check"],
   lab_engineer: [
     "board_read",
     "lab_list",
     "lab_read",
     "lab_search",
+    "lab_logs",
+    "lab_artifacts",
     "lab_run",
-    "lab_write_file",
-    "dependency_installOffline",
+    "lab_run_official",
+    "dependency_manifest",
     "dependency_inspectEnvironment",
+    "dependency_request",
     "request_debugging",
+    "lab_destroy",
   ],
-  debugger: ["board_read", "lab_list", "lab_read", "lab_search"],
-  independent_reviewer: ["board_read", "repo_list", "repo_read", "paper_read_page", "artifact_read"],
-  supervisor: ["board_read", "delegate"],
+  debugger: ["board_read", "lab_list", "lab_read", "lab_search", "lab_logs"],
+  independent_reviewer: ["board_read", "repo_list", "repo_read", "paper_read_page", "artifact_read", "logs_read"],
+  supervisor: ["board_read"],
 };
 
 export type ToolContext = {
