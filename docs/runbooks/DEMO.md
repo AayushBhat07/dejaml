@@ -1,6 +1,6 @@
 # Demo Runbook
 
-The live demo runs on the development Mac. Everything here assumes the setup in [RESTORE.md](RESTORE.md) sections 1–13 is complete: OpenClaw agents `dejaml-paper`, `dejaml-code`, and `dejaml-lead`; Docker with `dejaml/python-cpu:0.1.0`; and the dataset in `cases/urban-land-cover/data/`.
+The live demo runs on the development Mac. Everything here assumes the setup in [RESTORE.md](RESTORE.md) sections 1–13 is complete: the server-side model environment, Docker with `dejaml/python-cpu:0.1.0`, and the dataset in `cases/urban-land-cover/data/`. Visitors do not configure agents or API keys.
 
 ## 1. Cache the inputs
 
@@ -55,7 +55,7 @@ Also make a screen recording of one full rehearsal in the browser as the backup 
 
 | Symptom | Action |
 | --- | --- |
-| Model gateway error or analysts time out | Press **New study** and retry once. If it fails again, switch to the fallback. |
+| Model provider error or analysts time out | Press **New study** and retry once. If it fails again, switch to the fallback. |
 | GitHub clone fails (network) | Switch to the fallback. |
 | Lab stuck | Press **Cancel**; the lab is destroyed. Retry once. |
 | API crashed | `npm start` again. It removes orphan labs and marks the interrupted run failed. Retry. |

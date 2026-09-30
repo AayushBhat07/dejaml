@@ -55,18 +55,15 @@ The receipt must report commit `49ece7ff4cc43fd4cb258678d44854f1cb2a417d` and `c
 
 ## 8. Restore parallel analysts
 
-1. Install OpenClaw `2026.9.5` or review and re-pin the adapter against a newer version.
-2. Create dedicated agents `dejaml-paper`, `dejaml-code`, and `dejaml-lead` with separate workspaces and no channel bindings.
-3. Configure all three with the chosen model/runtime and `tools: { profile: "minimal", allow: ["session_status"] }`.
-4. Confirm the operator's general-purpose agent is not used by DéjàML.
-5. Run:
+Set `DEJAML_MODEL` and `DEJAML_MODEL_BASE_URL` for the API process and pass
+`DEJAML_MODEL_API_KEY` through its secret environment. The API creates separate
+in-process sessions for the Paper Analyst, Code Analyst, Lead Researcher, and
+Lab Agent. No visitor or operator OpenClaw installation or agent creation is
+part of the application path. Run `npm run check` for the deterministic runtime
+tests, then exercise the live API in section 13 with the curated paper.
 
-```bash
-OPENCLAW_BIN=/absolute/path/to/openclaw \
-  npm run verify:curated:live --workspace @dejaml/research-runtime
-```
-
-Require `paperStatus: ready`, `codeStatus: ready`, the Random Forest 81.66% claim, the notebook entry point, two started events before the two completed events, and final run state `planning`.
+The old `verify:curated:live` command exercises a legacy OpenClaw adapter
+only; it is not an acceptance test for the default application.
 
 ## 9. Restore Lead Researcher and policy gate
 
@@ -78,14 +75,11 @@ shasum -a 256 cases/urban-land-cover/runner.py
 ```
 
 Require `276fa3d9b5d4677139c20ab71ceee491b7c849b74278b9a655c122ade8460f6b` unless both the adapter and reviewed policy were deliberately updated together.
-3. Run:
-
-```bash
-OPENCLAW_BIN=/absolute/path/to/openclaw \
-  npm run verify:curated:plan:live --workspace @dejaml/research-runtime
-```
-
-Require all three role statuses to be `ready`, `policyApproved: true`, no failed policy checks, a SHA-256 plan digest, final state `preparing_lab`, and eight ordered public events. Confirm the temporary repository checkout was removed.
+3. Run a live study through the API with the curated paper. Require all three
+role statuses to be `ready`, `policyApproved: true`, no failed policy checks, a
+SHA-256 plan digest, and ordered public events. Confirm the temporary repository
+checkout was removed. The legacy `verify:curated:plan:live` command still uses
+the optional external adapter and is not required by the API.
 
 ## 10. Restore the Python CPU lab image
 
@@ -143,7 +137,12 @@ npm run verify:stack --workspace @dejaml/api   # stand-ins for model, GitHub, Do
 
 Open `http://127.0.0.1:8787`, upload the sample paper the command prints, and require Findings `Different result` at −1.78 pp, a server report download, and that a reload mid-run resumes the same study.
 
-For the real service, with sections 8–11 in place, run `npm start` (set `DEJAML_EXPECTED_IMAGE_ID` off `linux/arm64`), upload the case paper, and require the same verdict with `cleanup.verifiedAbsent: true` in the report. The service removes orphan labs and stale checkouts, and marks interrupted runs `failed`, on start.
+For the real local service, with sections 8–11 in place, set the server model
+environment and run `npm start` (set `DEJAML_EXPECTED_IMAGE_ID` off
+`linux/arm64`), upload the case paper, and require the same verdict with
+`cleanup.verifiedAbsent: true` in the report. The service removes orphan labs
+and stale checkouts, and marks interrupted runs `failed`, on start. This
+loopback API has no authentication and is not ready to expose directly online.
 
 With Docker running, prove the failure paths:
 

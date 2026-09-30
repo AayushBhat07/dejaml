@@ -22,10 +22,12 @@ not imply more simultaneous training jobs.
 
 ## Migration checkpoints
 
-1. Replace the external OpenClaw CLI and manually configured agent IDs with
-   a pinned, attributed runtime integrated into the agent worker. Preserve
-   upstream and third-party notices and prove a native tool-call round trip.
-2. Move Lab Agent's typed actions to that runtime's tool registration surface.
+1. The API now uses an in-process model client and creates isolated run
+   sessions automatically. Evaluate which OpenClaw runtime source modules
+   can be reused in the agent worker without bringing its CLI, Gateway,
+   channel system, or global user configuration into the deployed app.
+   Pin the source revision and preserve upstream/third-party notices.
+2. Move Lab Agent's typed actions to that runtime's native tool registration surface.
    Keep the Lab Manager as the policy-enforcing executor. Do not expose the
    host shell or Docker socket to the model.
 3. Move HTTP request processing off the long-running experiment: enqueue a

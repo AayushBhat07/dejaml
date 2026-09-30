@@ -10,14 +10,19 @@ VITE_DEJAML_API=live npm run build --workspace @dejaml/web
 npm start            # http://127.0.0.1:8787
 ```
 
-The real service needs the OpenClaw gateway agents (`dejaml-paper`, `dejaml-code`, `dejaml-lead`), Docker with the pinned `dejaml/python-cpu:0.1.0` image, and the case dataset in `cases/urban-land-cover/data/` (see `docs/runbooks/RESTORE.md`).
+The real service needs a server-configured model endpoint, Docker with the
+pinned `dejaml/python-cpu:0.1.0` image, and the case dataset in
+`cases/urban-land-cover/data/`. Visitors need no local setup.
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `HOST` / `PORT` | `127.0.0.1` / `8787` | Listen address. |
 | `DEJAML_DATA_DIR` | `artifacts/api` | SQLite run store, lab directories, and reports. |
 | `DEJAML_EXPECTED_IMAGE_ID` | image lock | Override on a platform other than `linux/arm64`. |
-| `OPENCLAW_BIN`, `DEJAML_PAPER_AGENT`, `DEJAML_CODE_AGENT`, `DEJAML_LEAD_AGENT` | `openclaw`, `dejaml-*` | Model gateway. |
+| `DEJAML_MODEL_BASE_URL` | `https://api.openai.com/v1` | Server-owned compatible API base URL. |
+| `DEJAML_MODEL` | required | Server model identifier. |
+| `DEJAML_MODEL_API_KEY` | unset | Server secret; required by cloud providers. |
+| `DEJAML_LAB_AGENT_ENABLED` | enabled | Set to `0` for the original deterministic lab path. |
 
 To drive the full UI without a model, GitHub, or Docker, run the stand-in stack. It uses the real API, pipeline, policy gate, Lab Manager, and Result Verifier, with scripted stand-ins only for those three services:
 

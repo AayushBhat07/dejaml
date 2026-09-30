@@ -22,21 +22,8 @@ function parseEnvironment(text) {
 try {
   const local = parseEnvironment(await readFile(environmentPath, "utf8"));
   const env = { ...local, ...process.env };
-  const binary = env.OPENCLAW_BIN?.trim();
-  if (!binary) throw new Error("OPENCLAW_BIN is empty; rerun npm run bootstrap or set it explicitly");
-  const version = spawnSync(binary, ["--version"], { env, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
-  if (version.status !== 0) throw new Error(`OpenClaw is unavailable at ${binary}`);
-  const agents = spawnSync(binary, ["agents", "list", "--json"], {
-    env,
-    encoding: "utf8",
-    stdio: ["ignore", "pipe", "pipe"],
-  });
-  if (agents.status !== 0) throw new Error("OpenClaw could not list the dedicated DéjàML agents");
-  const configuredAgents = new Set(JSON.parse(agents.stdout).map((agent) => agent.id));
-  const requiredAgents = [env.DEJAML_PAPER_AGENT, env.DEJAML_CODE_AGENT, env.DEJAML_LEAD_AGENT].filter(Boolean);
-  if (env.DEJAML_LAB_AGENT_ENABLED === "1") requiredAgents.push(env.DEJAML_LAB_AGENT ?? "dejaml-lab");
-  const missingAgents = requiredAgents.filter((agent) => !configuredAgents.has(agent));
-  if (missingAgents.length > 0) throw new Error(`missing required OpenClaw agents: ${missingAgents.join(", ")}`);
+  if (!env.DEJAML_MODEL?.trim()) throw new Error("DEJAML_MODEL is empty; choose a server-side model");
+  if (!env.DEJAML_MODEL_BASE_URL?.trim()) throw new Error("DEJAML_MODEL_BASE_URL is empty");
   await access(join(root, "cases/urban-land-cover/data/training.csv"));
   await access(join(root, "cases/urban-land-cover/data/testing.csv"));
   await access(join(root, "apps/web/dist/index.html"));

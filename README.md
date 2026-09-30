@@ -38,15 +38,14 @@ Open <http://localhost:5173>. The replay does not execute a new study; the boots
 
 ### Complete live-agent run
 
-The live research flow additionally requires the pinned OpenClaw CLI (`2026.9.5`), a configured model provider, and dedicated no-binding agents named `dejaml-paper`, `dejaml-code`, and `dejaml-lead`. `dejaml-audit` is optional and adds the semantic audit card. Provider credentials stay in OpenClaw and are never written by the bootstrap.
+The backend now creates its own per-run agent sessions. Configure a server-side
+model in `.env.local` (the `DEJAML_MODEL` and `DEJAML_MODEL_BASE_URL` values)
+and supply `DEJAML_MODEL_API_KEY` as a server environment secret. For an
+unauthenticated local OpenAI-compatible endpoint, the key may be omitted.
+No OpenClaw installation, personal agent configuration, or model account is
+required from the person visiting the website.
 
-If OpenClaw is installed outside the active shell's `PATH`, rerun the bootstrap once with its absolute path so `.env.local` records it:
-
-```bash
-OPENCLAW_BIN=/absolute/path/to/openclaw npm run bootstrap
-```
-
-Once those agents exist, run:
+Then run:
 
 ```bash
 npm run start:local
@@ -54,20 +53,16 @@ npm run start:local
 
 Open <http://127.0.0.1:8787> and upload `artifacts/demo/paper.pdf`. The command reads `.env.local`, verifies the local image identity and required files, and starts the real API. The API is intentionally bound to loopback because it has no authentication.
 
-### Experimental Lab Agent path
+### Lab Agent tool loop
 
-The Lab Agent can now request the reviewed disposable lab, run the approved
-experiment, inspect its output/artifact, and finish through a bounded four-action
+The Lab Agent requests the reviewed disposable lab, runs the approved
+experiment, inspects its output/artifact, and finishes through a bounded four-action
 tool loop. The Lab Manager executes each request and rejects out-of-order actions;
 the model cannot provide its own shell command or Docker arguments.
 
-To try this path locally, create a dedicated no-binding `dejaml-lab` OpenClaw
-agent with the same model and minimal tool policy as the analysts, then set
-`DEJAML_LAB_AGENT_ENABLED=1` in `.env.local` and run `npm run start:local`.
-This path still uses the externally installed OpenClaw CLI and the reviewed
-Urban Land Cover adapter. It is a first agent-operated lab slice, **not** hosted
-deployment, arbitrary-paper execution, environment repair, or embedded
-OpenClaw source reuse.
+This path uses the reviewed Urban Land Cover adapter. It is a first
+agent-operated lab slice, **not** hosted deployment, arbitrary-paper
+execution, environment repair, or embedded OpenClaw source reuse.
 
 If the bootstrap stops, fix the first reported prerequisite and rerun the same command. See [Restoration and troubleshooting](docs/runbooks/RESTORE.md) for individual verification commands.
 

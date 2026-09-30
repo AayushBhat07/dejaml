@@ -4,38 +4,19 @@ Runs Paper Analyst and Code Analyst concurrently, reconciles their validated out
 
 ## Runtime choices
 
-- `OpenClawGatewayStructuredClient` is the demo path for OAuth-backed models. It targets three dedicated Gateway agents with separate sessions.
-- `OpenClawStructuredClient` is the headless path for API-key or local providers that can run through isolated `openclaw agent exec` state.
-- Both paths are hidden behind `StructuredModelClient`; product events use research-role names only.
+- `HostedModelClient` is the application path. It connects to a
+  server-configured OpenAI-compatible endpoint and keeps separate in-process
+  transcripts per run/role; no OpenClaw installation or agent setup is needed.
+- `OpenClawGatewayStructuredClient` and `OpenClawStructuredClient` remain
+  legacy adapters for explicit compatibility experiments. The API does not use
+  them.
+- The Lab Agent chooses bounded lab actions through the application loop;
+  the Lab Manager owns execution and validates the approved plan.
 
-The integration is pinned and tested against OpenClaw `2026.9.5`. The installed OpenClaw CLI remains an external MIT-licensed runtime dependency; no upstream source is copied into this package.
+OpenClaw source has not yet been embedded. The next runtime extraction must
+preserve upstream and third-party notices.
 
 Curated examples may provide a visible model/dataset/metric target hint to both concurrent analysts. The hint narrows selection but never overrides evidence; either analyst must return `inconclusive` when the target is unsupported.
-
-## Dedicated Gateway agents
-
-The local demo uses:
-
-- `dejaml-paper` → identity `Paper Analyst`
-- `dejaml-code` → identity `Code Analyst`
-- `dejaml-lead` → identity `Lead Researcher`
-
-Each agent must have:
-
-```json
-{
-  "model": "openai/gpt-5.6-sol",
-  "models": {
-    "openai/gpt-5.6-sol": { "agentRuntime": { "id": "codex" } }
-  },
-  "tools": {
-    "profile": "minimal",
-    "allow": ["session_status"]
-  }
-}
-```
-
-They must have separate workspaces and no channel bindings. The model sees only prompt-bundled evidence; it cannot read the acquired repository directly.
 
 ## Evidence limits
 
@@ -49,18 +30,7 @@ They must have separate workspaces and no channel bindings. The model sees only 
 
 ```bash
 npm run check
-
-OPENCLAW_BIN=/absolute/path/to/openclaw \
-  npm run verify:curated:live --workspace @dejaml/research-runtime
 ```
 
-The analyst-only verifier downloads the curated paper, discovers and acquires its repository, runs both analyst sessions concurrently, prints public statuses, and cleans up the checkout.
-
-For the complete research-plan handoff:
-
-```bash
-OPENCLAW_BIN=/absolute/path/to/openclaw \
-  npm run verify:curated:plan:live --workspace @dejaml/research-runtime
-```
-
-This adds Lead Researcher reconciliation and requires the deterministic gate to approve the committed case policy before the run may enter `preparing_lab`.
+The older `verify:curated:live` scripts explicitly exercise the legacy
+OpenClaw adapter and are not part of the hosted application path.

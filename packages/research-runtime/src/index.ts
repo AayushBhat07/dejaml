@@ -1,5 +1,6 @@
 export * from "./audit.js";
 export * from "./evidence.js";
+export * from "./hosted-model-client.js";
 export * from "./lead.js";
 export * from "./lab-agent.js";
 export * from "./model.js";

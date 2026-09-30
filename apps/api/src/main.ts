@@ -4,7 +4,7 @@ import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { LabManager } from "@dejaml/lab-manager";
-import { OpenClawGatewayStructuredClient } from "@dejaml/research-runtime";
+import { HostedModelClient } from "@dejaml/research-runtime";
 import { RunStore } from "@dejaml/run-store";
 
 import { loadCases } from "./cases.js";
@@ -22,17 +22,10 @@ const imageLock = JSON.parse(await readFile(join(projectRoot, "lab-images/python
 };
 const store = new RunStore(join(dataDir, "runs.sqlite"));
 const labs = new LabManager({ labRoot: join(dataDir, "labs"), events: (event) => store.appendEvent(event) });
-const model = new OpenClawGatewayStructuredClient({
-  binaryPath: process.env.OPENCLAW_BIN ?? "openclaw",
-  analystAgents: {
-    paper_analyst: process.env.DEJAML_PAPER_AGENT ?? "dejaml-paper",
-    code_analyst: process.env.DEJAML_CODE_AGENT ?? "dejaml-code",
-    lead_researcher: process.env.DEJAML_LEAD_AGENT ?? "dejaml-lead",
-    lab_agent: process.env.DEJAML_LAB_AGENT ?? "dejaml-lab",
-    audit_agent: process.env.DEJAML_AUDIT_AGENT ?? "dejaml-audit",
-  },
-  timeoutSeconds: 180,
-  thinking: "low",
+const model = new HostedModelClient({
+  baseUrl: process.env.DEJAML_MODEL_BASE_URL ?? "https://api.openai.com/v1",
+  model: process.env.DEJAML_MODEL ?? "",
+  ...(process.env.DEJAML_MODEL_API_KEY ? { apiKey: process.env.DEJAML_MODEL_API_KEY } : {}),
 });
 
 const recovery = await recoverAfterRestart({ store, labs, workRoot: dataDir });
@@ -48,7 +41,7 @@ const api = createApiServer({
     // The lock's ID was verified on linux/arm64; other platforms must rebuild and override.
     expectedImageId: process.env.DEJAML_EXPECTED_IMAGE_ID ?? imageLock.verifiedImageId,
   },
-  labAgentEnabled: process.env.DEJAML_LAB_AGENT_ENABLED === "1",
+  labAgentEnabled: process.env.DEJAML_LAB_AGENT_ENABLED !== "0",
   webRoot: join(projectRoot, "apps/web/dist"),
 });
 
