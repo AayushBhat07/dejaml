@@ -1,0 +1,32 @@
+{
+  "id": "chatcmpl-fixture-tool-001",
+  "object": "chat.completion",
+  "created": 1790000001,
+  "model": "gpt-fixture-1",
+  "choices": [
+    {
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": null,
+        "tool_calls": [
+          {
+            "id": "call_fixture_A1",
+            "type": "function",
+            "function": { "name": "run_command", "arguments": "{\"command\":\"python train.py --seed 1\",\"timeout_s\":600}" }
+          },
+          {
+            "id": "call_fixture_B2",
+            "type": "function",
+            "function": { "name": "read_file", "arguments": "{\"path\":\"results/metrics.json\"}" }
+          }
+        ],
+        "refusal": null,
+        "annotations": []
+      },
+      "logprobs": null,
+      "finish_reason": "tool_calls"
+    }
+  ],
+  "usage": { "prompt_tokens": 800, "completion_tokens": 60, "total_tokens": 860, "prompt_tokens_details": { "cached_tokens": 0 } }
+}

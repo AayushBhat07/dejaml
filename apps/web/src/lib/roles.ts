@@ -8,8 +8,14 @@ export const ROLE_LABELS: Record<RunEvent["actor"], string> = {
   code_analyst: "Code Analyst",
   lead_researcher: "Lead Researcher",
   lab_engineer: "Lab Engineer",
+  lab_reviewer: "Lab Reviewer",
   result_verifier: "Result Verifier",
   audit_agent: "Audit Agent",
+  repository_analyst: "Repository Analyst",
+  reproduction_planner: "Reproduction Planner",
+  debugger: "Debugger",
+  independent_reviewer: "Independent Reviewer",
+  supervisor: "Supervisor",
 };
 
 export const STATUS_TONES: Record<RunEvent["status"], Tone> = {

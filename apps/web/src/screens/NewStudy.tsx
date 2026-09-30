@@ -2,14 +2,38 @@ import { useState } from "react";
 
 import { FileDrop } from "../components/FileDrop";
 import { checkPaper, formatBytes, type PaperCheck } from "../lib/paper";
+import type { ServerConfig, StudyOptions } from "../lib/run-client";
 
 type Accepted = Extract<PaperCheck, { ok: true }>;
 
-export function NewStudy({ onStart }: { onStart: (paper: File) => Promise<void> }) {
+export function NewStudy({
+  onStart,
+  config = null,
+}: {
+  onStart: (paper: File, options: StudyOptions) => Promise<void>;
+  /** Live server settings; null in replay mode, where no model is called. */
+  config?: ServerConfig | null;
+}) {
   const [paper, setPaper] = useState<Accepted | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [checking, setChecking] = useState(false);
   const [starting, setStarting] = useState(false);
+  const providers = config?.providers ?? [];
+  const [providerId, setProviderId] = useState(providers[0]?.id ?? "");
+  const provider = providers.find((item) => item.id === providerId) ?? providers[0] ?? null;
+  const [modelName, setModelName] = useState(provider?.models[0] ?? "");
+  // The key stays in this component's memory only: never in storage, the URL, or logs.
+  const [apiKey, setApiKey] = useState("");
+  const [repositoryUrl, setRepositoryUrl] = useState("");
+
+  const live = config !== null;
+  const keyRequired = provider?.keySource === "uploader";
+  const modelReady = !live || (provider !== null && provider.models.includes(modelName) && (!keyRequired || apiKey.trim() !== ""));
+
+  const chooseProvider = (id: string) => {
+    setProviderId(id);
+    setModelName(providers.find((item) => item.id === id)?.models[0] ?? "");
+  };
 
   const choose = async (file: File) => {
     setChecking(true);
@@ -22,11 +46,15 @@ export function NewStudy({ onStart }: { onStart: (paper: File) => Promise<void> 
   };
 
   const start = async () => {
-    if (!paper) return;
+    if (!paper || !modelReady) return;
     setStarting(true);
     setError(null);
     try {
-      await onStart(paper.file);
+      await onStart(paper.file, {
+        ...(live && provider ? { model: { providerId: provider.id, model: modelName, ...(apiKey.trim() ? { apiKey: apiKey.trim() } : {}) } } : {}),
+        ...(repositoryUrl.trim() ? { repositoryUrl: repositoryUrl.trim() } : {}),
+      });
+      setApiKey("");
     } catch (failure) {
       setError(failure instanceof Error ? failure.message : "The study could not be started.");
       setStarting(false);
@@ -43,14 +71,65 @@ export function NewStudy({ onStart }: { onStart: (paper: File) => Promise<void> 
         </p>
         <ul className="scope-list">
           <li>Text-readable PDFs up to 20 MB. Scanned papers are not supported.</li>
-          <li>The paper must link a public GitHub repository.</li>
-          <li>This demo runs one reviewed case: the Urban Land Cover Random Forest result.</li>
+          <li>The paper must link a public GitHub repository, or you can name one below.</li>
+          <li>
+            Reviewed cases run their checked adapter. Other papers go to a team of separate agents: analysts, a planner,
+            independent engineers in their own offline labs, and reviewers who never see the engineers' reasoning.
+          </li>
           <li>Unsupported papers end as Inconclusive rather than guessing.</li>
         </ul>
       </div>
 
       <div className="card stack">
         <h2>New study</h2>
+        {live ? (
+          <fieldset className="stack model-settings" disabled={starting}>
+            <legend>Model for the agents</legend>
+            {providers.length === 0 ? (
+              <p className="error small">This server has no model provider configured. Ask its administrator to add one.</p>
+            ) : (
+              <>
+                <label className="field">
+                  <span>Provider</span>
+                  <select value={provider?.id ?? ""} onChange={(event) => chooseProvider(event.target.value)}>
+                    {providers.map((item) => (
+                      <option key={item.id} value={item.id}>
+                        {item.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="field">
+                  <span>Model</span>
+                  <select value={modelName} onChange={(event) => setModelName(event.target.value)}>
+                    {(provider?.models ?? []).map((item) => (
+                      <option key={item} value={item}>
+                        {item}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                {provider && (keyRequired || provider.id !== "custom") ? (
+                  <label className="field">
+                    <span>API key</span>
+                    <input
+                      type="password"
+                      placeholder={keyRequired ? "Required" : "Leave blank to use the server's key"}
+                      value={apiKey}
+                      autoComplete="off"
+                      spellCheck={false}
+                      onChange={(event) => setApiKey(event.target.value)}
+                    />
+                  </label>
+                ) : null}
+                <p className="muted small">
+                  Providers and models are set by this server's administrator. A key you enter goes to this server with the
+                  study, is used only to call that provider, and is never saved, logged, shown in reports, or passed into a lab.
+                </p>
+              </>
+            )}
+          </fieldset>
+        ) : null}
         <FileDrop onFile={choose} disabled={starting} />
         {checking ? <p className="muted small">Checking the file…</p> : null}
         {error ? (
@@ -68,8 +147,21 @@ export function NewStudy({ onStart }: { onStart: (paper: File) => Promise<void> 
             <dd className="mono">{paper.sha256}</dd>
           </dl>
         ) : null}
+        {live ? (
+          <label className="field">
+            <span>Code repository (optional)</span>
+            <input
+              type="url"
+              inputMode="url"
+              placeholder="https://github.com/owner/repository"
+              value={repositoryUrl}
+              disabled={starting}
+              onChange={(event) => setRepositoryUrl(event.target.value)}
+            />
+          </label>
+        ) : null}
         <div className="row">
-          <button className="button" type="button" disabled={!paper || starting} onClick={start}>
+          <button className="button" type="button" disabled={!paper || !modelReady || starting} onClick={start}>
             {starting ? "Starting…" : "Start study"}
           </button>
           {paper && !starting ? (
@@ -78,6 +170,7 @@ export function NewStudy({ onStart }: { onStart: (paper: File) => Promise<void> 
             </button>
           ) : null}
         </div>
+        {paper && !modelReady ? <p className="muted small">Choose a model and enter the API key to start.</p> : null}
       </div>
     </section>
   );

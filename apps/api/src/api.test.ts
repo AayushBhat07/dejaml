@@ -1,4 +1,4 @@
-import { copyFile, mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -12,8 +12,11 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { checkDemoAcceptance } from "./acceptance.js";
 import { loadCases, type CuratedCase } from "./cases.js";
 import type { StudyReport } from "./pipeline.js";
-import { createApiServer, recoverAfterRestart, type ApiServer } from "./server.js";
-import { paperPdf, ScriptedModel, ScriptedRuntime, STAND_IN_IMAGE_ID, standInAcquire } from "./stand-ins.js";
+import { loadProviderConfig } from "@dejaml/agent-runtime";
+
+import { DEFAULT_STUDY_RESOURCES } from "./pipeline.js";
+import { createApiServer, legacyModelEnv, recoverAfterRestart, type ApiServer } from "./server.js";
+import { paperPdf, ScriptedModel, ScriptedRuntime, ScriptedStudyProvider, STAND_IN_IMAGE_ID, standInAcquire } from "./stand-ins.js";
 
 const repoRoot = fileURLToPath(new URL("../../../", import.meta.url));
 let work: string;
@@ -24,9 +27,23 @@ let serverStarted = false;
 let base: string;
 let checkoutsCreated: string[];
 let curated: CuratedCase;
+let selections: Array<{ providerId: string; model: string; uploaderKey?: string }>;
+let studyProvider: ScriptedStudyProvider;
 
 async function startServer(
-  options: { timeoutSeconds?: number; editPlan?: (plan: ExperimentPlan) => ExperimentPlan; commitSha?: string; labAgentEnabled?: boolean; labActionOverride?: (state: string, action: string) => string } = {},
+  options: {
+    timeoutSeconds?: number;
+    editPlan?: (plan: ExperimentPlan) => ExperimentPlan;
+    commitSha?: string;
+    labAgentEnabled?: boolean;
+    labActionOverride?: (state: string, action: string) => string;
+    autonomous?: boolean;
+    repositoryUrl?: string;
+    /** No server key: every study must bring the uploader's key. */
+    uploaderKeyOnly?: boolean;
+    /** Provider settings as the server's environment would carry them. */
+    providerEnv?: Record<string, string>;
+  } = {},
 ): Promise<void> {
   // A private project root holding the reviewed adapter and placeholder data files.
   const projectRoot = join(work, "project");
@@ -43,16 +60,47 @@ async function startServer(
   store = new RunStore();
   runtime = new ScriptedRuntime();
   const labs = new LabManager({ runtime, labRoot: join(work, "labs"), events: (event) => store.appendEvent(event) });
+  const model = new ScriptedModel(cases[0]!, options.timeoutSeconds ?? 120, 0, options.editPlan, options.labActionOverride);
+  model.repositoryUrl = options.repositoryUrl ?? null;
+  selections = [];
+  studyProvider = new ScriptedStudyProvider(options.repositoryUrl ?? curated.policy.repository.url);
   api = createApiServer({
     store,
     labs,
-    model: new ScriptedModel(cases[0]!, options.timeoutSeconds ?? 120, 0, options.editPlan, options.labActionOverride),
+    providers: loadProviderConfig(
+      options.providerEnv ??
+        (options.uploaderKeyOnly
+          ? { DEJAML_OPENAI_MODELS: "default-model,my-model" }
+          : { DEJAML_OPENAI_API_KEY: "sk-server-test-key-0001", DEJAML_OPENAI_MODELS: "default-model", DEJAML_ALLOW_UPLOADER_KEYS: "0" }),
+    ),
+    providerFactory: (providerId, modelName, uploaderKey) => {
+      selections.push({ providerId, model: modelName, ...(uploaderKey ? { uploaderKey } : {}) });
+      return studyProvider;
+    },
+    structuredModel: () => model,
     cases,
     projectRoot,
     workRoot: join(work, "data"),
     image: { name: "dejaml/python-cpu:0.1.0", expectedImageId: STAND_IN_IMAGE_ID },
     acquire: standInAcquire(cases[0]!, checkoutsCreated, options.commitSha),
     ...(options.labAgentEnabled ? { labAgentEnabled: true } : {}),
+    ...(options.autonomous
+      ? {
+          multiAgent: {
+            enabled: true,
+            prep: null,
+            config: {
+              resources: DEFAULT_STUDY_RESOURCES,
+              engineers: 2,
+              datasetPolicy: { allowedHosts: [], maxRedirects: 3, maxBytes: 1024, timeoutMs: 1000 },
+              maxStudyMs: 60_000,
+              commandTimeoutSeconds: 60,
+              maxDelegations: 8,
+            },
+            leakCheck: async () => ({ containers: [...runtime.containers], networks: [] }),
+          },
+        }
+      : {}),
   });
   await mkdir(join(work, "data"), { recursive: true });
   await new Promise<void>((resolve) => api.server.listen(0, "127.0.0.1", resolve));
@@ -60,9 +108,14 @@ async function startServer(
   base = `http://127.0.0.1:${(api.server.address() as AddressInfo).port}`;
 }
 
-async function upload(data: Uint8Array | string, name = "paper.pdf"): Promise<Response> {
+async function upload(
+  data: Uint8Array | string,
+  name = "paper.pdf",
+  fields: Record<string, string> = {},
+): Promise<Response> {
   const form = new FormData();
   form.append("paper", new Blob([typeof data === "string" ? data : new Uint8Array(data)]), name);
+  for (const [key, value] of Object.entries(fields)) form.append(key, value);
   return fetch(`${base}/api/runs`, { method: "POST", body: form });
 }
 
@@ -190,6 +243,188 @@ describe("Run API", () => {
     expect(runtime.containers.size).toBe(0);
   });
 
+  it("runs a paper with no reviewed case through separate, independent agents", async () => {
+    await startServer({ autonomous: true, repositoryUrl: "https://github.com/example/new-paper" });
+    const { runId } = (await (await upload(await paperPdf(true, "https://github.com/example/new-paper"))).json()) as {
+      runId: string;
+    };
+    await api.idle();
+    const report = (await (await fetch(`${base}/api/runs/${runId}/report`)).json()) as StudyReport;
+    const study = report.study!;
+    expect(report.status).toBe("completed");
+    expect(report.caseId).toBeNull();
+    expect(report.repository?.url).toBe("https://github.com/example/new-paper");
+
+    // Every role ran as its own agent instance with its own id and grants.
+    const roles = study.agents.map((agent) => agent.role).sort();
+    expect(roles).toEqual([
+      "independent_reviewer", "independent_reviewer", "lab_engineer", "lab_engineer",
+      "paper_analyst", "repository_analyst", "reproduction_planner", "supervisor",
+    ]);
+    expect(new Set(study.agents.map((agent) => agent.agentId)).size).toBe(study.agents.length);
+    expect(study.agents.every((agent) => agent.status === "completed")).toBe(true);
+    const supervisor = study.agents.find((agent) => agent.role === "supervisor")!;
+    expect(study.agents.filter((agent) => agent.role !== "supervisor").every((agent) => agent.parentId === supervisor.agentId)).toBe(true);
+    expect(study.agents.find((agent) => agent.role === "independent_reviewer")?.grants).not.toContain("lab_run");
+    // Separate conversations: no agent's history contains another agent's turns.
+    const conversations = study.agents.map((agent) => store.ledger.listTurns(agent.agentId));
+    expect(conversations.every((turns) => turns.length > 0)).toBe(true);
+    const firstMessages = conversations.map((turns) => JSON.stringify(turns[0]));
+    expect(new Set(firstMessages).size).toBe(firstMessages.length);
+    // The two analysts ran at the same time, each in its own loop.
+    expect(study.delegations.byStage).toEqual({ analysis: 1, plan: 1, engineering: 1, review: 1 });
+
+    // Evidence: pinned repository, command receipts, exported artifacts, reviews, and the status decision.
+    expect(study.repository).toMatchObject({ commitSha: curated.policy.repository.commitSha, fileCount: 3 });
+    expect(study.engineers.map((item) => [item.label, item.submission?.status, item.provenance.ok, item.review?.verdict, item.value])).toEqual([
+      ["engineer-1-1", "measured", true, "approve", 79.88],
+      ["engineer-1-2", "measured", true, "approve", 79.88],
+    ]);
+    expect(study.consensus).toMatchObject({ status: "agreed", required: 2 });
+    expect(study.result.status).toBe("partially_reproduced");
+    expect(study.result.mechanicalStatus).toBe("partially_reproduced");
+    const evidence = study.result.evidence!;
+    expect(evidence.repository.commitSha).toBe(curated.policy.repository.commitSha);
+    expect(evidence.commands.at(-1)).toMatchObject({ argv: ["python", "work/run.py"], exitCode: 0 });
+    expect(evidence.artifacts.map((item) => item.path)).toEqual(["artifacts/result.json"]);
+    expect(evidence.adapters.map((item) => item.path)).toEqual(["work/run.py"]);
+    expect(evidence.comparison.tolerance).toBe(2);
+    expect(study.board.map((entry) => entry.kind)).toEqual(expect.arrayContaining([
+      "paper_claim", "repository_receipt", "repository_mapping", "plan", "command_receipt", "artifact", "adapter_record", "submission", "review", "status_decision",
+    ]));
+    expect(study.receipts.length).toBeGreaterThan(10);
+    expect(report.metric?.value).toBe(79.88);
+    expect(report.assessment?.verdict).toBe("reproduced_within_tolerance");
+
+    // Labs: one per engineer, offline, repository read-only; all destroyed and verified.
+    expect(report.events.filter((event) => event.type === "lab_create" && event.status === "completed")).toHaveLength(2);
+    const create = runtime.createArgs;
+    expect(create).toContain("none");
+    expect(create.some((arg) => arg.endsWith("dst=/workspace/case/repo,readonly"))).toBe(true);
+    expect(study.cleanup).toMatchObject({ verified: true, workDirRemoved: true, leftoverContainers: [], liveAgents: [] });
+    expect(study.cleanup.labs).toHaveLength(2);
+    expect(runtime.containers.size).toBe(0);
+    expect(checkoutsCreated).toHaveLength(1);
+    expect(selections).toEqual([{ providerId: "openai", model: "default-model" }]);
+  });
+
+  it("recovers from a failed run with a separate Debugger agent", async () => {
+    await startServer({ autonomous: true, repositoryUrl: "https://github.com/example/new-paper" });
+    runtime.failFirstRun = true;
+    const { runId } = (await (await upload(await paperPdf(true, "https://github.com/example/new-paper"))).json()) as { runId: string };
+    await api.idle();
+    const report = (await (await fetch(`${base}/api/runs/${runId}/report`)).json()) as StudyReport;
+    const study = report.study!;
+    const debuggers = study.agents.filter((agent) => agent.role === "debugger");
+    expect(debuggers).toHaveLength(2);
+    const engineers = study.agents.filter((agent) => agent.role === "lab_engineer").map((agent) => agent.agentId);
+    expect(debuggers.every((agent) => engineers.includes(agent.parentId ?? ""))).toBe(true);
+    expect(study.board.filter((entry) => entry.kind === "diagnosis")).toHaveLength(2);
+    expect(study.receipts.filter((receipt) => receipt.tool === "lab_run" && receipt.status === "error")).toHaveLength(2);
+    expect(study.result.status).toBe("partially_reproduced");
+    expect(runtime.containers.size).toBe(0);
+  });
+
+  it("ends inconclusive when the Independent Reviewers reject the submissions", async () => {
+    await startServer({ autonomous: true, repositoryUrl: "https://github.com/example/new-paper" });
+    studyProvider.review = { verdict: "reject", equivalence: "not_equivalent" };
+    const { runId } = (await (await upload(await paperPdf(true, "https://github.com/example/new-paper"))).json()) as {
+      runId: string;
+    };
+    await api.idle();
+    const report = (await (await fetch(`${base}/api/runs/${runId}/report`)).json()) as StudyReport;
+    expect(report.status).toBe("inconclusive");
+    expect(report.study?.result.status).toBe("inconclusive");
+    expect(report.study?.result.reasons.join(" ")).toMatch(/rejected by the Independent Reviewer/u);
+    expect(report.metric).toBeNull();
+    expect(runtime.containers.size).toBe(0);
+  });
+
+  it("cancels a multi-agent study mid-run and cleans up every agent and lab", async () => {
+    await startServer({ autonomous: true, repositoryUrl: "https://github.com/example/new-paper" });
+    studyProvider.delayMs = 40;
+    const { runId } = (await (await upload(await paperPdf(true, "https://github.com/example/new-paper"))).json()) as { runId: string };
+    while (!store.listEvents(runId).some((event) => event.type === "lab_create" && event.status === "completed")) {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    expect((await fetch(`${base}/api/runs/${runId}/cancel`, { method: "POST" })).status).toBe(202);
+    await api.idle();
+    const report = (await (await fetch(`${base}/api/runs/${runId}/report`)).json()) as StudyReport;
+    expect(report.status).toBe("cancelled");
+    expect(report.study?.agents.some((agent) => agent.status === "cancelled")).toBe(true);
+    expect(report.study?.agents.every((agent) => !["created", "running", "waiting"].includes(agent.status))).toBe(true);
+    expect(report.study?.cleanup.verified).toBe(true);
+    expect(runtime.containers.size).toBe(0);
+  });
+
+  it("offers only configured providers, requires the uploader's key when the server has none, and never stores it", async () => {
+    await startServer({ uploaderKeyOnly: true, autonomous: true, repositoryUrl: "https://github.com/example/new-paper" });
+    const config = (await (await fetch(`${base}/api/config`)).json()) as { providers: Array<{ id: string; models: string[]; keySource: string }> };
+    expect(config.providers.find((item) => item.id === "openai")).toEqual({ id: "openai", label: "OpenAI", models: ["default-model", "my-model"], keySource: "uploader" });
+    expect(JSON.stringify(config)).not.toMatch(/baseUrl|apiKey|sk-/u);
+
+    const pdf = await paperPdf(false);
+    const missing = await upload(pdf, "paper.pdf", { providerId: "openai" });
+    expect(missing.status).toBe(400);
+    expect(((await missing.json()) as { error: string }).error).toMatch(/API key/u);
+    const customUrl = await upload(pdf, "paper.pdf", { apiKey: "sk-test-12345678", modelBaseUrl: "https://models.example.com/v1", modelName: "m" });
+    expect(customUrl.status).toBe(400);
+    const unknownProvider = await upload(pdf, "paper.pdf", { providerId: "evil", apiKey: "sk-test-12345678" });
+    expect(unknownProvider.status).toBe(400);
+    const unknownModel = await upload(pdf, "paper.pdf", { providerId: "openai", modelName: "gpt-unlisted", apiKey: "sk-test-12345678" });
+    expect(unknownModel.status).toBe(400);
+    const badRepository = await upload(pdf, "paper.pdf", { providerId: "openai", apiKey: "sk-test-12345678", repositoryUrl: "https://gitlab.com/a/b" });
+    expect(badRepository.status).toBe(400);
+
+    const secret = "sk-uploader-secret-123";
+    const response = await upload(pdf, "paper.pdf", {
+      providerId: "openai",
+      apiKey: secret,
+      modelName: "my-model",
+      repositoryUrl: "https://github.com/example/new-paper",
+    });
+    expect(response.status).toBe(202);
+    const { runId } = (await response.json()) as { runId: string };
+    await api.idle();
+    expect(selections).toEqual([{ providerId: "openai", model: "my-model", uploaderKey: secret }]);
+    const report = (await (await fetch(`${base}/api/runs/${runId}/report`)).json()) as StudyReport;
+    // The paper links no repository; the one named with the upload is used.
+    expect(report.repository?.url).toBe("https://github.com/example/new-paper");
+    expect(report.status).toBe("completed");
+    expect(report.events.find((event) => event.type === "model_connection")?.publicPayload).toEqual({ source: "uploader", provider: "openai", model: "my-model" });
+    const persisted = [
+      JSON.stringify(report),
+      JSON.stringify(store.getRun(runId)),
+      JSON.stringify(store.ledger.listAgents(runId)),
+      JSON.stringify(store.ledger.listReceipts({ runId })),
+      ...studyProvider.systems,
+      ...(await Promise.all(
+        (await readdir(join(work, "data", "reports"))).map((name) => readFile(join(work, "data", "reports", name), "utf8")),
+      )),
+    ].join("\n");
+    expect(persisted).not.toContain(secret);
+  });
+
+  it("uses an administrator-configured endpoint without a key, and maps the earlier single-model settings", async () => {
+    await startServer({ providerEnv: { DEJAML_CUSTOM_BASE_URL: "http://localhost:11434/v1", DEJAML_CUSTOM_MODELS: "llama", DEJAML_CUSTOM_ALLOW_LOCAL_HTTP: "1", DEJAML_ALLOW_UPLOADER_KEYS: "0" } });
+    const response = await upload(await paperPdf(), "paper.pdf", { providerId: "custom", modelName: "llama" });
+    expect(response.status).toBe(202);
+    await api.idle();
+    expect(selections).toEqual([{ providerId: "custom", model: "llama" }]);
+    expect(legacyModelEnv({ DEJAML_MODEL: "gpt-x", DEJAML_MODEL_API_KEY: "sk-legacy-000000" })).toMatchObject({ DEJAML_OPENAI_MODELS: "gpt-x", DEJAML_OPENAI_API_KEY: "sk-legacy-000000" });
+    expect(legacyModelEnv({ DEJAML_MODEL: "llama", DEJAML_MODEL_BASE_URL: "http://localhost:11434/v1" })).toMatchObject({ DEJAML_CUSTOM_BASE_URL: "http://localhost:11434/v1", DEJAML_CUSTOM_MODELS: "llama", DEJAML_CUSTOM_ALLOW_LOCAL_HTTP: "1" });
+  });
+
+  it("keeps unsupported papers inconclusive when autonomy is off", async () => {
+    await startServer();
+    const { runId } = (await (await upload(await paperPdf(true, "https://github.com/example/new-paper"))).json()) as {
+      runId: string;
+    };
+    await api.idle();
+    expect(store.getRun(runId).status).toBe("inconclusive");
+    expect(checkoutsCreated).toHaveLength(0);
+  });
+
   it("ends as inconclusive without a lab when the paper links no supported repository", async () => {
     await startServer();
     const { runId } = (await (await upload(await paperPdf(false))).json()) as { runId: string };
@@ -315,6 +550,9 @@ describe("restart recovery", () => {
     const recoveryStore = new RunStore();
     const run = recoveryStore.createRun({}, "run_interrupted");
     recoveryStore.transitionRun(run.id, "ingesting");
+    const agent = recoveryStore.ledger.createAgent({ runId: run.id, role: "lab_engineer", parentId: null, provider: "p", model: "m", task: {}, grants: [], limits: {} });
+    recoveryStore.ledger.updateAgent(agent.id, { status: "running" });
+    await mkdir(join(work, "data/study-abc"), { recursive: true });
     const orphanRuntime = new ScriptedRuntime();
     orphanRuntime.containers.add("dejaml-lab-orphan");
     const labs = new LabManager({ runtime: orphanRuntime, labRoot: join(work, "labs") });
@@ -323,7 +561,8 @@ describe("restart recovery", () => {
     await mkdir(join(work, "data/reports"), { recursive: true });
 
     const result = await recoverAfterRestart({ store: recoveryStore, labs, workRoot: join(work, "data") });
-    expect(result).toEqual({ interruptedRuns: ["run_interrupted"], orphanLabs: 1, staleCheckouts: 1 });
+    expect(result).toEqual({ interruptedRuns: ["run_interrupted"], orphanLabs: 1, staleCheckouts: 2 });
+    expect(recoveryStore.ledger.getAgent(agent.id)).toMatchObject({ status: "interrupted", failure: "the service restarted" });
     await expect(readdir(join(work, "data"))).resolves.toEqual(["reports"]);
     expect(orphanRuntime.containers.size).toBe(0);
     expect(recoveryStore.getRun(run.id).status).toBe("failed");

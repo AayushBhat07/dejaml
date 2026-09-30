@@ -223,3 +223,21 @@ export function buildReport(runId: string, events: readonly RunEvent[], replay: 
     events,
   };
 }
+
+export type StudyResult = {
+  status: "reproduced" | "partially_reproduced" | "not_reproduced" | "inconclusive" | "policy_blocked";
+  reasons: string[];
+};
+
+/** The multi-agent study's final status, decided from evidence (not by an agent). */
+export function studyResultFor(events: readonly RunEvent[]): StudyResult | null {
+  const event = [...events].reverse().find((item) => item.type === "study_result");
+  if (!event) return null;
+  const payload = event.publicPayload as { status?: unknown; reasons?: unknown };
+  const statuses = ["reproduced", "partially_reproduced", "not_reproduced", "inconclusive", "policy_blocked"];
+  if (typeof payload.status !== "string" || !statuses.includes(payload.status)) return null;
+  return {
+    status: payload.status as StudyResult["status"],
+    reasons: Array.isArray(payload.reasons) ? payload.reasons.filter((item): item is string => typeof item === "string") : [],
+  };
+}

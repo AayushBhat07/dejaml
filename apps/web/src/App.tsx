@@ -2,7 +2,7 @@ import type { RunEvent } from "@dejaml/contracts";
 import { useEffect, useMemo, useState } from "react";
 
 import { Shell } from "./components/Shell";
-import { defaultRunClient, type RunClient } from "./lib/run-client";
+import { defaultRunClient, type RunClient, type ServerConfig, type StudyOptions } from "./lib/run-client";
 import { stageForEvents, type StageId } from "./lib/stages";
 import { buildReport } from "./lib/lab";
 import { Findings } from "./screens/Findings";
@@ -33,8 +33,19 @@ export function App({ client: provided }: { client?: RunClient }) {
     });
   }, [client, runId]);
 
-  const start = async (paper: File) => {
-    const run = await client.createRun(paper);
+  const [config, setConfig] = useState<ServerConfig | null>(null);
+  useEffect(() => {
+    let current = true;
+    void client.config?.().then((value) => {
+      if (current) setConfig(value);
+    });
+    return () => {
+      current = false;
+    };
+  }, [client]);
+
+  const start = async (paper: File, options: StudyOptions) => {
+    const run = await client.createRun(paper, options);
     setEvents([]);
     setPinned(null);
     setRunId(run.runId);
@@ -68,7 +79,7 @@ export function App({ client: provided }: { client?: RunClient }) {
     <Shell stage={stage} viewing={viewing} onSelectStage={select} replay={client.mode === "replay" ? (client.replaySource ?? { kind: "prepared" }) : null}>
       {connectionError ? <p className="error">{connectionError}</p> : null}
       {!runId ? (
-        <NewStudy onStart={start} />
+        <NewStudy key={config ? "configured" : "default"} onStart={start} config={client.mode === "live" ? config : null} />
       ) : viewing === "research_team" ? (
         <ResearchTeam events={events} />
       ) : viewing === "virtual_lab" ? (

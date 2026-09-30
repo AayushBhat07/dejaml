@@ -22,8 +22,13 @@ function parseEnvironment(text) {
 try {
   const local = parseEnvironment(await readFile(environmentPath, "utf8"));
   const env = { ...local, ...process.env };
-  if (!env.DEJAML_MODEL?.trim()) throw new Error("DEJAML_MODEL is empty; choose a server-side model");
-  if (!env.DEJAML_MODEL_BASE_URL?.trim()) throw new Error("DEJAML_MODEL_BASE_URL is empty");
+  const providerSet = ["DEJAML_MODEL", "DEJAML_OPENAI_MODELS", "DEJAML_OPENAI_API_KEY", "DEJAML_ANTHROPIC_API_KEY", "DEJAML_CUSTOM_BASE_URL"].some(
+    (name) => env[name]?.trim(),
+  );
+  // Without any provider setting the API still starts; the page then asks each uploader for a key.
+  if (!providerSet && env.DEJAML_ALLOW_UPLOADER_KEYS === "0") {
+    throw new Error("no model provider is configured; set DEJAML_ANTHROPIC_API_KEY or DEJAML_OPENAI_API_KEY (see .env.example)");
+  }
   await access(join(root, "cases/urban-land-cover/data/training.csv"));
   await access(join(root, "cases/urban-land-cover/data/testing.csv"));
   await access(join(root, "apps/web/dist/index.html"));

@@ -91,6 +91,32 @@ export type ArtifactContent = ArtifactSummary & {
   content: Buffer;
 };
 
+/** One agent tool command: bounded output, its own time limit, and the artifacts afterwards. */
+export type CommandOutcome = {
+  command: z.infer<typeof ArgvCommandSchema>;
+  exitCode: number | null;
+  timedOut: boolean;
+  stdout: BoundedText;
+  stderr: BoundedText;
+  startedAt: string;
+  endedAt: string;
+  durationMs: number;
+  artifacts: ArtifactSummary[];
+  /** Processes the command left running in the background, stopped afterwards. */
+  strayProcesses: string[];
+  /** Size of the scratch directory after the command. */
+  scratchBytes: number | null;
+};
+
+/** One read-only look at the lab's files, run inside the container as the lab user. */
+export type InspectRequest =
+  | { op: "list"; path: string; depth?: number }
+  | { op: "read"; path: string; offset?: number; maxBytes?: number }
+  | { op: "search"; path: string; pattern: string; maxMatches?: number };
+
+/** Largest file an agent may write in one call; it travels base64-encoded in one argv entry. */
+export const MAX_SCRATCH_FILE_BYTES = 64 * 1024;
+
 export type PreparationRecord = {
   step: z.infer<typeof PreparationStepSchema>;
   exitCode: number | null;
@@ -116,6 +142,10 @@ type LabRecord = {
   state: LabState;
   hostArtifactsDir: string;
   hostLabDir: string;
+  frozen: boolean;
+  /** PID of the lab's keep-alive process inside the container, learned before the first agent command. */
+  mainPid: number | null;
+  hostScratchDir: string | null;
   activeAbort: AbortController | null;
   killReason: "cancelled" | "timed_out" | null;
   receipt: CleanupReceipt | null;
@@ -178,6 +208,12 @@ export class LabManager {
       await mkdir(hostArtifactsDir);
       // The lab user (UID 10001) must write here; the private parent keeps other host users out.
       await chmod(hostArtifactsDir, 0o777);
+      let hostScratchDir: string | null = null;
+      if (spec.scratchDir) {
+        hostScratchDir = join(hostLabDir, "scratch");
+        await mkdir(hostScratchDir);
+        await chmod(hostScratchDir, 0o777);
+      }
 
       const args = [
         "create",
@@ -201,6 +237,9 @@ export class LabManager {
         ]),
         "--mount",
         mountArgument(hostArtifactsDir, posix.join(spec.workdir, spec.artifactsDir), false),
+        ...(hostScratchDir && spec.scratchDir
+          ? ["--mount", mountArgument(hostScratchDir, posix.join(spec.workdir, spec.scratchDir), false)]
+          : []),
         "--entrypoint", "sleep",
         spec.image,
         "infinity",
@@ -223,6 +262,9 @@ export class LabManager {
         state: "ready",
         hostArtifactsDir,
         hostLabDir,
+        frozen: false,
+        mainPid: null,
+        hostScratchDir,
         activeAbort: null,
         killReason: null,
         receipt: null,
@@ -234,6 +276,7 @@ export class LabManager {
         network: "none",
         readOnlyRoot: true,
         resources: spec.resources,
+        ...(spec.scratchDir ? { scratchDir: spec.scratchDir } : {}),
       });
       return handle;
     } catch (error) {
@@ -413,6 +456,256 @@ export class LabManager {
       artifacts.map((item) => ({ kind: "artifact", reference: `${item.path}#sha256=${item.sha256}` })),
     );
     return { attempt, stdout: result.stdout, stderr: result.stderr, durationMs, artifacts };
+  }
+
+  /**
+   * Runs one agent-chosen command inside the lab. The command is bounded by
+   * its own `timeout` inside the container, so a slow step fails without
+   * destroying the lab; the container-level kill remains the backstop. The
+   * lab's isolation (no network, read-only root, dropped capabilities,
+   * resource limits) is the safety boundary, not the command text.
+   */
+  async runCommand(
+    labId: string,
+    input: z.input<typeof ArgvCommandSchema>,
+    options: { timeoutSeconds: number; step: number; observe?: boolean; agent?: string },
+  ): Promise<CommandOutcome> {
+    const lab = this.#lab(labId);
+    this.#requireState(lab, ["ready", "idle"]);
+    if (lab.frozen) throw new LabError("lab_state", `lab ${labId} is frozen`);
+    const command = ArgvCommandSchema.parse(input);
+    this.#validateCommand(lab, command);
+    const limit = Math.max(1, Math.min(Math.floor(options.timeoutSeconds), lab.spec.resources.timeoutSeconds));
+    const stepId = `${lab.handle.runId}:${options.agent ? `${options.agent}:` : ""}step-${options.step}`;
+    const startedAt = this.#now();
+    lab.state = "running";
+    const who = options.agent ? `${options.agent} step` : "Step";
+    this.#emit(lab.handle.runId, "agent_command", "started", `${who} ${options.step}: ${describeCommand(command)}`, {
+      labId,
+      step: options.step,
+      ...(options.agent ? { agent: options.agent } : {}),
+      executable: command.executable,
+      args: command.args.map((argument) => argument.slice(0, 500)),
+      cwd: command.cwd,
+      timeoutSeconds: limit,
+    });
+    if (lab.spec.scratchDir && lab.mainPid === null) await this.#learnMainPid(lab);
+    const observation = options.observe
+      ? this.#startObservation(lab, stepId, startedAt, {}, undefined)
+      : null;
+    let result: RuntimeCommandResult;
+    try {
+      result = await this.#execInLab(
+        lab,
+        { ...command, executable: "timeout", args: ["--signal=KILL", `${limit}s`, command.executable, ...command.args] },
+        limit + 15,
+        observation?.onOutput,
+      );
+      await observation?.stop();
+    } catch (error) {
+      await observation?.stop();
+      lab.state = "failed";
+      throw error;
+    }
+    if (lab.killReason) {
+      // The container itself was killed: the lab cannot continue.
+      lab.state = lab.killReason;
+    } else {
+      lab.state = "idle";
+    }
+    const endedAt = this.#now();
+    const durationMs = endedAt.getTime() - startedAt.getTime();
+    // `timeout --signal=KILL` exits 137; an out-of-memory kill also exits 137, so the elapsed time decides.
+    const timedOut =
+      lab.killReason === "timed_out" ||
+      ((result.exitCode === 137 || result.exitCode === 124) && durationMs >= limit * 1000 - 1000);
+    // Nothing the command started may keep running after it: stray background
+    // processes are stopped before the host looks at the lab's files.
+    const strayProcesses = lab.killReason ? [] : await this.#reapStrays(lab);
+    const scratchBytes = lab.hostScratchDir ? await directoryBytes(lab.hostScratchDir) : null;
+    const scratchLimit = (lab.spec.limits.maxScratchMb ?? 3_072) * 1024 * 1024;
+    let artifacts: ArtifactSummary[] = [];
+    try {
+      // Background processes may outlive the command; pause them so none can
+      // swap a file for a symlink while the host hashes the artifacts.
+      const pause = lab.killReason ? null : await this.#runtime.docker(["pause", lab.handle.containerName], { maxOutputBytes: 4096 });
+      try {
+        artifacts = await this.#listArtifacts(lab);
+      } finally {
+        if (pause?.exitCode === 0) await this.#docker(["unpause", lab.handle.containerName], "container unpause");
+      }
+    } catch (error) {
+      lab.state = "failed";
+      throw error;
+    }
+    const outcome: CommandOutcome = {
+      command,
+      exitCode: lab.killReason ? null : result.exitCode,
+      timedOut,
+      stdout: result.stdout,
+      stderr: result.stderr,
+      startedAt: startedAt.toISOString(),
+      endedAt: endedAt.toISOString(),
+      durationMs,
+      artifacts,
+      strayProcesses,
+      scratchBytes,
+    };
+    if (strayProcesses.length > 0) {
+      this.#emit(lab.handle.runId, "lab_strays_stopped", "warning", `Stopped ${strayProcesses.length} background process(es) left by step ${options.step}`, {
+        labId,
+        step: options.step,
+        processes: strayProcesses,
+      });
+    }
+    if (scratchBytes !== null && scratchBytes > scratchLimit) {
+      lab.state = "failed";
+      this.#emit(lab.handle.runId, "lab_disk_limit", "failed", `The lab's scratch space grew past ${lab.spec.limits.maxScratchMb ?? 3_072} MB`, {
+        labId,
+        scratchBytes,
+      });
+    }
+    this.#emit(
+      lab.handle.runId,
+      "agent_command",
+      outcome.exitCode === 0 ? "completed" : "failed",
+      timedOut
+        ? `${who} ${options.step} hit its ${limit}s limit`
+        : `${who} ${options.step} exited with code ${String(outcome.exitCode)}`,
+      {
+        labId,
+        step: options.step,
+        ...(options.agent ? { agent: options.agent } : {}),
+        exitCode: outcome.exitCode,
+        timedOut,
+        durationMs: outcome.durationMs,
+        stdoutTail: result.stdout.text.slice(-2_000),
+        stderrTail: result.stderr.text.slice(-2_000),
+        artifacts,
+      },
+      [{ kind: "log_line", reference: `${stepId}/stdout` }],
+    );
+    return outcome;
+  }
+
+  /**
+   * Writes an agent-authored file into the scratch directory. The write runs
+   * inside the container as the lab user, so a symlink planted by an earlier
+   * command can never redirect it onto the host.
+   */
+  async writeScratchFile(labId: string, path: string, content: string, step: number): Promise<ArtifactSummary> {
+    const lab = this.#lab(labId);
+    this.#requireState(lab, ["ready", "idle"]);
+    if (lab.frozen) throw new LabError("lab_state", `lab ${labId} is frozen`);
+    const scratch = lab.spec.scratchDir;
+    if (!scratch) throw new LabError("scratch_unavailable", "this lab has no scratch directory");
+    const relativePath = WorkspaceRelativePathSchema.parse(path);
+    if (!relativePath.startsWith(`${scratch}/`)) {
+      throw new LabError("scratch_rejected", `agent files must be written under ${scratch}/`);
+    }
+    const bytes = Buffer.from(content, "utf8");
+    if (bytes.length > MAX_SCRATCH_FILE_BYTES) {
+      throw new LabError("scratch_too_large", `files are limited to ${MAX_SCRATCH_FILE_BYTES} bytes`);
+    }
+    const target = posix.join(lab.spec.workdir, relativePath);
+    const script =
+      "import base64,os,sys\n" +
+      "p=sys.argv[1]\n" +
+      "os.makedirs(os.path.dirname(p),exist_ok=True)\n" +
+      "fd=os.open(p,os.O_WRONLY|os.O_CREAT|os.O_TRUNC|os.O_NOFOLLOW,0o644)\n" +
+      "os.write(fd,base64.b64decode(sys.argv[2]))\n" +
+      "os.close(fd)\n";
+    const result = await this.#execInLab(
+      lab,
+      { executable: "python", args: ["-c", script, target, bytes.toString("base64")], cwd: lab.spec.workdir, env: {} },
+      30,
+    );
+    if (result.exitCode !== 0) {
+      throw new LabError("scratch_write_failed", `could not write ${relativePath}: ${result.stderr.text.trim().slice(-500)}`);
+    }
+    const summary = {
+      path: relativePath,
+      bytes: bytes.length,
+      sha256: createHash("sha256").update(bytes).digest("hex"),
+    };
+    this.#emit(lab.handle.runId, "agent_file", "completed", `Step ${step}: wrote ${relativePath}`, {
+      labId,
+      step,
+      ...summary,
+    }, [{ kind: "artifact", reference: `${relativePath}#sha256=${summary.sha256}` }]);
+    return summary;
+  }
+
+  /**
+   * Lists, reads, or searches files under the lab's working directory. It runs
+   * inside the container as the lab user, so it sees exactly what commands see
+   * and cannot reach the host; paths that resolve outside the workspace are
+   * refused. Output is bounded.
+   */
+  async inspectFiles(labId: string, request: InspectRequest): Promise<Record<string, unknown>> {
+    const lab = this.#lab(labId);
+    this.#requireState(lab, ["ready", "idle"]);
+    if (lab.frozen) throw new LabError("lab_state", `lab ${labId} is frozen`);
+    const relativePath = request.path === "." ? "." : WorkspaceRelativePathSchema.parse(request.path);
+    const payload = JSON.stringify({ ...request, path: relativePath, root: lab.spec.workdir });
+    const result = await this.#execInLab(
+      lab,
+      { executable: "python", args: ["-I", "-S", "-c", INSPECT_SCRIPT, payload], cwd: lab.spec.workdir, env: {} },
+      30,
+    );
+    if (result.exitCode !== 0) {
+      throw new LabError("inspect_failed", result.stderr.text.trim().slice(-500) || "file inspection failed");
+    }
+    try {
+      return JSON.parse(result.stdout.text) as Record<string, unknown>;
+    } catch {
+      throw new LabError("inspect_failed", "file inspection returned unreadable output");
+    }
+  }
+
+  async #learnMainPid(lab: LabRecord): Promise<void> {
+    // Before any agent command runs, PID 1 (the init process) has exactly one
+    // child: the keep-alive process. Anything else later reparented to PID 1
+    // is a stray.
+    const result = await this.#execInLab(
+      lab,
+      { executable: "cat", args: ["/proc/1/task/1/children"], cwd: lab.spec.workdir, env: {} },
+      15,
+    ).catch(() => null);
+    const pids = result?.exitCode === 0 ? result.stdout.text.trim().split(/\s+/u).filter((item) => /^\d+$/u.test(item)) : [];
+    lab.mainPid = pids.length === 1 ? Number(pids[0]) : null;
+  }
+
+  async #reapStrays(lab: LabRecord): Promise<string[]> {
+    if (!lab.spec.scratchDir) return [];
+    if (lab.mainPid === null) {
+      this.#emit(lab.handle.runId, "lab_strays_unchecked", "warning", "Background processes could not be checked in this lab", { labId: lab.handle.labId });
+      return [];
+    }
+    const result = await this.#execInLab(
+      lab,
+      { executable: "python", args: ["-I", "-S", "-c", REAP_SCRIPT, String(lab.mainPid)], cwd: lab.spec.workdir, env: {} },
+      15,
+    ).catch(() => null);
+    if (!result || result.exitCode !== 0) return [];
+    try {
+      const killed = JSON.parse(result.stdout.text) as unknown;
+      return Array.isArray(killed) ? killed.map(String).slice(0, 50) : [];
+    } catch {
+      return [];
+    }
+  }
+
+  /**
+   * Pauses every process in the lab so nothing can change the artifact
+   * directory while the host exports results. Only destruction follows.
+   */
+  async freezeLab(labId: string): Promise<void> {
+    const lab = this.#lab(labId);
+    if (lab.frozen || lab.state === "destroyed") return;
+    this.#requireState(lab, ["ready", "idle", "failed", "timed_out"]);
+    await this.#docker(["pause", lab.handle.containerName], "container pause");
+    lab.frozen = true;
   }
 
   async readArtifact(labId: string, path: string): Promise<ArtifactContent> {
@@ -913,11 +1206,89 @@ export class LabManager {
   }
 }
 
+async function directoryBytes(root: string): Promise<number> {
+  let total = 0;
+  const pending = [root];
+  while (pending.length > 0) {
+    const directory = pending.pop()!;
+    for (const entry of await readdir(directory, { withFileTypes: true }).catch(() => [])) {
+      const path = join(directory, entry.name);
+      if (entry.isDirectory()) pending.push(path);
+      else total += (await lstat(path).catch(() => ({ size: 0 }))).size;
+    }
+  }
+  return total;
+}
+
+/** Stops every process except init, the keep-alive process, and itself. */
+const REAP_SCRIPT = [
+  "import json,os,signal,sys",
+  "keep={1,int(sys.argv[1]),os.getpid(),os.getppid()}",
+  "killed=[]",
+  "for d in os.listdir('/proc'):",
+  " if not d.isdigit() or int(d) in keep: continue",
+  " try:",
+  "  cmd=open('/proc/%s/cmdline'%d,'rb').read().replace(b'\\0',b' ').decode('utf-8','replace').strip()",
+  "  os.kill(int(d),signal.SIGKILL)",
+  "  killed.append(cmd[:160] or '['+d+']')",
+  " except OSError: pass",
+  "print(json.dumps(killed))",
+].join("\n");
+
+/** Bounded list, read, and search confined to the lab working directory. */
+const INSPECT_SCRIPT = [
+  "import json,os,re,sys",
+  "q=json.loads(sys.argv[1]); root=os.path.realpath(q['root'])",
+  "p=os.path.realpath(os.path.join(root,q['path']))",
+  "if p!=root and not p.startswith(root+os.sep): print(json.dumps({'error':'path is outside the workspace'})); sys.exit(0)",
+  "def rel(x): return os.path.relpath(x,root)",
+  "op=q['op']",
+  "if op=='list':",
+  " out=[]; depth=min(int(q.get('depth') or 2),6)",
+  " if os.path.isfile(p): out.append({'path':rel(p),'bytes':os.path.getsize(p)})",
+  " for base,dirs,files in os.walk(p):",
+  "  lvl=base[len(p):].count(os.sep)",
+  "  dirs[:]=sorted(d for d in dirs if d not in ('.git','__pycache__','.venv'))[:200]",
+  "  if lvl>=depth: dirs[:]=[]",
+  "  for f in sorted(files)[:500]:",
+  "   fp=os.path.join(base,f)",
+  "   try: out.append({'path':rel(fp),'bytes':os.lstat(fp).st_size,'link':os.path.islink(fp)})",
+  "   except OSError: pass",
+  "  if len(out)>2000: break",
+  " print(json.dumps({'entries':out[:2000],'truncated':len(out)>2000}))",
+  "elif op=='read':",
+  " if not os.path.isfile(p): print(json.dumps({'error':'not a regular file'})); sys.exit(0)",
+  " off=max(0,int(q.get('offset') or 0)); n=min(int(q.get('maxBytes') or 20000),60000); size=os.path.getsize(p)",
+  " with open(p,'rb') as fh: fh.seek(off); data=fh.read(n)",
+  " print(json.dumps({'path':rel(p),'bytes':size,'offset':off,'content':data.decode('utf-8','replace'),'truncated':off+len(data)<size}))",
+  "elif op=='search':",
+  " rx=re.compile(q['pattern'][:200]); hits=[]; limit=min(int(q.get('maxMatches') or 100),300)",
+  " for base,dirs,files in os.walk(p):",
+  "  dirs[:]=[d for d in dirs if d not in ('.git','__pycache__','.venv','site-packages')]",
+  "  for f in files:",
+  "   fp=os.path.join(base,f)",
+  "   try:",
+  "    if os.path.islink(fp) or os.path.getsize(fp)>2000000: continue",
+  "    with open(fp,'r',encoding='utf-8',errors='replace') as fh:",
+  "     for i,line in enumerate(fh,1):",
+  "      if rx.search(line): hits.append({'path':rel(fp),'line':i,'text':line.rstrip()[:300]})",
+  "      if len(hits)>=limit: break",
+  "   except OSError: pass",
+  "   if len(hits)>=limit: break",
+  "  if len(hits)>=limit: break",
+  " print(json.dumps({'matches':hits,'truncated':len(hits)>=limit}))",
+].join("\n");
+
 function mountArgument(source: string, target: string, readonly: boolean): string {
   if (source.includes(",") || target.includes(",")) {
     throw new LabError("input_rejected", "mount paths must not contain commas");
   }
   return `type=bind,src=${source},dst=${target}${readonly ? ",readonly" : ""}`;
+}
+
+function describeCommand(command: z.infer<typeof ArgvCommandSchema>): string {
+  const text = [command.executable, ...command.args].join(" ");
+  return text.length > 160 ? `${text.slice(0, 157)}...` : text;
 }
 
 function emptyText(): BoundedText {

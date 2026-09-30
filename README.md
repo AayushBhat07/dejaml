@@ -38,12 +38,15 @@ Open <http://localhost:5173>. The replay does not execute a new study; the boots
 
 ### Complete live-agent run
 
-The backend now creates its own per-run agent sessions. Configure a server-side
-model in `.env.local` (the `DEJAML_MODEL` and `DEJAML_MODEL_BASE_URL` values)
-and supply `DEJAML_MODEL_API_KEY` as a server environment secret. For an
-unauthenticated local OpenAI-compatible endpoint, the key may be omitted.
-No OpenClaw installation, personal agent configuration, or model account is
-required from the person visiting the website.
+The backend creates its own agents. An administrator lists the model providers
+the website may offer in `.env.local` (`DEJAML_ANTHROPIC_MODELS`,
+`DEJAML_OPENAI_MODELS`, or an OpenAI-compatible `DEJAML_CUSTOM_BASE_URL` with
+`DEJAML_CUSTOM_MODELS`) and supplies the matching `DEJAML_*_API_KEY` as a server
+environment secret. The browser only picks a configured provider and model; it
+never sees a key or a base URL. When `DEJAML_ALLOW_UPLOADER_KEYS=1` and a listed
+provider has no server key, the website asks the uploader for one, which is used
+in memory for that study only. No OpenClaw installation or personal agent
+configuration is needed.
 
 Then run:
 
@@ -51,7 +54,13 @@ Then run:
 npm run start:local
 ```
 
-Open <http://127.0.0.1:8787> and upload `artifacts/demo/paper.pdf`. The command reads `.env.local`, verifies the local image identity and required files, and starts the real API. The API is intentionally bound to loopback because it has no authentication.
+Open <http://127.0.0.1:8787> and upload `artifacts/demo/paper.pdf`. A paper without a reviewed case goes to the multi-agent study (see `docs/phases/phase-06/subphase-06-04-multi-agent-study.md`). To check a real-model study end to end against the running API:
+
+```bash
+node apps/api/scripts/accept-real-paper.mjs <paper.pdf> [https://github.com/owner/repo]
+```
+
+The command reads `.env.local`, verifies the local image identity and required files, and starts the real API. The API is intentionally bound to loopback because it has no authentication.
 
 ### Lab Agent tool loop
 

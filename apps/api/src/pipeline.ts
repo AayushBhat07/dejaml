@@ -11,21 +11,41 @@ import type {
   PaperDocument,
   PlanPolicyResult,
   RepositoryAcquisition,
+  RepositoryCandidate,
   RunEvent,
   RunStatus,
 } from "@dejaml/contracts";
-import { type ArtifactContent, type AttemptOutcome, type CleanupReceipt, type LabManager, labSpecFromPlan } from "@dejaml/lab-manager";
+import type { ChatProvider } from "@dejaml/agent-runtime";
+import type { ResourceBudgetSchema } from "@dejaml/contracts";
+import {
+  type ArtifactContent,
+  type AttemptOutcome,
+  type CleanupReceipt,
+  type LabManager,
+  labSpecFromPlan,
+} from "@dejaml/lab-manager";
 import { ingestPdf, PaperIntakeError } from "@dejaml/paper-intake";
+import type { DependencyPreparer } from "@dejaml/prep";
 import {
   acquireGithubRepository,
   cleanupAcquiredRepository,
   discoverGithubRepositories,
 } from "@dejaml/repository-intake";
-import { runAudit, runLabAgent, runLeadResearch, runParallelAnalysis, type StructuredModelClient } from "@dejaml/research-runtime";
+import {
+  runAudit,
+  runLabAgent,
+  runLeadResearch,
+  runParallelAnalysis,
+  type StructuredModelClient,
+} from "@dejaml/research-runtime";
 import { verifyResult } from "@dejaml/result-verifier";
+import type { z } from "zod";
 import type { RunStore } from "@dejaml/run-store";
 
 import type { CuratedCase } from "./cases.js";
+import { type LeakCheck, type MultiAgentReport, runMultiAgentStudy, type StudyConfig } from "./study/index.js";
+
+type ResourceBudget = z.infer<typeof ResourceBudgetSchema>;
 
 export type PipelineDependencies = {
   store: RunStore;
@@ -39,6 +59,27 @@ export type PipelineDependencies = {
   acquire?: typeof acquireGithubRepository;
   /** Experimental tool-driven lab execution; the curated path remains the default. */
   labAgentEnabled?: boolean;
+  /**
+   * Papers without a reviewed case: separate agents (Supervisor, analysts,
+   * planner, engineers, reviewers) run the study in sealed labs.
+   */
+  multiAgent?: MultiAgentOptions;
+};
+
+export type MultiAgentOptions = {
+  enabled: boolean;
+  /** Trust zone 2; null disables dependency preparation (the labs then have only the image's Python). */
+  prep: DependencyPreparer | null;
+  config: Omit<StudyConfig, "image" | "provider">;
+  leakCheck?: LeakCheck;
+};
+
+export const DEFAULT_STUDY_RESOURCES: ResourceBudget = {
+  cpus: 2,
+  memoryMb: 4096,
+  pids: 256,
+  timeoutSeconds: 1800,
+  networkDuringRun: false,
 };
 
 export type StudyReport = {
@@ -64,6 +105,8 @@ export type StudyReport = {
   metric: Metric | null;
   assessment: Assessment | null;
   audit: AuditDecision | null;
+  /** Present when independent agents ran the study instead of a reviewed plan. */
+  study?: MultiAgentReport;
   failure: string | null;
   events: RunEvent[];
 };
@@ -82,7 +125,18 @@ class StudyCancelled extends Error {
  * a cleanup receipt.
  */
 export async function runStudy(
-  input: { runId: string; fileName: string; data: Uint8Array; signal: AbortSignal },
+  input: {
+    runId: string;
+    fileName: string;
+    data: Uint8Array;
+    signal: AbortSignal;
+    /** A repository the uploader named; it is tried before links found in the paper. */
+    repositoryUrl?: string;
+    /** Whose model key drives the agents; recorded without the key itself. */
+    modelSource?: "server" | "uploader";
+    /** The configured provider and model the agents use; the key stays inside the provider. */
+    agents?: { provider: ChatProvider; selection: { id: string; model: string } };
+  },
   deps: PipelineDependencies,
 ): Promise<StudyReport> {
   const { runId, signal } = input;
@@ -158,10 +212,34 @@ export async function runStudy(
 
     // 2. Repository discovery: only a reviewed case may proceed.
     store.transitionRun(runId, "discovering_repository");
-    const candidates = discoverGithubRepositories(paper);
+    const discovered = discoverGithubRepositories(paper);
+    const provided = input.repositoryUrl;
+    const candidates: RepositoryCandidate[] = provided
+      ? [
+          {
+            ...(discovered.find((candidate) => candidate.repositoryUrl === provided) ?? {
+              repositoryUrl: provided,
+              owner: provided.split("/")[3] ?? "",
+              name: provided.split("/")[4] ?? "",
+              occurrences: [],
+            }),
+            providedByUser: true,
+          },
+          ...discovered.filter((candidate) => candidate.repositoryUrl !== provided),
+        ]
+      : discovered;
+    if (input.modelSource) {
+      event("model_connection", "completed", input.modelSource === "uploader" ? "Agents use the model key supplied with this study" : "Agents use the server's model connection", {
+        source: input.modelSource,
+        ...(input.agents ? { provider: input.agents.selection.id, model: input.agents.selection.model } : {}),
+      });
+    }
     const match = deps.cases.find((curated) =>
       candidates.some((candidate) => candidate.repositoryUrl === curated.policy.repository.url),
     );
+    if (!match && deps.multiAgent?.enabled && candidates[0]) {
+      return await multiAgentStudy(paper, candidates, deps.multiAgent);
+    }
     if (!match) {
       const summary =
         candidates.length === 0
@@ -366,6 +444,53 @@ export async function runStudy(
       );
     }
     await rm(acquisitionRoot, { recursive: true, force: true });
+  }
+
+  /**
+   * No reviewed case covers this paper: independent agents run the study
+   * under a Supervisor (see ./study), and the report records their evidence.
+   */
+  async function multiAgentStudy(paper: PaperDocument, candidates: RepositoryCandidate[], options: MultiAgentOptions): Promise<StudyReport> {
+    const agents = input.agents;
+    if (!agents) {
+      report.failure = "No model provider was selected for the agents";
+      event("agents_unavailable", "failed", report.failure, {});
+      finish("inconclusive");
+      return await finalize();
+    }
+    event("repository_found", "completed", "Found repository candidates; no reviewed case exists, so independent agents will run the study", {
+      candidates: candidates.map((candidate) => candidate.repositoryUrl),
+      autonomous: true,
+    });
+    const result = await runMultiAgentStudy(
+      { runId, paper, candidates, signal },
+      {
+        store,
+        labs: deps.labs,
+        prep: options.prep,
+        config: { ...options.config, image: deps.image, provider: agents.selection },
+        chatProvider: agents.provider,
+        workRoot: deps.workRoot,
+        ...(deps.acquire ? { acquire: deps.acquire } : {}),
+        ...(options.leakCheck ? { leakCheck: options.leakCheck } : {}),
+      },
+    );
+    report.study = result.report;
+    report.repository = result.repository;
+    report.metric = result.metric;
+    report.assessment = result.assessment;
+    report.failure = result.failure;
+    report.lab = {
+      image: deps.image.name,
+      imageId: result.imageId,
+      attempt: result.attempt,
+      stdout: result.stdout,
+      stderr: "",
+      logsTruncated: false,
+      cleanup: result.report.cleanup.labs.find((receipt) => !receipt.verifiedAbsent) ?? result.report.cleanup.labs.at(-1) ?? null,
+    };
+    if (!result.report.cleanup.verified) report.failure = [report.failure, "study cleanup could not be verified"].filter(Boolean).join("; ");
+    return await finalize();
   }
 
   async function finalize(): Promise<StudyReport> {

@@ -4,11 +4,14 @@ import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { LabManager } from "@dejaml/lab-manager";
-import { HostedModelClient } from "@dejaml/research-runtime";
+import { loadProviderConfig, ProviderConfigError, publicProviders } from "@dejaml/agent-runtime";
+import { DEFAULT_DATASET_POLICY, parseAllowedHosts } from "@dejaml/net-guard";
+import { DependencyPreparer, loadPrepPolicy } from "@dejaml/prep";
 import { RunStore } from "@dejaml/run-store";
 
 import { loadCases } from "./cases.js";
-import { createApiServer, recoverAfterRestart } from "./server.js";
+import { DEFAULT_STUDY_RESOURCES } from "./pipeline.js";
+import { createApiServer, legacyModelEnv, recoverAfterRestart } from "./server.js";
 
 const projectRoot = resolve(fileURLToPath(new URL("../../../", import.meta.url)));
 const dataDir = resolve(process.env.DEJAML_DATA_DIR ?? join(projectRoot, "artifacts", "api"));
@@ -22,17 +25,31 @@ const imageLock = JSON.parse(await readFile(join(projectRoot, "lab-images/python
 };
 const store = new RunStore(join(dataDir, "runs.sqlite"));
 const labs = new LabManager({ labRoot: join(dataDir, "labs"), events: (event) => store.appendEvent(event) });
-const model = new HostedModelClient({
-  baseUrl: process.env.DEJAML_MODEL_BASE_URL ?? "https://api.openai.com/v1",
-  model: process.env.DEJAML_MODEL ?? "",
-  ...(process.env.DEJAML_MODEL_API_KEY ? { apiKey: process.env.DEJAML_MODEL_API_KEY } : {}),
-});
+// Providers and models come only from the server's environment; the browser picks among them.
+let providers;
+try {
+  providers = loadProviderConfig(legacyModelEnv(process.env));
+} catch (error) {
+  process.stderr.write(`Model provider configuration is invalid:\n${error instanceof ProviderConfigError ? error.problems.join("\n") : String(error)}\n`);
+  process.exit(1);
+}
+// Trust zone 2: Python wheels are downloaded by short-lived, egress-restricted containers.
+const prep =
+  process.env.DEJAML_PREP_ENABLED === "0"
+    ? null
+    : new DependencyPreparer({ cacheDir: join(dataDir, "prep-cache"), policy: loadPrepPolicy(process.env), workRoot: join(dataDir, "prep-tmp") });
+const prepOrphans = await prep?.cleanupOrphans().catch(() => null);
+const datasetHosts = parseAllowedHosts(process.env.DEJAML_DATASET_ALLOWED_HOSTS ?? "");
+const number = (name: string, fallback: number): number => {
+  const value = Number(process.env[name] ?? "");
+  return Number.isFinite(value) && value > 0 ? value : fallback;
+};
 
 const recovery = await recoverAfterRestart({ store, labs, workRoot: dataDir });
 const api = createApiServer({
   store,
   labs,
-  model,
+  providers,
   cases: await loadCases(projectRoot),
   projectRoot,
   workRoot: dataDir,
@@ -42,12 +59,24 @@ const api = createApiServer({
     expectedImageId: process.env.DEJAML_EXPECTED_IMAGE_ID ?? imageLock.verifiedImageId,
   },
   labAgentEnabled: process.env.DEJAML_LAB_AGENT_ENABLED !== "0",
+  multiAgent: {
+    enabled: process.env.DEJAML_AUTONOMOUS !== "0",
+    prep,
+    config: {
+      resources: { ...DEFAULT_STUDY_RESOURCES, timeoutSeconds: number("DEJAML_LAB_TIMEOUT_SECONDS", DEFAULT_STUDY_RESOURCES.timeoutSeconds) },
+      engineers: Math.min(4, Math.floor(number("DEJAML_LAB_ENGINEERS", 2))),
+      datasetPolicy: { ...DEFAULT_DATASET_POLICY, allowedHosts: datasetHosts },
+      maxStudyMs: number("DEJAML_STUDY_MAX_MINUTES", 180) * 60_000,
+      commandTimeoutSeconds: number("DEJAML_COMMAND_TIMEOUT_SECONDS", 900),
+      maxDelegations: 8,
+    },
+  },
   webRoot: join(projectRoot, "apps/web/dist"),
 });
 
 api.server.listen(port, host, () => {
   process.stdout.write(
-    `DéjàML API on http://${host}:${port} (data: ${dataDir}; recovered ${recovery.interruptedRuns.length} interrupted run(s), ${recovery.orphanLabs} orphan lab(s))\n`,
+    `DéjàML API on http://${host}:${port} (data: ${dataDir}; recovered ${recovery.interruptedRuns.length} interrupted run(s), ${recovery.orphanLabs} orphan lab(s), ${prepOrphans?.containersRemoved.length ?? 0} orphan prep container(s); providers: ${publicProviders(providers).map((item) => item.id).join(", ") || "none"})\n`,
   );
 });
 

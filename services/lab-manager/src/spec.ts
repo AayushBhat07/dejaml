@@ -36,6 +36,8 @@ export const LabLimitsSchema = z.object({
   maxArtifactTotalBytes: z.number().int().positive().max(256 * 1024 * 1024),
   maxArtifactFiles: z.number().int().positive().max(1_000),
   tmpfsMb: z.number().int().positive().max(1_024),
+  /** Largest the writable scratch directory may grow (a prepared Python environment lives there). */
+  maxScratchMb: z.number().int().positive().max(20_480).optional(),
 });
 
 export const LabSpecSchema = z
@@ -47,11 +49,18 @@ export const LabSpecSchema = z
       .string()
       .regex(/^\/workspace(?:\/[A-Za-z0-9._-]+)+$/u, "workdir must be beneath /workspace"),
     artifactsDir: WorkspaceRelativePathSchema,
+    /** Optional writable directory for agent-authored scripts; created empty for every lab. */
+    scratchDir: WorkspaceRelativePathSchema.optional(),
     inputs: z.array(LabInputSchema),
     resources: ResourceBudgetSchema,
     limits: LabLimitsSchema,
   })
   .superRefine((spec, context) => {
+    const overlaps = (left: string, right: string): boolean =>
+      left === right || left.startsWith(`${right}/`) || right.startsWith(`${left}/`);
+    if (spec.scratchDir && overlaps(spec.scratchDir, spec.artifactsDir)) {
+      context.addIssue({ code: "custom", message: "scratch directory overlaps the artifact directory" });
+    }
     const seen = new Set<string>();
     for (const input of spec.inputs) {
       if (seen.has(input.containerPath)) {
@@ -68,6 +77,12 @@ export const LabSpecSchema = z
           message: `input ${input.containerPath} overlaps the writable artifact directory`,
         });
       }
+      if (spec.scratchDir && overlaps(input.containerPath, spec.scratchDir)) {
+        context.addIssue({
+          code: "custom",
+          message: `input ${input.containerPath} overlaps the writable scratch directory`,
+        });
+      }
     }
   });
 
@@ -81,6 +96,7 @@ export const DEFAULT_LAB_LIMITS: LabLimits = {
   maxArtifactTotalBytes: 32 * 1024 * 1024,
   maxArtifactFiles: 64,
   tmpfsMb: 64,
+  maxScratchMb: 3_072,
 };
 
 /**

@@ -93,4 +93,61 @@ describe("live mode", () => {
     expect(screen.getByRole("heading", { name: "New study" })).toBeTruthy();
     expect(window.location.search).toBe("");
   });
+
+  it("offers only the server's providers and models, and sends the key only with the upload", async () => {
+    const replay = new ReplayRunClient(1);
+    const calls: Array<{ name: string; options: unknown }> = [];
+    const client = {
+      mode: "live" as const,
+      config: async () => ({
+        providers: [
+          { id: "anthropic", label: "Anthropic", models: ["claude-opus-5-5", "claude-sonnet-5-5"], keySource: "uploader" as const },
+          { id: "custom", label: "Lab model", models: ["llama"], keySource: "server" as const },
+        ],
+      }),
+      createRun: async (paper: File, options?: unknown) => {
+        calls.push({ name: paper.name, options });
+        return replay.createRun(paper);
+      },
+      subscribe: replay.subscribe.bind(replay),
+      cancel: replay.cancel.bind(replay),
+      reportUrl: () => null,
+    };
+    window.history.replaceState(null, "", "/");
+    const { unmount } = render(<App client={client} />);
+    const key = await screen.findByLabelText("API key");
+    await act(async () => {
+      fireEvent.change(screen.getByTestId("paper-input"), {
+        target: { files: [new File(["%PDF-1.7\nbody"], "paper.pdf", { type: "application/pdf" })] },
+      });
+    });
+    await screen.findByText("paper.pdf");
+    const start = screen.getByRole("button", { name: "Start study" }) as HTMLButtonElement;
+    expect(start.disabled).toBe(true);
+    expect(screen.getByText("Choose a model and enter the API key to start.")).toBeTruthy();
+    expect(screen.queryByLabelText("API base URL")).toBeNull();
+
+    fireEvent.change(screen.getByLabelText("Model"), { target: { value: "claude-sonnet-5-5" } });
+    fireEvent.change(key, { target: { value: "sk-secret" } });
+    fireEvent.change(screen.getByLabelText("Code repository (optional)"), {
+      target: { value: "https://github.com/example/new-paper" },
+    });
+    expect(start.disabled).toBe(false);
+    await act(async () => {
+      fireEvent.click(start);
+    });
+    expect(calls).toEqual([
+      {
+        name: "paper.pdf",
+        options: {
+          model: { providerId: "anthropic", model: "claude-sonnet-5-5", apiKey: "sk-secret" },
+          repositoryUrl: "https://github.com/example/new-paper",
+        },
+      },
+    ]);
+    expect(JSON.stringify(window.localStorage)).not.toContain("sk-secret");
+    expect(window.location.href).not.toContain("sk-secret");
+    unmount();
+    window.history.replaceState(null, "", "/");
+  });
 });

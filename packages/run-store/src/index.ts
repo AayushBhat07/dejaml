@@ -9,6 +9,10 @@ import {
   RunStatusSchema,
 } from "@dejaml/contracts";
 
+import { AgentLedger } from "./ledger.js";
+
+export * from "./ledger.js";
+
 type AppendEventInput = Omit<RunEvent, "id" | "sequence" | "timestamp"> & {
   id?: string;
   timestamp?: string;
@@ -51,14 +55,18 @@ const ALLOWED_TRANSITIONS: Record<RunStatus, readonly RunStatus[]> = {
 export class RunStore {
   readonly #database: DatabaseSync;
   readonly #events = new EventEmitter();
+  /** Agent identities, conversations, tool receipts, messages, and the evidence board. */
+  readonly ledger: AgentLedger;
 
   constructor(filename = ":memory:") {
     this.#database = new DatabaseSync(filename);
     this.#database.exec("PRAGMA foreign_keys = ON");
     if (filename !== ":memory:") {
       this.#database.exec("PRAGMA journal_mode = WAL");
+      this.#database.exec("PRAGMA busy_timeout = 5000");
     }
     this.#migrate();
+    this.ledger = new AgentLedger(this.#database);
   }
 
   #migrate(): void {

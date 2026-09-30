@@ -1,0 +1,20 @@
+{
+  "id": "msg_fixture_tool_001",
+  "type": "message",
+  "role": "assistant",
+  "model": "claude-opus-5-5",
+  "content": [
+    { "type": "text", "text": "I'll run the evaluation script and read the metrics." },
+    { "type": "tool_use", "id": "toolu_fixture_01A", "name": "run_command", "input": { "command": "python eval.py", "timeout_s": 900 } },
+    { "type": "tool_use", "id": "toolu_fixture_01B", "name": "read_file", "input": { "path": "results/metrics.json" } }
+  ],
+  "stop_reason": "tool_use",
+  "stop_sequence": null,
+  "stop_details": null,
+  "usage": {
+    "input_tokens": 1500,
+    "cache_creation_input_tokens": 1200,
+    "cache_read_input_tokens": 0,
+    "output_tokens": 120
+  }
+}

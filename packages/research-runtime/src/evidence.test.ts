@@ -1,14 +1,24 @@
-import { mkdir, mkdtemp, symlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 
 import { buildPaperEvidenceBundle, snapshotRepositoryForAnalysis } from "./evidence.js";
 
+
+const tempRoots: string[] = [];
+async function tempRoot(prefix: string): Promise<string> {
+  const root = await mkdtemp(join(tmpdir(), prefix));
+  tempRoots.push(root);
+  return root;
+}
+afterEach(async () => {
+  await Promise.all(tempRoots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
+});
 describe("repository evidence snapshot", () => {
   it("reads bounded relevant files, strips notebook outputs, redacts tokens, and skips secrets", async () => {
-    const root = await mkdtemp(join(tmpdir(), "dejaml-evidence-test-"));
+    const root = await tempRoot("dejaml-evidence-test-");
     await mkdir(join(root, "src"));
     await writeFile(join(root, "README.md"), "Run python src/train.py");
     const syntheticToken = ["sk", "abcdefghijklmnopqrstuvwxyz1234"].join("-");

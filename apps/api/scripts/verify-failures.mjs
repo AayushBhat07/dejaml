@@ -52,7 +52,8 @@ async function serve([projectRoot, workRoot, dbPath, imageId, timeoutSeconds]) {
   const { LabManager } = await import("@dejaml/lab-manager");
   const { RunStore } = await import("@dejaml/run-store");
   const { createApiServer, loadCases, recoverAfterRestart } = await import("../dist/index.js");
-  const { ScriptedModel, standInAcquire } = await import("../dist/stand-ins.js");
+  const { ScriptedModel, ScriptedStudyProvider, standInAcquire } = await import("../dist/stand-ins.js");
+  const { loadProviderConfig } = await import("@dejaml/agent-runtime");
   const cases = await loadCases(projectRoot);
   const store = new RunStore(dbPath);
   const labs = new LabManager({ labRoot: join(workRoot, "labs"), events: (event) => store.appendEvent(event) });
@@ -60,7 +61,10 @@ async function serve([projectRoot, workRoot, dbPath, imageId, timeoutSeconds]) {
   const api = createApiServer({
     store,
     labs,
-    model: new ScriptedModel(cases[0], Number(timeoutSeconds)),
+    // Stand-ins only: a scripted provider behind a placeholder server key; no model is called.
+    providers: loadProviderConfig({ DEJAML_OPENAI_API_KEY: "stand-in-key-not-used", DEJAML_OPENAI_MODELS: "stand-in", DEJAML_ALLOW_UPLOADER_KEYS: "0" }),
+    providerFactory: () => new ScriptedStudyProvider(cases[0].policy.repository.url),
+    structuredModel: () => new ScriptedModel(cases[0], Number(timeoutSeconds)),
     cases,
     projectRoot,
     workRoot,

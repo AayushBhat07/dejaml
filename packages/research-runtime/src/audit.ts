@@ -33,7 +33,8 @@ export async function runAudit(input: {
   paperAnalysis: PaperAnalysis;
   metric: Metric;
   assessment: Assessment;
-  plan: ExperimentPlan;
+  plan: Pick<ExperimentPlan, "claim">;
+  labSession?: Record<string, unknown>;
   modelClient: StructuredModelClient;
   signal?: AbortSignal;
 }): Promise<AuditResult> {
@@ -54,6 +55,7 @@ export async function runAudit(input: {
       assessment: input.assessment,
       paperClaimedValue: input.plan.claim.metric.reportedValue,
       paperClaimedUnit: input.plan.claim.metric.unit,
+      ...(input.labSession ? { labSession: input.labSession } : {}),
     });
     const decision = await input.modelClient.complete({
       sessionId: `${input.runId}:audit_agent`,

@@ -19,10 +19,24 @@ pinned `dejaml/python-cpu:0.1.0` image, and the case dataset in
 | `HOST` / `PORT` | `127.0.0.1` / `8787` | Listen address. |
 | `DEJAML_DATA_DIR` | `artifacts/api` | SQLite run store, lab directories, and reports. |
 | `DEJAML_EXPECTED_IMAGE_ID` | image lock | Override on a platform other than `linux/arm64`. |
-| `DEJAML_MODEL_BASE_URL` | `https://api.openai.com/v1` | Server-owned compatible API base URL. |
-| `DEJAML_MODEL` | required | Server model identifier. |
-| `DEJAML_MODEL_API_KEY` | unset | Server secret; required by cloud providers. |
+| `DEJAML_ANTHROPIC_MODELS` / `DEJAML_ANTHROPIC_API_KEY` | `claude-opus-5-5,claude-sonnet-5-5` / unset | Anthropic models the website may offer, and the server key. |
+| `DEJAML_OPENAI_MODELS` / `DEJAML_OPENAI_API_KEY` | unset | OpenAI models and the server key. |
+| `DEJAML_CUSTOM_BASE_URL` / `_MODELS` / `_API_KEY` / `_LABEL` | unset | One administrator-configured OpenAI-compatible endpoint (HTTPS; plain HTTP only for localhost with `DEJAML_CUSTOM_ALLOW_LOCAL_HTTP=1`). |
+| `DEJAML_ALLOW_UPLOADER_KEYS` | `1` | Lets an uploader supply a key for a listed provider that has no server key. The key is used only in memory for that study and never stored, logged, or put in a report. |
+| `DEJAML_MODEL_PRICES` | unset | JSON price table for cost tracking. No prices are built in. |
+| `DEJAML_MODEL` / `DEJAML_MODEL_BASE_URL` / `DEJAML_MODEL_API_KEY` | unset | Legacy single-model settings, mapped onto the OpenAI or custom provider at startup. |
 | `DEJAML_LAB_AGENT_ENABLED` | enabled | Set to `0` for the original deterministic lab path. |
+| `DEJAML_AUTONOMOUS` | enabled | Papers without a reviewed case go to the multi-agent study. Set to `0` to keep them inconclusive. |
+| `DEJAML_LAB_ENGINEERS` | `2` | Independent Lab Engineers per study (1 to 4), each in its own offline lab. |
+| `DEJAML_STUDY_MAX_MINUTES` / `DEJAML_COMMAND_TIMEOUT_SECONDS` / `DEJAML_LAB_TIMEOUT_SECONDS` | `180` / `900` / `1800` | Study deadline, per-command limit, and lab lifetime. |
+| `DEJAML_PREP_ENABLED`, `DEJAML_PREP_IMAGE`, `DEJAML_PREP_ALLOWED_HOSTS`, `DEJAML_PREP_CA_BUNDLE` | enabled | The egress-restricted wheel download zone. |
+| `DEJAML_DATASET_ALLOWED_HOSTS` | empty | Dataset hosts the study may download from over HTTPS. Empty refuses every download. |
+
+To prove the multi-agent study against real Docker, GitHub and PyPI with a scripted model (infrastructure only; it never claims a reproduction):
+
+```bash
+node apps/api/scripts/verify-study-docker.mjs
+```
 
 To drive the full UI without a model, GitHub, or Docker, run the stand-in stack. It uses the real API, pipeline, policy gate, Lab Manager, and Result Verifier, with scripted stand-ins only for those three services:
 

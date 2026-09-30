@@ -5,11 +5,22 @@ import {
   ExperimentPlanSchema,
   MetricSchema,
   type Attempt,
-  type ExperimentPlan,
   type Metric,
+  type ExperimentPlan,
 } from "@dejaml/contracts";
 
 export type MetricUnit = Metric["unit"];
+
+/**
+ * The part of a plan the verifier reads. A reviewed ExperimentPlan satisfies
+ * it, and so does the plan an autonomous lab session records for its result.
+ */
+export const VerificationPlanSchema = ExperimentPlanSchema.pick({ claim: true, metricExtraction: true }).extend({
+  dataset: ExperimentPlanSchema.shape.dataset.pick({ name: true }),
+});
+export type VerificationPlan = Pick<ExperimentPlan, "claim" | "metricExtraction"> & {
+  dataset: Pick<ExperimentPlan["dataset"], "name">;
+};
 
 export class MetricExtractionError extends Error {
   readonly code: string;
@@ -39,13 +50,13 @@ const FORBIDDEN_KEYS = new Set(["__proto__", "prototype", "constructor"]);
  * `observedUnit` says otherwise; the reviewed policy pairs each key with a unit.
  */
 export function extractMetric(input: {
-  plan: ExperimentPlan;
+  plan: VerificationPlan;
   attempt: Attempt;
   artifact?: ExportedArtifact;
   stdout?: string;
   observedUnit?: MetricUnit;
 }): Metric {
-  const plan = ExperimentPlanSchema.parse(input.plan);
+  const plan = VerificationPlanSchema.parse(input.plan);
   const attempt = AttemptSchema.parse(input.attempt);
   const rule = plan.metricExtraction;
   const split = plan.claim.split ?? "unspecified";

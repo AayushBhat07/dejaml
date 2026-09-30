@@ -5,6 +5,23 @@ import recordedRunMeta from "../../../../fixtures/events/urban-land-cover-succes
 
 export type RunHandle = { runId: string };
 
+/**
+ * The model the agents use for one study: a provider and model the server
+ * offers. An optional key is sent with the upload and kept only in memory.
+ */
+export type ModelSettings = { providerId: string; model: string; apiKey?: string };
+
+export type StudyOptions = {
+  model?: ModelSettings;
+  /** A GitHub repository to use when the paper does not link one. */
+  repositoryUrl?: string;
+};
+
+/** A provider the server's administrator configured. `uploader` means the study must bring a key. */
+export type ProviderOption = { id: string; label: string; models: string[]; keySource: "server" | "uploader" };
+
+export type ServerConfig = { providers: ProviderOption[] };
+
 /** Where replayed events came from, so the UI can label them honestly. */
 export type ReplaySource =
   | { kind: "prepared" }
@@ -26,7 +43,9 @@ export interface RunClient {
   readonly mode: "live" | "replay";
   /** Set in replay mode. */
   readonly replaySource?: ReplaySource;
-  createRun(paper: File): Promise<RunHandle>;
+  createRun(paper: File, options?: StudyOptions): Promise<RunHandle>;
+  /** What the server needs before a study can start; null in replay mode. */
+  config?(): Promise<ServerConfig | null>;
   /** Replays events after `afterSequence`, then streams new ones. Returns an unsubscribe function. */
   subscribe(runId: string, afterSequence: number, subscription: RunSubscription): () => void;
   cancel(runId: string): Promise<void>;
@@ -43,9 +62,20 @@ export class HttpRunClient implements RunClient {
     this.#base = base;
   }
 
-  async createRun(paper: File): Promise<RunHandle> {
+  async config(): Promise<ServerConfig | null> {
+    const response = await fetch(`${this.#base}/config`).catch(() => null);
+    return response?.ok ? ((await response.json()) as ServerConfig) : null;
+  }
+
+  async createRun(paper: File, options: StudyOptions = {}): Promise<RunHandle> {
     const body = new FormData();
     body.append("paper", paper, paper.name);
+    if (options.model) {
+      body.append("providerId", options.model.providerId);
+      body.append("modelName", options.model.model);
+      if (options.model.apiKey) body.append("apiKey", options.model.apiKey);
+    }
+    if (options.repositoryUrl) body.append("repositoryUrl", options.repositoryUrl);
     const response = await fetch(`${this.#base}/runs`, { method: "POST", body });
     if (!response.ok) {
       const detail = (await response.json().catch(() => null)) as { error?: string } | null;
@@ -97,7 +127,7 @@ export class ReplayRunClient implements RunClient {
     this.replaySource = source;
   }
 
-  async createRun(_paper: File): Promise<RunHandle> {
+  async createRun(_paper: File, _options?: StudyOptions): Promise<RunHandle> {
     return { runId: `replay_${Date.now().toString(36)}` };
   }
 

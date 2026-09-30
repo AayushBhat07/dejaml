@@ -10,8 +10,10 @@ import { fileURLToPath } from "node:url";
 import { LabManager } from "@dejaml/lab-manager";
 import { RunStore } from "@dejaml/run-store";
 
+import { loadProviderConfig } from "@dejaml/agent-runtime";
+
 import { createApiServer, loadCases } from "../dist/index.js";
-import { ScriptedModel, ScriptedRuntime, STAND_IN_IMAGE_ID, paperPdf, standInAcquire } from "../dist/stand-ins.js";
+import { ScriptedModel, ScriptedRuntime, ScriptedStudyProvider, STAND_IN_IMAGE_ID, paperPdf, standInAcquire } from "../dist/stand-ins.js";
 
 const repoRoot = fileURLToPath(new URL("../../../", import.meta.url));
 const port = Number(process.env.PORT ?? "8787");
@@ -33,10 +35,18 @@ runtime.execDelayMs = Number(process.env.STAND_IN_EXEC_MS ?? "3000");
 const timeoutSeconds = Number(process.env.STAND_IN_TIMEOUT_S ?? "120");
 if (process.env.STAND_IN_MODE === "hang") runtime.mode = "hang";
 const labs = new LabManager({ runtime, labRoot: join(work, "labs"), events: (event) => store.appendEvent(event) });
+const model = new ScriptedModel(cases[0], timeoutSeconds, Number(process.env.STAND_IN_MODEL_MS ?? "1200"));
+// STAND_IN_REQUIRE_KEY=1 behaves like a server without its own key: the page asks for one.
 const api = createApiServer({
   store,
   labs,
-  model: new ScriptedModel(cases[0], timeoutSeconds, Number(process.env.STAND_IN_MODEL_MS ?? "1200")),
+  providers: loadProviderConfig(
+    process.env.STAND_IN_REQUIRE_KEY === "1"
+      ? { DEJAML_OPENAI_MODELS: "stand-in" }
+      : { DEJAML_OPENAI_API_KEY: "stand-in-key-not-used", DEJAML_OPENAI_MODELS: "stand-in" },
+  ),
+  providerFactory: () => new ScriptedStudyProvider(cases[0].policy.repository.url),
+  structuredModel: () => model,
   cases,
   projectRoot: join(work, "project"),
   workRoot: join(work, "data"),

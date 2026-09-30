@@ -23,14 +23,17 @@
     "record-fixture": "node scripts/record-fixture.mjs"
   },
   "dependencies": {
+    "@dejaml/agent-runtime": "0.1.0",
     "@dejaml/contracts": "0.1.0",
     "@dejaml/lab-manager": "0.1.0",
+    "@dejaml/net-guard": "0.1.0",
     "@dejaml/paper-intake": "0.1.0",
+    "@dejaml/prep": "0.1.0",
     "@dejaml/repository-intake": "0.1.0",
     "@dejaml/research-runtime": "0.1.0",
     "@dejaml/result-verifier": "0.1.0",
     "@dejaml/run-store": "0.1.0",
-    "zod": "^4.1.11",
-    "pdf-lib": "1.17.1"
+    "pdf-lib": "1.17.1",
+    "zod": "^4.1.11"
   }
 }

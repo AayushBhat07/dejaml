@@ -131,6 +131,22 @@ The initial unproven plumbing was removed in commit `0b4168a`: model-proposed st
 
 See `docs/phases/phase-06/subphase-06-02-auto-execution.md`.
 
+The dependency trust zone in 6.4 (egress-restricted wheel downloads and an offline install in the lab) meets these requirements for Python wheels.
+
+### 6.3 Autonomous multi-agent lab (offline) — `SUPERSEDED`
+
+An autonomous Lab Agent with a Planner, Engineer and Debugger inside each offline lab, three replicas and a Lab Reviewer. Superseded by 6.4 in the same pull request: the API now runs separate agents through the bounded agent runtime. The 6.3 library code and its Docker proof remain in `packages/research-runtime`, but the API no longer calls them.
+
+See `docs/phases/phase-06/subphase-06-03-autonomous-lab-agent.md`.
+
+### 6.4 Secure multi-agent study — `IN PROGRESS`
+
+Seven separate agents (Paper Analyst, Repository Analyst, Reproduction Planner, Lab Engineers, Debugger, Independent Reviewer, Supervisor) coordinate through a typed evidence board. Four trust zones handle repository acquisition, Python wheels, datasets and offline execution, and the final status is decided from evidence. Real OpenAI, Anthropic and custom-endpoint providers have server-side keys.
+
+Infrastructure is verified with real Docker, GitHub and PyPI. The real-model acceptance run on a lightweight paper is still to do.
+
+See `docs/phases/phase-06/subphase-06-04-multi-agent-study.md`.
+
 ## Change rule
 
 If a completed sub-phase is later reverted or materially changed:

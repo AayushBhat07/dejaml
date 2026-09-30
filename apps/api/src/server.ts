@@ -3,9 +3,21 @@ import { readdir, readFile, rm, stat } from "node:fs/promises";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { extname, join, normalize, resolve, sep } from "node:path";
 
+import {
+  type ChatProvider,
+  createChatProvider,
+  type LoadedProviderConfig,
+  ProviderConfigError,
+  ProviderSelectionError,
+  publicProviders,
+} from "@dejaml/agent-runtime";
 import { MAX_PDF_BYTES } from "@dejaml/paper-intake";
+import { canonicalizeGithubRepositoryUrl } from "@dejaml/repository-intake";
+import type { StructuredModelClient } from "@dejaml/research-runtime";
 
 import { runStudy, type PipelineDependencies, type StudyReport } from "./pipeline.js";
+import { ChatStructuredClient } from "./structured.js";
+import { removeStaleStudyDirs } from "./study/index.js";
 
 const MAX_UPLOAD_BYTES = MAX_PDF_BYTES + 64 * 1024;
 const HEARTBEAT_MS = 15_000;
@@ -20,7 +32,16 @@ const STATIC_TYPES: Record<string, string> = {
   ".ico": "image/x-icon",
 };
 
-export type ApiOptions = PipelineDependencies & {
+export type ApiOptions = Omit<PipelineDependencies, "model"> & {
+  /** Providers and models the administrator configured; the browser may pick only among these. */
+  providers: LoadedProviderConfig;
+  /**
+   * Builds the chat provider for one study. The key (the server's, or the
+   * uploader's) lives only inside that object, in memory, for the study.
+   */
+  providerFactory?: (providerId: string, model: string, uploaderKey?: string) => ChatProvider;
+  /** The curated path's structured-JSON client over the chosen provider (tests substitute a stand-in). */
+  structuredModel?: (provider: ChatProvider, model: string) => StructuredModelClient;
   /** Built web app to serve at `/`, if present. */
   webRoot?: string;
 };
@@ -64,8 +85,14 @@ async function readBody(request: IncomingMessage, limit: number): Promise<Buffer
   return Buffer.concat(chunks);
 }
 
-/** Extracts the `paper` file from a multipart upload using the platform's form parser. */
-async function readPaper(request: IncomingMessage): Promise<{ fileName: string; data: Uint8Array }> {
+type Upload = {
+  fileName: string;
+  data: Uint8Array;
+  field(name: string): string | null;
+};
+
+/** Extracts the `paper` file and text fields from a multipart upload using the platform's form parser. */
+async function readUpload(request: IncomingMessage): Promise<Upload> {
   const contentType = request.headers["content-type"] ?? "";
   if (!contentType.startsWith("multipart/form-data")) {
     throw new HttpError(415, "Upload the paper as multipart/form-data with a 'paper' field.");
@@ -83,11 +110,44 @@ async function readPaper(request: IncomingMessage): Promise<{ fileName: string; 
   }
   const paper = form.get("paper");
   if (!paper || typeof paper === "string") throw new HttpError(400, "No paper file was uploaded.");
-  return { fileName: paper.name || "paper.pdf", data: new Uint8Array(await paper.arrayBuffer()) };
+  return {
+    fileName: paper.name || "paper.pdf",
+    data: new Uint8Array(await paper.arrayBuffer()),
+    field: (name) => {
+      const value = form.get(name);
+      return typeof value === "string" && value.trim() !== "" ? value.trim() : null;
+    },
+  };
+}
+
+type Selection = { providerId: string; model: string; uploaderKey?: string };
+
+/**
+ * Reads the provider choice. Only configured provider ids and models are
+ * accepted; a base URL from the browser is refused, and the key is never echoed.
+ */
+function parseSelection(upload: Upload, config: LoadedProviderConfig): Selection {
+  if (upload.field("modelBaseUrl")) {
+    throw new HttpError(400, "Model endpoints are configured by the server administrator; choose one of the listed providers.");
+  }
+  const available = publicProviders(config);
+  const providerId = upload.field("providerId") ?? available[0]?.id ?? null;
+  if (!providerId) throw new HttpError(400, "No model provider is configured on this server.");
+  const provider = available.find((item) => item.id === providerId);
+  if (!provider) throw new HttpError(400, "Choose one of the configured model providers.");
+  const model = upload.field("modelName") ?? provider.models[0] ?? "";
+  if (!provider.models.includes(model)) throw new HttpError(400, "Choose one of the models listed for this provider.");
+  const apiKey = upload.field("apiKey");
+  if (!apiKey && provider.keySource === "uploader") throw new HttpError(400, `Enter an API key for ${provider.label} before starting a study.`);
+  return { providerId, model, ...(apiKey ? { uploaderKey: apiKey } : {}) };
 }
 
 export function createApiServer(options: ApiOptions): ApiServer {
   const { store } = options;
+  const providerFactory =
+    options.providerFactory ??
+    ((providerId: string, model: string, uploaderKey?: string) =>
+      createChatProvider(options.providers, providerId, model, uploaderKey === undefined ? {} : { uploaderKey }));
   const controllers = new Map<string, AbortController>();
   const reports = new Map<string, StudyReport>();
   let active: Promise<void> | null = null;
@@ -95,12 +155,42 @@ export function createApiServer(options: ApiOptions): ApiServer {
   const startRun = async (request: IncomingMessage, response: ServerResponse): Promise<void> => {
     // One lab at a time (ARCHITECTURE.md §17: no parallel labs).
     if (active) throw new HttpError(409, "Another study is still running. Try again when it finishes.");
-    const paper = await readPaper(request);
+    const upload = await readUpload(request);
+    const selection = parseSelection(upload, options.providers);
+    const rawRepository = upload.field("repositoryUrl");
+    let repositoryUrl: string | undefined;
+    if (rawRepository) {
+      try {
+        repositoryUrl = canonicalizeGithubRepositoryUrl(rawRepository).repositoryUrl;
+      } catch {
+        throw new HttpError(400, "The repository must be a public GitHub repository URL.");
+      }
+    }
+    let provider: ChatProvider;
+    try {
+      provider = providerFactory(selection.providerId, selection.model, selection.uploaderKey);
+    } catch (error) {
+      if (error instanceof ProviderSelectionError || error instanceof ProviderConfigError) throw new HttpError(400, error.message);
+      throw error;
+    }
+    const model = options.structuredModel ? options.structuredModel(provider, selection.model) : new ChatStructuredClient(provider, selection.model);
     const runId = `run_${randomUUID()}`;
-    store.createRun({ fileName: paper.fileName, bytes: paper.data.byteLength }, runId);
+    // Only the file's name and size are stored; the model key is never written anywhere.
+    store.createRun({ fileName: upload.fileName, bytes: upload.data.byteLength }, runId);
     const controller = new AbortController();
     controllers.set(runId, controller);
-    active = runStudy({ runId, ...paper, signal: controller.signal }, options)
+    active = runStudy(
+      {
+        runId,
+        fileName: upload.fileName,
+        data: upload.data,
+        signal: controller.signal,
+        ...(repositoryUrl ? { repositoryUrl } : {}),
+        modelSource: selection.uploaderKey ? "uploader" : "server",
+        agents: { provider, selection: { id: selection.providerId, model: selection.model } },
+      },
+      { ...options, model },
+    )
       .then((report) => {
         reports.set(runId, report);
       })
@@ -164,6 +254,9 @@ export function createApiServer(options: ApiOptions): ApiServer {
     const url = new URL(request.url ?? "/", "http://localhost");
     const method = request.method ?? "GET";
     if (url.pathname === "/api/runs" && method === "POST") return startRun(request, response);
+    if (url.pathname === "/api/config" && method === "GET") {
+      return sendJson(response, 200, { providers: publicProviders(options.providers) });
+    }
 
     const match = /^\/api\/runs\/([^/]+)(?:\/(events|cancel|report))?$/u.exec(url.pathname);
     if (match) {
@@ -253,6 +346,11 @@ export async function recoverAfterRestart(
       staleCheckouts += 1;
     }
   }
+  if (options.workRoot) staleCheckouts += await removeStaleStudyDirs(options.workRoot);
+  // Agents that were mid-loop are recorded as interrupted; a run is never resumed after a restart.
+  for (const agent of options.store.ledger.listUnfinishedAgents()) {
+    options.store.ledger.updateAgent(agent.id, { status: "interrupted", failure: "the service restarted" });
+  }
   const interrupted = options.store.listActiveRuns();
   for (const run of interrupted) {
     options.store.appendEvent({
@@ -267,4 +365,26 @@ export async function recoverAfterRestart(
     options.store.transitionRun(run.id, "failed");
   }
   return { interruptedRuns: interrupted.map((run) => run.id), orphanLabs: receipts.length, staleCheckouts };
+}
+
+/**
+ * Maps the earlier single-model settings (DEJAML_MODEL_BASE_URL, DEJAML_MODEL,
+ * DEJAML_MODEL_API_KEY) onto the provider settings, so an existing server
+ * setup keeps working. New settings win when both are present.
+ */
+export function legacyModelEnv(env: Record<string, string | undefined>): Record<string, string | undefined> {
+  const model = env.DEJAML_MODEL?.trim();
+  if (!model) return env;
+  const baseUrl = env.DEJAML_MODEL_BASE_URL?.trim() || "https://api.openai.com/v1";
+  const mapped = { ...env };
+  if (/^https:\/\/api\.openai\.com\/v1\/?$/u.test(baseUrl)) {
+    mapped.DEJAML_OPENAI_MODELS ??= model;
+    if (env.DEJAML_MODEL_API_KEY) mapped.DEJAML_OPENAI_API_KEY ??= env.DEJAML_MODEL_API_KEY;
+  } else if (!env.DEJAML_CUSTOM_BASE_URL) {
+    mapped.DEJAML_CUSTOM_BASE_URL = baseUrl;
+    mapped.DEJAML_CUSTOM_MODELS ??= model;
+    if (env.DEJAML_MODEL_API_KEY) mapped.DEJAML_CUSTOM_API_KEY ??= env.DEJAML_MODEL_API_KEY;
+    if (/^http:\/\/(localhost|127\.0\.0\.1)[:/]/u.test(baseUrl)) mapped.DEJAML_CUSTOM_ALLOW_LOCAL_HTTP ??= "1";
+  }
+  return mapped;
 }

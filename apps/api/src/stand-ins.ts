@@ -2,8 +2,8 @@
 // scripts/verify-stack.mjs to exercise the real API, pipeline, Lab Manager,
 // policy gate, and verifier without external services. Never used by main.ts.
 import { createHash } from "node:crypto";
-import { mkdtemp, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
 
 import {
   AuditDecisionSchema,
@@ -11,9 +11,10 @@ import {
   LeadResearchDecisionSchema,
   PaperAnalysisSchema,
   type ExperimentPlan,
-  type RepositoryAcquisition,
 } from "@dejaml/contracts";
+import type { ChatProvider, ChatRequest, ChatResponse, ToolCall } from "@dejaml/agent-runtime";
 import type { ContainerRuntime, RuntimeCommandOptions, RuntimeCommandResult } from "@dejaml/lab-manager";
+import { buildRepositoryManifest, type RepositoryReceipt } from "@dejaml/repository-intake";
 import type { StructuredCompletionRequest, StructuredModelClient } from "@dejaml/research-runtime";
 import { PDFDocument, StandardFonts } from "pdf-lib";
 
@@ -45,19 +46,60 @@ export class ScriptedRuntime implements ContainerRuntime {
   execDelayMs = 0;
   readonly containers = new Set<string>();
   execStarted: (() => void) | null = null;
-  #artifacts = "";
+  createArgs: string[] = [];
+  /** Make the first experiment run in each lab fail, to exercise recovery. */
+  failFirstRun = false;
+  /** Every `docker exec` argv, for assertions. */
+  readonly execs: string[][] = [];
+  readonly #mounts = new Map<string, { artifacts: string; scratch: string; runs: number }>();
   #kill: (() => void) | null = null;
 
   async docker(args: readonly string[], options: RuntimeCommandOptions = {}): Promise<RuntimeCommandResult> {
     const [command] = args;
     if (command === "image") return ok(`${STAND_IN_IMAGE_ID} 10001:10001`);
     if (command === "create") {
-      this.containers.add(args[args.indexOf("--name") + 1] ?? "");
+      this.createArgs = [...args];
+      const container = args[args.indexOf("--name") + 1] ?? "";
+      this.containers.add(container);
       const mount = args.find((arg) => arg.endsWith("dst=/workspace/case/artifacts")) ?? "";
-      this.#artifacts = /src=([^,]+),/u.exec(mount)?.[1] ?? "";
+      const scratchMount = args.find((arg) => arg.endsWith("dst=/workspace/case/work")) ?? "";
+      this.#mounts.set(container, {
+        artifacts: /src=([^,]+),/u.exec(mount)?.[1] ?? "",
+        scratch: /src=([^,]+),/u.exec(scratchMount)?.[1] ?? "",
+        runs: 0,
+      });
       return ok();
     }
     if (command === "exec") {
+      const name = args.findIndex((arg) => this.containers.has(arg));
+      const mounts = this.#mounts.get(args[name] ?? "") ?? { artifacts: "", scratch: "", runs: 0 };
+      const argv = args.slice(name + 1);
+      this.execs.push(argv);
+      if (argv[0] === "python" && argv[1] === "-c" && argv[2]?.startsWith("import base64")) {
+        // The Lab Manager's in-container file writer for agent-authored scripts.
+        const target = argv[3] ?? "";
+        const scratch = target.startsWith("/workspace/case/work/") ? mounts.scratch : "";
+        if (!scratch) return { ...ok(), exitCode: 1 };
+        const host = join(scratch, target.slice("/workspace/case/work/".length));
+        await mkdir(dirname(host), { recursive: true });
+        await writeFile(host, Buffer.from(argv[4] ?? "", "base64"));
+        return ok();
+      }
+      if (argv[0] === "python" && argv[1] === "-I" && argv[2] === "-S") {
+        // The Lab Manager's file inspector and background-process reaper.
+        const request = argv[5] ? (JSON.parse(argv[5]) as { op?: string; path?: string }) : null;
+        if (!request?.op) return ok("[]");
+        return ok(JSON.stringify(request.op === "read" ? { path: request.path, content: "import runpy\nrunpy.run_path('repo/train.py')\n", size: 44 } : { path: request.path, entries: ["repo/train.py", "work/run.py"] }));
+      }
+      if (argv[0] === "cat" && argv[1] === "/proc/1/task/1/children") return ok("7\n");
+      const inner = argv[0] === "timeout" ? argv.slice(3) : argv;
+      // Exploration such as `find` or `ls` inside an autonomous lab.
+      if (inner[0] !== "python") return ok("repo/train.py\n");
+      mounts.runs += 1;
+      if (this.failFirstRun && mounts.runs === 1) {
+        options.onOutput?.("stderr", "Traceback (most recent call last):\nFileNotFoundError: [Errno 2] No such file or directory: 'sheet1.csv'\n");
+        return { ...ok(), exitCode: 1, stderr: { text: "FileNotFoundError: [Errno 2] No such file or directory: 'sheet1.csv'\n", bytes: 70, truncated: false } };
+      }
       this.execStarted?.();
       if (this.mode === "hang") {
         options.onOutput?.("stdout", "training…\n");
@@ -75,7 +117,7 @@ export class ScriptedRuntime implements ContainerRuntime {
         options.onOutput?.("stdout", `stand-in progress ${step}/3\n`);
         await new Promise((resolve) => setTimeout(resolve, this.execDelayMs / 3));
       }
-      await writeFile(join(this.#artifacts, "result.json"), RESULT);
+      await writeFile(join(mounts.artifacts, "result.json"), RESULT);
       options.onOutput?.("stdout", 'DEJAML_RESULT={"accuracyPercent":79.88}\n');
       return ok('DEJAML_RESULT={"accuracyPercent":79.88}\n');
     }
@@ -101,6 +143,11 @@ export class ScriptedRuntime implements ContainerRuntime {
 
 /** Returns reviewed analyses so the pipeline can be exercised without a model provider. */
 export class ScriptedModel implements StructuredModelClient {
+  /** The repository the analysts report; defaults to the curated case's. */
+  repositoryUrl: string | null = null;
+  /** The Lab Reviewer's verdict per replica session; approves by default. */
+  reviewVerdict: (sessionId: string) => "approve" | "reject" = () => "approve";
+
   constructor(
     private readonly curated: CuratedCase,
     private readonly timeoutSeconds: number,
@@ -114,6 +161,56 @@ export class ScriptedModel implements StructuredModelClient {
     if (this.delayMs > 0) await new Promise((resolve) => setTimeout(resolve, this.delayMs));
     if (request.signal?.aborted) throw new Error("cancelled");
     const policy = this.curated.policy;
+    const repositoryUrl = this.repositoryUrl ?? policy.repository.url;
+    if (request.role === "lab_planner") {
+      return {
+        value: request.schema.parse({
+          summary: "Wrap repo/train.py in a small adapter and write the accuracy to artifacts/result.json.",
+          entrypoint: "repo/train.py",
+          steps: ["Write work/run.py that runs repo/train.py", "Run it", "Submit artifacts/result.json"],
+          risks: [],
+        }),
+      };
+    }
+    if (request.role === "lab_debugger") {
+      return {
+        value: request.schema.parse({ diagnosis: "The script failed.", suggestedFix: "Check the path.", reproducibleHere: true }),
+      };
+    }
+    if (request.role === "lab_reviewer") {
+      const verdict = this.reviewVerdict(request.sessionId);
+      return {
+        value: request.schema.parse({
+          verdict,
+          summary: verdict === "approve" ? "The adapter runs the repository's training script." : "The metric is not computed by the repository's model.",
+          concerns: verdict === "approve" ? [] : ["metric written without running the model"],
+        }),
+      };
+    }
+    if (request.role === "lab_agent" && request.systemPrompt.includes("sealed Linux container")) {
+      // Autonomous session: write an adapter, run it, submit what the run produced.
+      const step = (JSON.parse(request.prompt) as { step?: number }).step ?? 1;
+      const actions = [
+        {
+          tool: "write_file",
+          path: "work/run.py",
+          content: "import json, runpy\nrunpy.run_path('repo/train.py')\n",
+          why: "Wrap the repository's training script",
+        },
+        { tool: "run", argv: ["python", "work/run.py"], why: "Run the experiment" },
+        {
+          tool: "submit",
+          metricFile: "artifacts/result.json",
+          key: "metrics.accuracyPercent",
+          metricName: "accuracy",
+          unit: "percent",
+          split: "official test set",
+          dataset: policy.claim.dataset,
+          summary: "Ran the repository's Random Forest on the official test set",
+        },
+      ];
+      return { value: request.schema.parse(actions[step - 1] ?? { tool: "give_up", reason: "script ended" }) };
+    }
     if (request.role === "lab_agent") {
       const observation = JSON.parse(request.prompt) as { state: string };
       const action = ({
@@ -145,7 +242,7 @@ export class ScriptedModel implements StructuredModelClient {
             schemaVersion: 1,
             status: "ready",
             summary: "Extracted Random Forest test accuracy of 81.66%",
-            selectedRepositoryUrl: policy.repository.url,
+            selectedRepositoryUrl: repositoryUrl,
             claim,
             reasons: [],
             warnings: [],
@@ -175,7 +272,7 @@ export class ScriptedModel implements StructuredModelClient {
             status: "ready",
             summary: "Mapped the paper claim to a CPU-compatible Random Forest run",
             mapping: {
-              repositoryUrl: policy.repository.url,
+              repositoryUrl,
               commitSha: policy.repository.commitSha,
               entrypoint: NOTEBOOK_PATH,
               relevantFiles: [
@@ -221,7 +318,10 @@ export class ScriptedModel implements StructuredModelClient {
   }
 }
 
-export async function paperPdf(withLink = true): Promise<Uint8Array> {
+export async function paperPdf(
+  withLink = true,
+  repositoryUrl = "https://github.com/mtesha/tdl-vs-ml-urbanlandcover",
+): Promise<Uint8Array> {
   const pdf = await PDFDocument.create();
   const font = await pdf.embedFont(StandardFonts.Helvetica);
   pdf.addPage([612, 792]).drawText("Urban Land Cover: Random Forest test accuracy of 81.66 percent on the test set.", {
@@ -232,23 +332,27 @@ export async function paperPdf(withLink = true): Promise<Uint8Array> {
   });
   pdf.addPage([612, 792]).drawText(
     withLink
-      ? "Code: https://github.com/mtesha/tdl-vs-ml-urbanlandcover for reproducibility of every table."
+      ? `Code: ${repositoryUrl} for reproducibility of every table.`
       : "Code is available from the authors on request for reproducibility of every table.",
     { x: 40, y: 730, size: 11, font },
   );
   return pdf.save();
 }
 
-/** Creates a checkout containing only the curated notebook, pinned to the reviewed commit. */
+/** Creates a checkout containing the curated notebook and a training script, pinned to the reviewed commit. */
 export function standInAcquire(
   curated: CuratedCase,
   created: string[] = [],
   commitSha = curated.policy.repository.commitSha,
 ) {
-  return async (input: { repositoryUrl: string; destinationRoot: string }): Promise<RepositoryAcquisition> => {
+  return async (input: { repositoryUrl: string; destinationRoot: string }): Promise<RepositoryReceipt> => {
+    await mkdir(input.destinationRoot, { recursive: true });
     const destination = await mkdtemp(join(input.destinationRoot, "dejaml-repo-"));
     created.push(destination);
     await writeFile(join(destination, NOTEBOOK_PATH), NOTEBOOK);
+    await writeFile(join(destination, "train.py"), "print('training')\n");
+    await writeFile(join(destination, "requirements.txt"), "scikit-learn==1.9.1\n");
+    const manifest = await buildRepositoryManifest(destination);
     return {
       schemaVersion: 1,
       repositoryUrl: input.repositoryUrl,
@@ -257,6 +361,181 @@ export function standInAcquire(
       repositorySizeKb: 10,
       destination,
       acquiredAt: new Date().toISOString(),
+      metadataSource: "unavailable",
+      fileCount: manifest.entries.length,
+      totalBytes: manifest.bytes,
+      manifestSha256: manifest.sha256,
+      manifest: manifest.entries,
     };
   };
+}
+
+type ScriptedCall = { name: string; input: unknown };
+
+/**
+ * Plays every role of the multi-agent study from a fixed script, for tests
+ * and infrastructure proofs only. It exercises the real runtime, tools, labs,
+ * and verdict code; it is not a model, and a run driven by it is never an
+ * acceptance run. Each agent's next step is read from its own conversation.
+ */
+export class ScriptedStudyProvider implements ChatProvider {
+  readonly id = "scripted";
+  readonly kind = "scripted" as const;
+  /** How the Independent Reviewers judge each submission. */
+  review: { verdict: "approve" | "reject"; equivalence: "equivalent" | "minor_deviations" | "not_equivalent" } = { verdict: "approve", equivalence: "minor_deviations" };
+  /** Engineers ask a Debugger for help after a failed run. */
+  debugOnFailure = true;
+  /** Delay per model call, so tests can cancel mid-study. */
+  delayMs = 0;
+  readonly systems: string[] = [];
+  #counter = 0;
+
+  constructor(private readonly repositoryUrl: string) {}
+
+  async chat(request: ChatRequest): Promise<ChatResponse> {
+    if (this.delayMs > 0) await new Promise((resolve) => setTimeout(resolve, this.delayMs));
+    if (request.signal?.aborted) throw Object.assign(new Error("cancelled"), { name: "AbortError" });
+    this.systems.push(request.system);
+    const role = /^You are the ([A-Za-z ]+), one independent agent/u.exec(request.system)?.[1] ?? "";
+    const turns = request.messages.filter((message) => message.role === "assistant").length;
+    const toolResults = request.messages.filter((message) => message.role === "tool");
+    const last = toolResults.at(-1);
+    const lastJson = (): Record<string, unknown> => {
+      try {
+        return JSON.parse(last && last.role === "tool" ? last.content : "{}") as Record<string, unknown>;
+      } catch {
+        return {};
+      }
+    };
+    const first = request.messages[0];
+    const inputs = first && first.role === "user" ? (JSON.parse(first.content.slice(first.content.indexOf("\n{") + 1)) as Record<string, unknown>) : {};
+    const calls = this.#step(role, turns, inputs, lastJson, last?.role === "tool" ? last.isError : false);
+    const toolCalls: ToolCall[] = calls.map((call) => ({ id: `call_${++this.#counter}`, name: call.name, input: call.input, rawInput: JSON.stringify(call.input) }));
+    return {
+      id: `scripted_${this.#counter}`,
+      provider: "scripted",
+      model: request.model,
+      text: null,
+      toolCalls,
+      stopReason: "tool_use",
+      usage: { inputTokens: 200, outputTokens: 40 },
+      costUsd: null,
+      attempts: 1,
+    };
+  }
+
+  #step(role: string, turn: number, inputs: Record<string, unknown>, last: () => Record<string, unknown>, lastFailed: boolean): ScriptedCall[] {
+    const finish = (input: unknown): ScriptedCall[] => [{ name: "finish", input }];
+    switch (role) {
+      case "Supervisor": {
+        const stages = ["analysis", "plan", "engineering", "review"];
+        const stage = stages[turn];
+        return stage
+          ? [{ name: "delegate", input: { stage, objective: `Run the ${stage} stage.` } }]
+          : finish({ proposedStatus: "partially_reproduced", rationale: "Engineers agree; an adapter wraps the official script." });
+      }
+      case "Paper Analyst":
+        if (turn === 0) return [{ name: "paper_search", input: { query: "accuracy" } }];
+        return finish({
+          schemaVersion: 1,
+          status: "ready",
+          summary: "Random Forest test accuracy of 81.66% on UCI Urban Land Cover.",
+          selectedRepositoryUrl: this.repositoryUrl,
+          claim: {
+            experimentLabel: "Random Forest on UCI Urban Land Cover",
+            dataset: "UCI Urban Land Cover",
+            split: "official test set",
+            model: "Random Forest",
+            metric: { name: "accuracy", unit: "percent", reportedValue: 81.66 },
+            seed: null,
+            hyperparameters: {},
+            evidence: [{ kind: "paper_page", reference: "page 1", excerpt: "Random Forest test accuracy of 81.66" }],
+            missingFields: ["seed"],
+            confidence: "high",
+          },
+          reasons: [],
+          warnings: [],
+        });
+      case "Repository Analyst": {
+        const candidates = (inputs.repositoryCandidates as Array<{ url: string }> | undefined) ?? [];
+        if (turn === 0) return [{ name: "repo_acquire", input: { repositoryUrl: candidates[0]?.url ?? this.repositoryUrl } }];
+        if (turn === 1) return [{ name: "repo_list", input: {} }];
+        return finish({
+          status: "ready",
+          summary: "train.py trains the Random Forest and prints the test accuracy.",
+          entrypoints: [{ path: "train.py", why: "trains and evaluates the model" }],
+          dataFiles: [],
+          dependencyFiles: ["requirements.txt"],
+          metricSources: [{ path: "train.py", description: "prints accuracy" }],
+          runInstructions: "python train.py",
+          warnings: [],
+        });
+      }
+      case "Reproduction Planner":
+        if (turn === 0) return [{ name: "board_read", input: { kinds: ["paper_claim", "repository_mapping"] } }];
+        return finish({
+          status: "ready",
+          summary: "Run train.py through a small adapter that writes the accuracy to artifacts/result.json.",
+          target: { experimentLabel: "Random Forest on UCI Urban Land Cover", metric: "accuracy", unit: "percent", reportedValue: 81.66 },
+          officialEntrypoint: { path: "train.py", why: "the repository's training script" },
+          steps: ["Write work/run.py that runs repo/train.py", "Run it", "Submit artifacts/result.json"],
+          environment: { requested: [], manifestPrepared: false, deviations: [] },
+          datasets: [{ name: "UCI Urban Land Cover", source: "repository", location: "repo/" }],
+          metricExtraction: "metrics.accuracyPercent in artifacts/result.json",
+          adapterExpected: true,
+          adapterJustification: "train.py prints the metric; the adapter writes it to JSON.",
+          risks: [],
+          blockedReason: null,
+        });
+      case "Lab Engineer": {
+        const steps: ScriptedCall[][] = [
+          [{ name: "lab_write_file", input: { path: "work/run.py", content: "import runpy\nrunpy.run_path('repo/train.py')\n" } }],
+          [{ name: "lab_run", input: { argv: ["python", "work/run.py"] } }],
+        ];
+        if (turn < steps.length) return steps[turn]!;
+        const result = last();
+        if (lastFailed && this.debugOnFailure && typeof result.receiptId === "string") {
+          return [{ name: "request_debugging", input: { question: "The run failed; why?", receiptIds: [result.receiptId] } }];
+        }
+        if (typeof result.diagnosis === "string") return [{ name: "lab_run", input: { argv: ["python", "work/run.py"] } }];
+        if (typeof result.receiptId === "string" && result.exitCode === 0) {
+          return finish({
+            status: "measured",
+            summary: "Ran the repository's train.py through a wrapper; it wrote the test accuracy.",
+            metricFile: "artifacts/result.json",
+            metricKey: "metrics.accuracyPercent",
+            unit: "percent",
+            producingReceiptId: result.receiptId,
+            officialCodeRan: true,
+            officialCommands: ["python work/run.py"],
+            adapters: [{ path: "work/run.py", why: "runs repo/train.py from a writable directory", source: "repo/train.py", differences: [], changesEvidenceEquivalence: false }],
+            deviations: [],
+            failureReason: null,
+          });
+        }
+        return [{ name: "give_up", input: { reason: "the run did not succeed" } }];
+      }
+      case "Debugger":
+        if (turn === 0) return [{ name: "lab_read", input: { path: "work/run.py" } }];
+        return finish({ diagnosis: "The script looked for its data in the wrong directory.", rootCause: "working directory", suggestedFix: "Run it again from /workspace/case.", fixableInLab: true, changesMethodology: false });
+      case "Independent Reviewer": {
+        const key = String(inputs.submissionKey ?? "");
+        if (turn === 0) return [{ name: "board_read", input: { key } }];
+        if (turn === 1) return [{ name: "artifact_read", input: { engineerAgentId: key, path: "artifacts/result.json" } }];
+        return finish({
+          verdict: this.review.verdict,
+          equivalence: this.review.equivalence,
+          summary: this.review.verdict === "approve" ? "The official script ran; the adapter only runs it." : "The metric does not come from the paper's model.",
+          checks: [
+            { name: "official code ran", passed: true, explanation: "command receipt shows python work/run.py wrapping repo/train.py" },
+            { name: "metric file from run", passed: true, explanation: "artifact digest matches the producing receipt" },
+            { name: "dataset and metric match", passed: this.review.verdict === "approve", explanation: "same dataset and metric as the claim" },
+          ],
+          concerns: [],
+        });
+      }
+      default:
+        return [{ name: "give_up", input: { reason: `unscripted role ${role}` } }];
+    }
+  }
 }

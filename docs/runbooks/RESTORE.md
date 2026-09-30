@@ -55,12 +55,16 @@ The receipt must report commit `49ece7ff4cc43fd4cb258678d44854f1cb2a417d` and `c
 
 ## 8. Restore parallel analysts
 
-Set `DEJAML_MODEL` and `DEJAML_MODEL_BASE_URL` for the API process and pass
-`DEJAML_MODEL_API_KEY` through its secret environment. The API creates separate
-in-process sessions for the Paper Analyst, Code Analyst, Lead Researcher, and
-Lab Agent. No visitor or operator OpenClaw installation or agent creation is
-part of the application path. Run `npm run check` for the deterministic runtime
-tests, then exercise the live API in section 13 with the curated paper.
+Configure a provider for the API process: list its models
+(`DEJAML_ANTHROPIC_MODELS`, `DEJAML_OPENAI_MODELS`, or `DEJAML_CUSTOM_BASE_URL`
+with `DEJAML_CUSTOM_MODELS`) and pass its `DEJAML_*_API_KEY` through the secret
+environment. The legacy `DEJAML_MODEL`, `DEJAML_MODEL_BASE_URL` and
+`DEJAML_MODEL_API_KEY` values still work and are mapped onto the OpenAI or
+custom provider. The API creates a separate agent, with its own conversation,
+for each analyst and lab role. No visitor or operator OpenClaw installation or
+agent creation is part of the application path. Run `npm run check` for the
+deterministic runtime tests, then exercise the live API in section 13 with the
+curated paper.
 
 The old `verify:curated:live` command exercises a legacy OpenClaw adapter
 only; it is not an acceptance test for the default application.

@@ -1,11 +1,9 @@
 import {
   AssessmentSchema,
   AttemptSchema,
-  ExperimentPlanSchema,
   MetricSchema,
   type Assessment,
   type Attempt,
-  type ExperimentPlan,
   type Metric,
   type RunEvent,
 } from "@dejaml/contracts";
@@ -16,6 +14,8 @@ import {
   MetricExtractionError,
   type ExportedArtifact,
   type MetricUnit,
+  type VerificationPlan,
+  VerificationPlanSchema,
 } from "./extract.js";
 
 export type VerifierEventInput = Omit<RunEvent, "id" | "sequence" | "timestamp">;
@@ -39,14 +39,14 @@ function round(value: number): number {
  * not a statement of statistical equivalence.
  */
 export function assessResult(input: {
-  plan: ExperimentPlan;
+  plan: VerificationPlan;
   attempt: Attempt;
   metric: Metric | null;
   tolerance: number;
   extractionFailure?: string;
   knownDiscrepancies?: string[];
 }): Assessment {
-  const plan = ExperimentPlanSchema.parse(input.plan);
+  const plan = VerificationPlanSchema.parse(input.plan);
   const attempt = AttemptSchema.parse(input.attempt);
   const metric = input.metric ? MetricSchema.parse(input.metric) : null;
   const claim = plan.claim;
@@ -195,7 +195,7 @@ export function describeAssessment(assessment: Assessment, unit: MetricUnit): st
  */
 export function verifyResult(input: {
   runId: string;
-  plan: ExperimentPlan;
+  plan: VerificationPlan;
   attempt: Attempt;
   artifact?: ExportedArtifact;
   stdout?: string;

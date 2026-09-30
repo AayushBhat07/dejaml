@@ -2,7 +2,7 @@ import type { RunEvent } from "@dejaml/contracts";
 
 import { Badge, type Tone } from "../components/Badge";
 import { EvidenceList } from "../components/Evidence";
-import { findingsFor, labViewFor, type AuditSummary } from "../lib/lab";
+import { findingsFor, labViewFor, studyResultFor, type AuditSummary, type StudyResult } from "../lib/lab";
 
 const AUDIT_VERDICTS: Record<AuditSummary["verdict"], { label: string; tone: Tone; explanation: string }> = {
   confirmed: {
@@ -61,6 +61,38 @@ const VERDICTS: Record<string, { label: string; tone: Tone; explanation: string 
   },
 };
 
+const STUDY_RESULTS: Record<StudyResult["status"], { label: string; tone: Tone; explanation: string }> = {
+  reproduced: { label: "Reproduced", tone: "positive", explanation: "Independent engineers agree, reviewers approved, and nothing in the method was changed." },
+  partially_reproduced: {
+    label: "Partially reproduced",
+    tone: "accent",
+    explanation: "The number matches, with declared deviations such as newer library versions or a wrapper script.",
+  },
+  not_reproduced: { label: "Not reproduced", tone: "warning", explanation: "A faithful run was agreed and reviewed, and it lands outside the tolerance." },
+  inconclusive: { label: "Inconclusive", tone: "neutral", explanation: "The evidence does not support a verdict either way." },
+  policy_blocked: { label: "Policy blocked", tone: "negative", explanation: "A safety policy stopped the study before it could measure the claim." },
+};
+
+function StudyResultCard({ result }: { result: StudyResult }) {
+  const info = STUDY_RESULTS[result.status];
+  return (
+    <article className="card stack" aria-labelledby="study-result-title" data-result={result.status}>
+      <div className="row">
+        <h3 id="study-result-title">Study result</h3>
+        <Badge tone={info.tone}>{info.label}</Badge>
+      </div>
+      <p className="muted small">{info.explanation}</p>
+      {result.reasons.length ? (
+        <ul className="scope-list small">
+          {result.reasons.map((reason) => (
+            <li key={reason}>{reason}</li>
+          ))}
+        </ul>
+      ) : null}
+    </article>
+  );
+}
+
 function formatValue(value: number | null, unit: string): string {
   if (value === null) return "–";
   return unit === "percent" ? `${value}%` : String(value);
@@ -79,11 +111,12 @@ export function Findings({
 }) {
   const findings = findingsFor(events);
   const lab = labViewFor(events);
+  const study = studyResultFor(events);
   if (!findings) {
     return (
       <section className="card stack" aria-labelledby="findings-title">
         <h2 id="findings-title">Findings</h2>
-        <p className="muted">The Result Verifier is still checking the metric.</p>
+        {study ? <StudyResultCard result={study} /> : <p className="muted">The Result Verifier is still checking the metric.</p>}
       </section>
     );
   }
@@ -113,6 +146,8 @@ export function Findings({
           )}
         </div>
       </div>
+
+      {study ? <StudyResultCard result={study} /> : null}
 
       <article className="card stack verdict" data-verdict={assessment.verdict}>
         <div className="row">

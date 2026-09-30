@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 import { ExperimentPolicySchema, type ExperimentPlan } from "@dejaml/contracts";
 import { describe, expect, it } from "vitest";
 
-import { LabSpecSchema, labSpecFromPlan } from "./spec.js";
+import { DEFAULT_LAB_LIMITS, LabSpecSchema, labSpecFromPlan } from "./spec.js";
 
 const projectRoot = fileURLToPath(new URL("../../../", import.meta.url));
 const policy = ExperimentPolicySchema.parse(
@@ -75,5 +75,29 @@ describe("labSpecFromPlan", () => {
     expect(withInput("artifacts/result.json")).toBe(false);
     expect(LabSpecSchema.safeParse({ ...base, workdir: "/" }).success).toBe(false);
     expect(LabSpecSchema.safeParse({ ...base, resources: { ...base.resources, networkDuringRun: true } }).success).toBe(false);
+  });
+});
+
+describe("scratch directory", () => {
+  const base = {
+    runId: "run_1",
+    image: "dejaml/python-cpu:0.1.0",
+    expectedImageId: `sha256:${"c".repeat(64)}`,
+    workdir: "/workspace/case",
+    artifactsDir: "artifacts",
+    resources: policy.maximumResources,
+    limits: DEFAULT_LAB_LIMITS,
+  };
+
+  it("accepts a scratch folder beside a read-only repository", () => {
+    const spec = LabSpecSchema.parse({ ...base, scratchDir: "work", inputs: [{ hostPath: "/tmp/repo", containerPath: "repo" }] });
+    expect(spec.scratchDir).toBe("work");
+  });
+
+  it("rejects a scratch folder that overlaps artifacts or an input", () => {
+    expect(() => LabSpecSchema.parse({ ...base, scratchDir: "artifacts/tmp", inputs: [] })).toThrow(/overlaps the artifact/u);
+    expect(() =>
+      LabSpecSchema.parse({ ...base, scratchDir: "repo/work", inputs: [{ hostPath: "/tmp/repo", containerPath: "repo" }] }),
+    ).toThrow(/overlaps the writable scratch/u);
   });
 });

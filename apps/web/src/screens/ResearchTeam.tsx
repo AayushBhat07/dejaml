@@ -9,7 +9,23 @@ const ROLE_BRIEFS: Partial<Record<RunEvent["actor"], string>> = {
   paper_analyst: "Reads the paper, finds the repository link, and picks one numeric claim.",
   code_analyst: "Reads the pinned repository and maps the claim to code it can run.",
   lead_researcher: "Reconciles both analyses into one experiment plan and checks it against policy.",
+  supervisor: "Delegates each stage to separate agents and reads their evidence; it can only make the result more cautious.",
+  repository_analyst: "Pins the repository by commit and maps its entry points, data, and dependencies. Never runs it.",
+  reproduction_planner: "Plans the run and prepares hash-pinned Python wheels outside the lab.",
+  lab_engineer: "Each engineer works alone in a sealed, offline lab and must show where its number came from.",
+  debugger: "Diagnoses a failed command when an engineer asks; it can read the lab but not change it.",
+  independent_reviewer: "Judges each submission from receipts and artifacts only, without the engineer's reasoning.",
 };
+
+const TEAM: ReadonlyArray<RunEvent["actor"]> = [
+  "supervisor",
+  "paper_analyst",
+  "repository_analyst",
+  "reproduction_planner",
+  "lab_engineer",
+  "debugger",
+  "independent_reviewer",
+];
 
 const LANE_BADGES: Record<LaneStatus, { label: string; tone: Tone }> = {
   waiting: { label: "Waiting", tone: "neutral" },
@@ -67,6 +83,7 @@ function RoleLane({ lane, waitingText }: { lane: Lane; waitingText: string }) {
 }
 
 export function ResearchTeam({ events }: { events: readonly RunEvent[] }) {
+  if (events.some((event) => event.type === "agent_started")) return <AgentTeam events={events} />;
   const paper = laneFor(events, "paper_analyst");
   const code = laneFor(events, "code_analyst");
   const lead = laneFor(events, "lead_researcher");
@@ -96,6 +113,29 @@ export function ResearchTeam({ events }: { events: readonly RunEvent[] }) {
         <RoleLane lane={code} waitingText="Starts once the repository is acquired." />
       </div>
       <RoleLane lane={lead} waitingText={leadWaiting} />
+    </section>
+  );
+}
+
+/** Lanes for a study run by separate agents; each lane is one role, possibly several instances. */
+function AgentTeam({ events }: { events: readonly RunEvent[] }) {
+  const agentEvents = events.filter((event) => event.type.startsWith("agent_") || TEAM.includes(event.actor));
+  const instances = new Set(events.filter((event) => event.type === "agent_started").map((event) => String(event.publicPayload.agentId ?? event.id))).size;
+  return (
+    <section className="stack" aria-labelledby="research-title">
+      <div className="row space-between">
+        <div className="stack-tight">
+          <h2 id="research-title">Research Team</h2>
+          <p className="muted small">
+            {instances} separate agent{instances === 1 ? "" : "s"}, each with its own conversation, tools, and limits.
+          </p>
+        </div>
+      </div>
+      <div className="lanes">
+        {TEAM.map((actor) => (
+          <RoleLane key={actor} lane={laneFor(agentEvents, actor)} waitingText="Not started." />
+        ))}
+      </div>
     </section>
   );
 }
