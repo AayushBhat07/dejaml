@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { StudyResultStatusSchema } from "./study.js";
+
 export const Sha256Schema = z
   .string()
   .regex(/^[a-f0-9]{64}$/, "expected a lowercase SHA-256 digest");
@@ -325,13 +327,7 @@ export const ActorSchema = z.enum([
  * measurement can be "reproduced"; a toy example, a rewritten approximation,
  * a changed dataset, a reduced sample, or a replacement metric never can.
  */
-export const ResultStatusSchema = z.enum([
-  "reproduced",
-  "partially_reproduced",
-  "not_reproduced",
-  "inconclusive",
-  "policy_blocked",
-]);
+export const ResultStatusSchema = StudyResultStatusSchema;
 
 export const AdapterRecordSchema = z.object({
   path: z.string().min(1),

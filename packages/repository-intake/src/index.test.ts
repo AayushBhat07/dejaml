@@ -1,4 +1,4 @@
-import { access, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { access, mkdir, mkdtemp, readdir, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -101,7 +101,7 @@ describe("GitHub repository discovery", () => {
 
 describe("GitHub repository acquisition", () => {
   const PINNED = "49ece7ff4cc43fd4cb258678d44854f1cb2a417d";
-  function fakeGit(options: { head?: string; checkoutSha?: string } = {}) {
+  function fakeGit(options: { head?: string; checkoutSha?: string; symlink?: string } = {}) {
     const commands: string[][] = [];
     const runGit = vi.fn(async (args: string[]) => {
       commands.push(args);
@@ -115,6 +115,7 @@ describe("GitHub repository acquisition", () => {
       if (args.includes("checkout")) {
         const destination = args[1]!;
         await writeFile(join(destination, "README.md"), "untrusted repository content");
+        if (options.symlink) await symlink(options.symlink, join(destination, "link"));
         return { stdout: "", stderr: "" };
       }
       if (args.includes("rev-parse")) return { stdout: `${options.checkoutSha ?? PINNED}\n`, stderr: "" };
@@ -176,6 +177,44 @@ describe("GitHub repository acquisition", () => {
 
     await cleanupAcquiredRepository({ destination: result.destination, destinationRoot });
     await expect(access(result.destination)).rejects.toThrow();
+  });
+
+  it("fetches an already pinned commit without re-pinning the branch head", async () => {
+    const destinationRoot = await tempRoot("dejaml-acquisition-test-");
+    const { commands, runGit } = fakeGit();
+    const result = await acquireGithubRepository(
+      { repositoryUrl: "https://github.com/mtesha/tdl-vs-ml-urbanlandcover", destinationRoot, commitSha: PINNED },
+      { fetch: (async () => githubResponse()) as typeof fetch, runGit, resolveHost: publicDns },
+    );
+    expect(commands.some((command) => command.includes("ls-remote"))).toBe(false);
+    expect(commands.find((command) => command.includes("fetch"))).toContain(PINNED);
+    expect(result.commitSha).toBe(PINNED);
+    await cleanupAcquiredRepository({ destination: result.destination, destinationRoot });
+    await expect(
+      acquireGithubRepository({ repositoryUrl: "https://github.com/mtesha/tdl-vs-ml-urbanlandcover", destinationRoot, commitSha: "main" }, { runGit, resolveHost: publicDns, fetch: (async () => githubResponse()) as typeof fetch }),
+    ).rejects.toMatchObject({ code: "commit_unavailable" });
+  });
+
+  it("rejects symlinks that point outside the checkout and removes it", async () => {
+    for (const target of ["/etc/passwd", "../../outside", "sub/../../escape"]) {
+      const destinationRoot = await tempRoot("dejaml-acquisition-test-");
+      const { runGit } = fakeGit({ symlink: target });
+      await expect(
+        acquireGithubRepository(
+          { repositoryUrl: "https://github.com/mtesha/tdl-vs-ml-urbanlandcover", destinationRoot },
+          { fetch: (async () => githubResponse()) as typeof fetch, runGit, resolveHost: publicDns },
+        ),
+      ).rejects.toMatchObject({ code: "unsafe_symlink" });
+      expect(await readdir(destinationRoot)).toEqual([]);
+    }
+    const destinationRoot = await tempRoot("dejaml-acquisition-test-");
+    const { runGit } = fakeGit({ symlink: "README.md" });
+    const inside = await acquireGithubRepository(
+      { repositoryUrl: "https://github.com/mtesha/tdl-vs-ml-urbanlandcover", destinationRoot },
+      { fetch: (async () => githubResponse()) as typeof fetch, runGit, resolveHost: publicDns },
+    );
+    expect(inside.manifest.find((entry) => entry.path === "link")).toMatchObject({ symlinkTarget: "README.md" });
+    await cleanupAcquiredRepository({ destination: inside.destination, destinationRoot });
   });
 
   it("continues without API metadata on 403 but rejects a missing repository", async () => {

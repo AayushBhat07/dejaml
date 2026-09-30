@@ -114,11 +114,15 @@ export const MetricParserSchema = z.discriminatedUnion("source", [
     path: z.string().regex(/^artifacts\/[A-Za-z0-9._/-]{1,200}$/u).refine((value) => !value.split("/").includes(".."), "no `..`"),
     /** Dot path to the number, such as `metrics.accuracy`. */
     key: z.string().regex(/^[A-Za-z0-9_-]+(\.[A-Za-z0-9_-]+){0,9}$/u),
+    /** The unit the code writes, when it differs from the paper's (fraction vs percent). */
+    unit: z.enum(["fraction", "percent", "score"]).optional(),
   }),
   z.object({
     source: z.literal("stdout"),
     /** A regular expression with exactly one capture group for the number, applied to the official command's stdout. */
     pattern: z.string().min(3).max(300),
+    /** The unit the code prints, when it differs from the paper's (fraction vs percent). */
+    unit: z.enum(["fraction", "percent", "score"]).optional(),
   }),
 ]);
 export type MetricParser = z.infer<typeof MetricParserSchema>;

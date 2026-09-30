@@ -10,8 +10,10 @@ import {
 } from "@dejaml/contracts";
 
 import { AgentLedger } from "./ledger.js";
+import { StudyStages } from "./stages.js";
 
 export * from "./ledger.js";
+export * from "./stages.js";
 
 type AppendEventInput = Omit<RunEvent, "id" | "sequence" | "timestamp"> & {
   id?: string;
@@ -57,6 +59,8 @@ export class RunStore {
   readonly #events = new EventEmitter();
   /** Agent identities, conversations, tool receipts, messages, and the evidence board. */
   readonly ledger: AgentLedger;
+  /** The persisted study state machine (stages, owners, retries, terminal state). */
+  readonly stages: StudyStages;
 
   constructor(filename = ":memory:") {
     this.#database = new DatabaseSync(filename);
@@ -67,6 +71,7 @@ export class RunStore {
     }
     this.#migrate();
     this.ledger = new AgentLedger(this.#database);
+    this.stages = new StudyStages(this.#database);
   }
 
   #migrate(): void {

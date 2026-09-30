@@ -343,6 +343,21 @@ export class AgentLedger {
     return { id, ...input, sequence: row.next, delivered: false, createdAt };
   }
 
+  /** Every explicit message of a run, in order, for the report (content is not returned). */
+  listMessages(filter: { runId: string }): AgentMessageRecord[] {
+    const rows = this.#db.prepare("SELECT * FROM agent_messages WHERE run_id = ? ORDER BY created_at, sequence").all(filter.runId) as Row[];
+    return rows.map((row) => ({
+      id: String(row.id),
+      runId: String(row.run_id),
+      fromAgentId: row.from_agent_id === null ? null : String(row.from_agent_id),
+      toAgentId: String(row.to_agent_id),
+      sequence: Number(row.sequence),
+      content: JSON.parse(String(row.content_json)) as Record<string, unknown>,
+      delivered: Number(row.delivered) === 1,
+      createdAt: String(row.created_at),
+    }));
+  }
+
   /** Undelivered messages for an agent, marked delivered in the same call. */
   takeMessages(agentId: string): AgentMessageRecord[] {
     const rows = this.#db

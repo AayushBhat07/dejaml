@@ -11,7 +11,7 @@ import {
   realpath,
   rm,
 } from "node:fs/promises";
-import { basename, dirname, isAbsolute, join, resolve } from "node:path";
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 
 import {
   type PaperDocument,
@@ -77,7 +77,9 @@ export class RepositoryIntakeError extends Error {
       | "acquisition_failed"
       | "checkout_too_large"
       | "unsafe_destination"
-      | "unsafe_network",
+      | "unsafe_network"
+      | "unsafe_symlink"
+      | "commit_unavailable",
   ) {
     super(message);
     this.name = "RepositoryIntakeError";
@@ -247,6 +249,15 @@ async function measureCheckout(root: string): Promise<{ bytes: number; files: nu
         files += 1;
       } else if (entry.isSymbolicLink()) {
         files += 1;
+        // A link must stay inside the checkout: no absolute targets, no escapes.
+        const target = await readlink(entryPath);
+        const resolved = resolve(dirname(entryPath), target);
+        if (isAbsolute(target) || (resolved !== root && !resolved.startsWith(`${root}${sep}`))) {
+          throw new RepositoryIntakeError(
+            `unsafe symlink ${relative(root, entryPath)} points outside the repository`,
+            "unsafe_symlink",
+          );
+        }
       }
       if (bytes > MAX_CHECKED_OUT_BYTES || files > MAX_CHECKED_OUT_FILES) {
         throw new RepositoryIntakeError(
@@ -367,6 +378,8 @@ export async function acquireGithubRepository(
   input: {
     repositoryUrl: string;
     destinationRoot: string;
+    /** Fetch exactly this commit instead of pinning the default branch head (for resuming a study). */
+    commitSha?: string;
     timeoutMs?: number;
     signal?: AbortSignal;
   },
@@ -467,13 +480,20 @@ export async function acquireGithubRepository(
     });
   }, 500);
   try {
-    // 1. Pin the default branch head to an immutable commit.
-    const remote = await runGit([...HARDENED_GIT_CONFIG, "ls-remote", "--symref", "--", canonical.repositoryUrl, "HEAD"], {
-      timeoutMs,
-      signal: watcher.signal,
-    });
-    const branch = /^ref:\s+refs\/heads\/(\S+)\s+HEAD$/mu.exec(remote.stdout)?.[1] ?? metadata?.default_branch ?? null;
-    const pinned = /^([a-f0-9]{40})\s+HEAD$/mu.exec(remote.stdout)?.[1] ?? null;
+    // 1. Pin the default branch head to an immutable commit, or use the one already pinned.
+    if (input.commitSha !== undefined && !/^[a-f0-9]{40}$/u.test(input.commitSha)) {
+      throw new RepositoryIntakeError("a pinned commit must be a full lowercase SHA", "commit_unavailable");
+    }
+    const remote = input.commitSha
+      ? { stdout: "" }
+      : await runGit([...HARDENED_GIT_CONFIG, "ls-remote", "--symref", "--", canonical.repositoryUrl, "HEAD"], {
+          timeoutMs,
+          signal: watcher.signal,
+        });
+    const branch = input.commitSha
+      ? (metadata?.default_branch ?? "pinned")
+      : (/^ref:\s+refs\/heads\/(\S+)\s+HEAD$/mu.exec(remote.stdout)?.[1] ?? metadata?.default_branch ?? null);
+    const pinned = input.commitSha ?? /^([a-f0-9]{40})\s+HEAD$/mu.exec(remote.stdout)?.[1] ?? null;
     if (!pinned || !branch) {
       throw new RepositoryIntakeError("could not pin the repository's default branch to a commit", "repository_unavailable");
     }
