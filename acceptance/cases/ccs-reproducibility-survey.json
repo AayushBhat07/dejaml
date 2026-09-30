@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "caseId": "ccs-reproducibility-survey",
+  "kind": "negative",
+  "paper": {
+    "title": "The reproducibility survey of machine-learning papers at security conferences (the paper that links the repository below)",
+    "file": null,
+    "note": "The PDF is not redistributed here; pass its path on the command line."
+  },
+  "repository": {
+    "url": "https://github.com/reproducibility-sec/reproducibility",
+    "commitSha": "b4410c426eed68fff090e3a1a75c86e52762d8a4",
+    "why": "The repository holds a hand-coded survey spreadsheet and figure scripts: no model, no split, and no single ML metric."
+  },
+  "expected": {
+    "statuses": ["inconclusive", "policy_blocked"],
+    "why": "There is no single model/dataset/metric claim to reproduce; a faithful study must not report it as reproduced."
+  }
+}

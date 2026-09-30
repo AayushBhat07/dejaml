@@ -1,48 +1,44 @@
-// Real-Docker infrastructure proof of the multi-agent study.
+// Real-Docker infrastructure proof of the multi-agent study, on a real paper.
 //
-// Everything is real except the model: the repository is cloned from GitHub
-// and pinned by SHA, Python wheels are resolved and downloaded by the
-// egress-restricted prep containers, every engineer gets its own sealed,
-// offline Docker lab, and the official figure.py of
-// reproducibility-sec/reproducibility runs inside it. The agents' decisions
-// come from a fixed script (ScriptedProofProvider below), so this proves the
-// runtime, tools, trust zones, evidence, and cleanup, NOT that a model can do
-// the study. It is never an acceptance run; see accept-real-paper.mjs for that.
+// Everything is real except the model: the pyts paper (JMLR 2020) is ingested
+// from its PDF, the official pyts-repro repository is cloned from GitHub and
+// pinned by SHA, the lab image is made ready by digest for the selected
+// platform, Python wheels are resolved and downloaded by the egress-restricted
+// prep containers, and the official BOSS notebook runs in a sealed, offline
+// Docker lab. The agents' decisions come from a fixed script
+// (ScriptedProofProvider below), so this proves the runtime, the stage
+// machine, the tools, the trust zones, the evidence and the cleanup. It does
+// NOT prove that a model can do the study, and it never counts as an
+// acceptance run; see accept-real-paper.mjs for that.
 //
-// Needs Docker, the lab image (default dejaml/lab-manager-proof:local, a
-// Python 3.13 image whose user is 10001), and python:3.13.15-slim-trixie for
-// the prep containers. On a machine whose outbound TLS is intercepted, set
-// DEJAML_PREP_CA_BUNDLE (it defaults to /root/.ccr/ca-bundle.crt when present).
+// Needs Docker, git access to GitHub, and access to the package index for the
+// prep containers. The Python 3.11 base image is used by digest (pull it once
+// with `docker pull python@sha256:e41613d4…` if it is missing). On a machine
+// whose outbound TLS is intercepted, set DEJAML_PREP_CA_BUNDLE (it defaults to
+// /root/.ccr/ca-bundle.crt when present).
+//
+//   npm run build && node apps/api/scripts/verify-study-docker.mjs
 import { spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
-import { mkdtemp, readdir, rm } from "node:fs/promises";
+import { mkdtemp, readdir, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
-import { LabManager } from "@dejaml/lab-manager";
-import { DependencyPreparer, loadPrepPolicy } from "@dejaml/prep";
+import { platformFromEnv } from "@dejaml/contracts";
+import { ImageReadiness, LabManager, loadBaseImageLock } from "@dejaml/lab-manager";
+import { ingestPdf } from "@dejaml/paper-intake";
+import { DependencyPreparer, loadCompatibilityConstraints, loadPrepPolicy } from "@dejaml/prep";
 import { RunStore } from "@dejaml/run-store";
 
-import { runMultiAgentStudy } from "../dist/study/index.js";
+import { preparerPort, readinessLabImagePort, runMultiAgentStudy } from "../dist/study/index.js";
 
-const REPOSITORY = "https://github.com/reproducibility-sec/reproducibility";
-const LAB_IMAGE = process.env.DEJAML_PROOF_LAB_IMAGE ?? "dejaml/lab-manager-proof:local";
-const VENV_PYTHON = "/workspace/case/work/.venv/bin/python";
-
-const inspect = spawnSync("docker", ["image", "inspect", LAB_IMAGE, "--format", "{{.Id}}"], { encoding: "utf8" });
-if (inspect.status !== 0) {
-  console.error(`The lab image ${LAB_IMAGE} is not present locally.`);
-  process.exit(2);
-}
-const labImageId = inspect.stdout.trim();
-
-const METRIC_SCRIPT = [
-  "import json, pandas as pd",
-  "df = pd.read_csv('work/repo/sheet1.csv')",
-  "share = float((pd.to_numeric(df['Available'], errors='coerce') > 0).mean())",
-  "json.dump({'metrics': {'codeAvailableShare': share, 'papers': int(len(df))}}, open('artifacts/metric.json', 'w'))",
-  "print('share of papers with code available:', round(share, 4))",
-].join("\n");
+const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
+const acceptance = JSON.parse(await readFile(join(projectRoot, "acceptance/cases/pyts-boss-gunpoint.json"), "utf8"));
+const ADAPTER = await readFile(join(projectRoot, "acceptance/proof/pyts_run_boss_notebook.py"), "utf8");
+const REPOSITORY = acceptance.repository.url;
+const TRUSTED = (await loadCompatibilityConstraints(join(projectRoot, "config/compatibility-constraints.txt"))).map((item) => ({ requirement: item.spec, reason: item.reason }));
+const PIP = TRUSTED.find((item) => item.requirement.startsWith("pip"));
 
 /** Plays each role from a fixed script; every step still goes through the real tools. */
 class ScriptedProofProvider {
@@ -63,7 +59,7 @@ class ScriptedProofProvider {
     }
     const first = request.messages[0];
     const inputs = JSON.parse(first.content.slice(first.content.indexOf("\n{") + 1));
-    const calls = this.#step(role, turn, inputs, lastJson, last?.isError === true, tools);
+    const calls = this.#step(role, turn, inputs, lastJson, last?.isError === true);
     return {
       id: `proof_${++this.calls}`,
       provider: this.id,
@@ -77,124 +73,96 @@ class ScriptedProofProvider {
     };
   }
 
-  #step(role, turn, inputs, last, lastFailed, tools) {
+  #step(role, turn, inputs, last, lastFailed) {
     const finish = (input) => [{ name: "finish", input }];
     switch (role) {
       case "Supervisor":
-        return [["analysis", "plan", "engineering", "review"][turn]].filter(Boolean).map((stage) => ({ name: "delegate", input: { stage, objective: `Run the ${stage} stage.` } }))
-          .concat(turn >= 4 ? finish({ proposedStatus: "inconclusive", rationale: "Scripted infrastructure proof; no model judged the evidence." }) : []);
+        if (inputs.resultKind === "verdict") return finish({ proposedStatus: inputs.computedStatus, rationale: "Scripted infrastructure proof: keeps the computed status." });
+        return finish({ action: "continue", reason: "none", guidance: "" });
       case "Paper Analyst":
-        if (turn === 0) return [{ name: "paper_read_page", input: { page: 1 } }];
+        if (turn === 0) return [{ name: "paper_read_page", input: { page: 4 } }];
         return finish({
-          schemaVersion: 1,
           status: "ready",
-          summary: "Placeholder claim for the infrastructure proof (not read from the real paper).",
+          summary: "Table 2 reports BOSS + 1-NN test accuracy per dataset; pyts reaches 1.000 on GunPoint.",
           selectedRepositoryUrl: REPOSITORY,
           claim: {
-            experimentLabel: "INFRASTRUCTURE PROOF placeholder: share of surveyed papers with code available",
-            dataset: "sheet1.csv survey",
-            split: null,
-            model: "survey statistics",
-            metric: { name: "code available share", unit: "fraction", reportedValue: 0.5 },
-            seed: null,
-            hyperparameters: {},
-            evidence: [{ kind: "paper_page", reference: "page 1", excerpt: "placeholder claim" }],
-            missingFields: ["the real paper was not provided to this proof"],
-            confidence: "low",
+            method: "BOSS transformer followed by a one-nearest-neighbor classifier with the BOSS metric",
+            dataset: "UCR GunPoint",
+            split: "the fixed UCR train/test split (test set)",
+            preprocessing: "not stated beyond the BOSS transformation",
+            seedPolicy: "not stated (the method is deterministic)",
+            metric: { name: "accuracy", unit: "fraction" },
+            reportedValue: 1,
+            page: 4,
+            location: "Table 2, row pyts, column GunPoint",
+            excerpt: "pyts 0.752 0.870 1.000 0.526 1.000",
+            missingFields: ["hyperparameters (in the notebook, not the PDF)"],
           },
           reasons: [],
-          warnings: ["placeholder claim; this run proves infrastructure only"],
         });
       case "Repository Analyst":
-        if (turn === 0) return [{ name: "repo_acquire", input: { repositoryUrl: inputs.repositoryCandidates[0].url } }];
-        if (turn === 1) return [{ name: "dependency_discover", input: {} }];
-        if (turn === 2) return [{ name: "repo_read", input: { path: "README.md" } }];
+        if (turn === 0) return [{ name: "repo_acquire", input: { repositoryUrl: inputs.repositoryCandidates?.[0]?.url ?? REPOSITORY } }];
+        if (turn === 1) return [{ name: "repo_list", input: { path: "0.10.0" } }];
         return finish({
           status: "ready",
-          summary: "figure.py reads sheet1.csv and artifact.csv from its working directory and writes Figure2-9.pdf there.",
-          entrypoints: [{ path: "figure.py", why: "README: Run figure.py" }],
-          dataFiles: [{ path: "sheet1.csv", why: "survey data" }, { path: "artifact.csv", why: "Figure 8 data" }],
-          dependencyFiles: ["requirements.txt"],
-          metricSources: [{ path: "figure.py", description: "computes the plotted shares" }],
-          runInstructions: "pip install -r requirements.txt; python figure.py (from the repository directory)",
-          warnings: ["requirements.txt pins 2020-era versions for Python 3.9"],
+          summary: "0.10.0/BOSS.ipynb fits BOSS + 1-NN on each UCR dataset in dataset_params and prints the test accuracy.",
+          entrypoints: [{ path: "0.10.0/BOSS.ipynb", why: "the notebook behind Table 2 for pyts 0.10.0" }],
+          dataFiles: [],
+          dependencyFiles: [],
+          metricSources: [{ path: "0.10.0/BOSS.ipynb", description: "prints 'Accuracy on the test set: x.xxx' per dataset" }],
+          runInstructions: "Run the notebook's cells in order with pyts 0.10.0 installed.",
+          warnings: ["datasets other than GunPoint are downloaded from timeseriesclassification.com at run time"],
         });
-      case "Reproduction Planner": {
-        const pinned = ["numpy==1.19.5", "pandas==1.2.0", "matplotlib==3.3.3", "seaborn==0.11.1"];
-        if (turn === 0) return [{ name: "dependency_resolvePython", input: { requirements: pinned } }];
-        if (turn === 1) return [{ name: "dependency_resolvePython", input: { requirements: ["numpy", "pandas", "matplotlib", "seaborn"] } }];
-        if (turn === 2) return [{ name: "dependency_downloadWheels", input: {} }];
-        const firstFailure = JSON.parse(tools[0]?.content ?? "{}");
+      case "Reproduction Planner":
+        if (turn === 0) return [{ name: "board_read", input: { kinds: ["paper_claim", "repository_mapping"] } }];
         return finish({
           status: "ready",
-          summary: "Install current wheels for figure.py's imports, run figure.py from a writable copy, and compute the share from sheet1.csv.",
-          target: { experimentLabel: "INFRASTRUCTURE PROOF placeholder: share of surveyed papers with code available", metric: "code available share", unit: "fraction", reportedValue: 0.5 },
-          officialEntrypoint: { path: "figure.py", why: "the repository's figure script" },
-          steps: ["Install the wheelhouse offline", "Copy the repository into work/", "Run figure.py", "Compute the share with an adapter"],
-          environment: {
-            requested: ["numpy", "pandas", "matplotlib", "seaborn"],
-            manifestPrepared: true,
-            deviations: [`pinned versions have no Python 3.13 wheels (${firstFailure.code ?? "resolution failed"} for ${firstFailure.requirement ?? "numpy"}); unpinned current versions used`],
-          },
-          datasets: [{ name: "sheet1.csv", source: "repository", location: "repo/sheet1.csv" }],
-          metricExtraction: "metrics.codeAvailableShare in artifacts/metric.json",
-          adapterExpected: true,
-          adapterJustification: "figure.py only plots; the adapter computes the plotted share as JSON.",
-          risks: ["newer pandas and matplotlib versions"],
+          summary: "Run the official notebook's code cells unchanged, keeping only GunPoint (the other datasets need downloads the offline lab cannot make).",
           blockedReason: null,
+          entrypoint: "0.10.0/BOSS.ipynb",
+          command: { argv: ["python", "../work/adapter/run_boss_notebook.py", "0.10.0/BOSS.ipynb", "GunPoint"], cwd: "repo" },
+          python: "3.11",
+          requirements: acceptance.environment.wheels,
+          // pyts 0.10.0's metadata is refused by pip 24.1+; the trusted file allows the older installer.
+          compatibilityConstraints: PIP ? [PIP] : [],
+          dataset: { name: "UCR GunPoint", source: { kind: "package", package: "pyts", path: "datasets/cached_datasets/UCR/GunPoint" } },
+          metricParser: { source: "stdout", pattern: "Accuracy on the test set: (\\d\\.\\d{3})" },
+          expectedRuntimeSeconds: 60,
+          stopConditions: ["the command exits non-zero", "no accuracy line is printed"],
+          adapter: {
+            path: "work/adapter/run_boss_notebook.py",
+            content: ADAPTER,
+            why: "The notebook is not a script, and its other datasets must be downloaded, which the offline lab cannot do.",
+            source: "0.10.0/BOSS.ipynb code cells, executed unchanged in order",
+            differences: ["dataset_params is filtered to GunPoint after the cell that defines it"],
+          },
+          risks: ["newer numpy/scipy/scikit-learn/numba than the authors' Python 3.7 environment"],
         });
-      }
-      case "Lab Engineer": {
-        const script = [
-          [{ name: "dependency_installOffline", input: {} }],
-          [{ name: "lab_run", input: { argv: [VENV_PYTHON, "repo/figure.py"], env: { MPLCONFIGDIR: "/tmp/mpl" }, timeoutSeconds: 300 } }],
-        ];
-        if (turn < script.length) return script[turn];
-        if (turn === 2 && lastFailed) return [{ name: "request_debugging", input: { question: "figure.py failed; why?", receiptIds: [last.receiptId].filter(Boolean) } }];
-        if (turn === 3) return [{ name: "lab_run", input: { argv: ["cp", "-r", "repo", "work/repo"] } }];
-        if (turn === 4) return [{ name: "lab_run", input: { argv: [VENV_PYTHON, "figure.py"], cwd: "work/repo", env: { MPLCONFIGDIR: "/tmp/mpl" }, timeoutSeconds: 600 } }];
-        if (turn === 5) return [{ name: "lab_write_file", input: { path: "work/metric.py", content: METRIC_SCRIPT } }];
-        if (turn === 6) return [{ name: "lab_run", input: { argv: [VENV_PYTHON, "work/metric.py"] } }];
-        if (turn === 7) return [{ name: "dependency_inspectEnvironment", input: {} }];
-        const produced = tools.map((tool) => { try { return JSON.parse(tool.content); } catch { return {}; } })
-          .filter((item) => item.exitCode === 0 && Array.isArray(item.artifacts) && item.artifacts.some((artifact) => artifact.path === "artifacts/metric.json"))
-          .at(-1);
-        return finish({
-          status: produced ? "measured" : "not_measured",
-          summary: "Ran the official figure.py from a writable copy, then computed the share of papers with code from sheet1.csv.",
-          metricFile: produced ? "artifacts/metric.json" : null,
-          metricKey: produced ? "metrics.codeAvailableShare" : null,
-          unit: produced ? "fraction" : null,
-          producingReceiptId: produced?.receiptId ?? null,
-          officialCodeRan: true,
-          officialCommands: ["python figure.py"],
-          adapters: [{ path: "work/metric.py", why: "figure.py plots but writes no number", source: "figure.py Available handling and sheet1.csv", differences: ["computes the share directly instead of reading it from a figure"], changesEvidenceEquivalence: false }],
-          deviations: ["current numpy/pandas/matplotlib/seaborn instead of the 2020 pins"],
-          failureReason: produced ? null : "the metric script did not run",
-        });
-      }
+      case "Lab Engineer":
+        if (turn === 0) return [{ name: "lab_run_official", input: {} }];
+        if (lastFailed && typeof last.receiptId === "string" && turn < 3) {
+          return [{ name: "request_debugging", input: { question: "The approved run failed; why?", receiptIds: [last.receiptId] } }];
+        }
+        if (typeof last.diagnosis === "string") return [{ name: "lab_run_official", input: {} }];
+        if (typeof last.receiptId === "string" && last.exitCode === 0) {
+          return finish({ status: "measured", summary: "Ran the approved command.", officialReceiptId: last.receiptId, deviations: [], failureReason: null });
+        }
+        return finish({ status: "not_measured", summary: "The approved command did not succeed.", officialReceiptId: null, deviations: [], failureReason: "the approved command did not succeed" });
       case "Debugger":
-        if (turn === 0) return [{ name: "lab_search", input: { path: "repo", pattern: "read_csv" } }];
-        return finish({
-          diagnosis: "figure.py opens sheet1.csv relative to the working directory and writes its PDFs there; the repository is read-only.",
-          rootCause: "working directory",
-          suggestedFix: "Copy the repository into work/ and run figure.py from that copy.",
-          fixableInLab: true,
-          changesMethodology: false,
-        });
+        if (turn === 0) return [{ name: "lab_logs", input: {} }];
+        return finish({ diagnosis: "See the logs.", rootCause: "unknown", suggestedFix: "Run the approved command again.", fixableWithoutChangingThePlan: true, changesMethodology: false });
       case "Independent Reviewer":
-        if (turn === 0) return [{ name: "board_read", input: { key: inputs.submissionKey } }];
-        if (turn === 1) return [{ name: "artifact_read", input: { engineerAgentId: inputs.submissionKey, path: "artifacts/metric.json" } }];
+        if (turn === 0) return [{ name: "board_read", input: { key: String(inputs.submissionKey ?? "") } }];
         return finish({
-          verdict: "reject",
-          equivalence: "not_equivalent",
-          summary: "The claim is a placeholder, and the number comes from an adapter rather than a value the paper's code reports.",
+          verdict: "approve",
+          equivalence: "minor_deviations",
+          summary: "The official notebook cells ran unchanged; the adapter only restricts which datasets are evaluated.",
           checks: [
-            { name: "official code ran", passed: true, explanation: "figure.py exited 0 in the lab" },
-            { name: "metric from the run", passed: true, explanation: "metric.json was written by the metric script's receipt" },
-            { name: "claim matches the paper", passed: false, explanation: "the claim is a placeholder, not read from the paper" },
+            { name: "official code ran", passed: true, explanation: "the approved command's receipt exited 0" },
+            { name: "same dataset and metric", passed: true, explanation: "GunPoint test accuracy, as in Table 2" },
+            { name: "metric from the run", passed: true, explanation: "the lab parsed the accuracy line from the official run's stdout" },
           ],
-          concerns: ["infrastructure proof only"],
+          concerns: ["an adapter selects GunPoint only"],
         });
       default:
         return [{ name: "give_up", input: { reason: `unscripted role ${role}` } }];
@@ -213,80 +181,82 @@ const store = new RunStore(join(root, "runs.sqlite"));
 const labs = new LabManager({ labRoot: join(root, "labs"), events: (event) => store.appendEvent(event) });
 const prepEnv = { ...process.env };
 if (!prepEnv.DEJAML_PREP_CA_BUNDLE && existsSync("/root/.ccr/ca-bundle.crt")) prepEnv.DEJAML_PREP_CA_BUNDLE = "/root/.ccr/ca-bundle.crt";
-const prep = new DependencyPreparer({ cacheDir: join(root, "prep-cache"), policy: loadPrepPolicy(prepEnv), workRoot: join(root, "prep-tmp") });
-const run = store.createRun({ fileName: "stand-in.pdf", bytes: 1 });
+const platform = platformFromEnv(process.env, process.arch);
+const readiness = new ImageReadiness();
+const preparer = new DependencyPreparer({ cacheDir: join(root, "prep-cache"), policy: loadPrepPolicy(prepEnv), workRoot: join(root, "prep-tmp"), imageProvider: readiness });
+const run = store.createRun({ fileName: "pyts-jmlr-2020-19-763.pdf", bytes: 1 });
 store.transitionRun(run.id, "ingesting");
 store.transitionRun(run.id, "discovering_repository");
-const paper = {
-  schemaVersion: 1,
-  file: { originalName: "stand-in.pdf", bytes: 1, sha256: "0".repeat(64) },
-  pageCount: 1,
-  pages: [{ pageNumber: 1, text: "INFRASTRUCTURE PROOF stand-in page; the real paper is not used here. Code: https://github.com/reproducibility-sec/reproducibility", charCount: 120 }],
-  totalTextChars: 120,
-  warnings: [],
-};
+const paper = await ingestPdf({ fileName: "pyts-jmlr-2020-19-763.pdf", data: new Uint8Array(await readFile(join(projectRoot, acceptance.paper.file))) });
+check("paper ingested from the real PDF", paper.file.sha256 === acceptance.paper.sha256, `sha256 ${paper.file.sha256}, ${paper.pageCount} pages`);
 
 const started = Date.now();
 const result = await runMultiAgentStudy(
   {
     runId: run.id,
     paper,
-    candidates: [{ repositoryUrl: REPOSITORY, owner: "reproducibility-sec", name: "reproducibility", occurrences: [{ pageNumber: 1, rawUrl: REPOSITORY }] }],
+    candidates: [{ repositoryUrl: REPOSITORY, owner: "johannfaouzi", name: "pyts-repro", occurrences: [{ pageNumber: 1, rawUrl: REPOSITORY }] }],
     signal: new AbortController().signal,
   },
   {
     store,
     labs,
-    prep,
+    dependencies: preparerPort(preparer),
+    images: readinessLabImagePort({ readiness, lock: await loadBaseImageLock(join(projectRoot, "lab-images/python-base/bases.lock.json")), contextDir: join(projectRoot, "lab-images/python-base") }),
+    datasets: null,
     config: {
-      image: { name: LAB_IMAGE, expectedImageId: labImageId },
-      resources: { cpus: 2, memoryMb: 3072, pids: 256, timeoutSeconds: 900, networkDuringRun: false },
-      engineers: 2,
+      platform,
+      resources: { cpus: 2, memoryMb: 4096, pids: 256, timeoutSeconds: 1800, networkDuringRun: false },
+      engineers: 1,
       provider: { id: "scripted-proof", model: "none" },
       datasetPolicy: { allowedHosts: [], maxRedirects: 3, maxBytes: 1024, timeoutMs: 1000 },
       maxStudyMs: 40 * 60_000,
       commandTimeoutSeconds: 900,
-      maxDelegations: 8,
+      maxReplans: 1,
+      trustedConstraints: TRUSTED,
     },
     chatProvider: new ScriptedProofProvider(),
     workRoot: join(root, "work"),
   },
 );
 const study = result.report;
-console.log(`run ${run.id} finished in ${Math.round((Date.now() - started) / 1000)} s; result ${study.result.status}; run status ${store.getRun(run.id).status}`);
+console.log(`run ${run.id} finished in ${Math.round((Date.now() - started) / 1000)} s; result ${study.result.status} (computed ${study.result.computedStatus}); run status ${store.getRun(run.id).status}`);
 
 const agents = study.agents;
-check("separate agent instances", new Set(agents.map((agent) => agent.agentId)).size === agents.length && agents.length >= 9,
+const roles = new Set(agents.map((agent) => agent.role));
+check("separate agent instances for every role",
+  new Set(agents.map((agent) => agent.agentId)).size === agents.length && ["paper_analyst", "repository_analyst", "reproduction_planner", "lab_engineer", "independent_reviewer", "supervisor"].every((role) => roles.has(role)),
   agents.map((agent) => `${agent.roleLabel}${agent.label ? ` (${agent.label})` : ""} ${agent.agentId} ${agent.status}`).join("\n      "));
-check("repository cloned and pinned", /^[a-f0-9]{40}$/u.test(String(study.repository?.commitSha)), `${study.repository?.repositoryUrl}@${study.repository?.commitSha} files=${study.repository?.fileCount} manifest=${study.repository?.manifestSha256}`);
-const discovery = study.board.find((entry) => entry.kind === "dependency_report");
-check("dependency discovery", Boolean(discovery), JSON.stringify(discovery?.payload.files));
-const failure = study.dependencies.failures[0];
-check("pinned numpy fails as a typed error", failure?.code === "no_compatible_wheel", JSON.stringify(failure));
-const manifest = study.dependencies.manifest;
-check("controlled wheel download", Boolean(manifest && manifest.packages.length > 0 && manifest.proxyLog.download.every((entry) => entry.allowed !== false)),
-  `${manifest?.packages.map((item) => `${item.name}==${item.version}`).join(", ")} manifest=${study.dependencies.manifestSha256}`);
-const receipts = study.board.filter((entry) => entry.kind === "command_receipt").map((entry) => entry.payload);
-check("offline install in each lab", receipts.filter((item) => item.argv.some((arg) => arg.includes("--no-index")) && item.exitCode === 0).length === 2);
-const figureRuns = receipts.filter((item) => item.argv.some((arg) => arg.endsWith("figure.py")));
-check("official code failed first, then ran", figureRuns.some((item) => item.exitCode !== 0) && figureRuns.some((item) => item.exitCode === 0),
-  figureRuns.map((item) => `${item.lab}: ${item.argv.join(" ")} (cwd ${item.cwd}) -> ${item.exitCode}`).join("\n      "));
-check("separate Debugger agents diagnosed the failure", agents.filter((agent) => agent.role === "debugger").length === 2 && study.board.filter((entry) => entry.kind === "diagnosis").length === 2);
-check("evidence captured", study.engineers.every((item) => item.provenance.ok && item.metricArtifact !== null),
-  study.engineers.map((item) => `${item.label}: ${item.rawValue} from ${item.metricArtifact?.path} sha256=${item.metricArtifact?.sha256}`).join("\n      "));
-check("independent review", study.engineers.every((item) => item.review?.verdict === "reject"));
-check("accurate status (placeholder claim is never reproduced)", study.result.status === "inconclusive", study.result.reasons.join(" | "));
+check("stages ran in order, once each",
+  ["analyzing_paper", "analyzing_repository", "reconciling", "policy_review", "preparing", "executing", "reviewing"].every((stage) => study.stages.find((item) => item.stage === stage)?.status === "completed"),
+  study.stages.map((item) => `${item.stage}:${item.status}#${item.attempt}`).join(" "));
+check("repository cloned and pinned", study.repository?.commitSha === acceptance.repository.commitSha, `${study.repository?.url ?? study.repository?.repositoryUrl}@${study.repository?.commitSha}`);
+check("claim contract reconciled and policy-approved", study.policy?.outcome === "approved" && /^[a-f0-9]{64}$/u.test(study.planDigest ?? ""), `plan digest ${study.planDigest}; warnings: ${study.policy?.warnings.join(" | ")}`);
+check("lab image ready for the platform", study.labImage?.containerPlatform === platform.containerPlatform && study.labImage?.python === "3.11", `${study.labImage?.name} ${study.labImage?.imageId} digest ${study.labImage?.digest}`);
+const packages = study.dependencies?.packages ?? [];
+const arch = platform.architecture === "amd64" ? "x86_64" : "aarch64";
+check("wheels prepared, hashed and matched to the platform",
+  acceptance.environment.wheels.every((pin) => packages.some((item) => `${item.name}==${item.version}`.toLowerCase() === pin.toLowerCase())) &&
+    packages.every((item) => /^[a-f0-9]{64}$/u.test(item.sha256) && (item.tags.includes(arch) || item.tags.endsWith("-any"))),
+  packages.map((item) => `${item.name}==${item.version} ${item.tags} ${item.sha256.slice(0, 12)}`).join("\n      "));
+check("dataset identified by its wheel", study.datasets.some((item) => item.requestedUrl.startsWith("wheel:pyts-0.10.0") && item.checksumVerified), JSON.stringify(study.datasets));
+const engineer = study.engineers[0];
+check("official notebook ran offline and exited 0", engineer?.official?.exitCode === 0, `${engineer?.official?.argv.join(" ")} in ${engineer?.official?.cwd}: exit ${engineer?.official?.exitCode}, ${engineer?.official?.durationMs} ms`);
+check("metric parsed by the lab from stdout", engineer?.value === 1, `parsed ${engineer?.value} (paper ${study.result.paperValue}, delta ${study.result.absoluteDifference})`);
+check("independent review ran", engineer?.review?.verdict === "approve", `${engineer?.reviewerAgentId}: ${engineer?.review?.verdict} (${engineer?.review?.equivalence})`);
+check("status computed from evidence, capped by the adapter", study.result.status === "partially_reproduced" && study.result.computedStatus === "partially_reproduced", study.result.reasons.join(" | "));
 const leftovers = spawnSync("docker", ["ps", "-a", "--filter", `label=dejaml.run=${run.id}`, "--format", "{{.Names}}"], { encoding: "utf8" }).stdout.trim();
-const networks = spawnSync("docker", ["network", "ls", "--filter", `label=dejaml.run=${run.id}`, "--format", "{{.Name}}"], { encoding: "utf8" }).stdout.trim();
+const prepLeft = spawnSync("docker", ["ps", "-a", "--filter", "label=dejaml.prep", "--format", "{{.Names}}"], { encoding: "utf8" }).stdout.trim();
+const networks = spawnSync("docker", ["network", "ls", "--filter", "label=dejaml.prep", "--format", "{{.Name}}"], { encoding: "utf8" }).stdout.trim();
 const labDirs = await readdir(join(root, "labs")).catch(() => []);
 const prepTmp = await readdir(join(root, "prep-tmp")).catch(() => []);
-const workLeft = (await readdir(join(root, "work"))).filter((name) => name !== "exports");
-check("verified destruction", study.cleanup.verified && leftovers === "" && networks === "" && labDirs.length === 0 && prepTmp.length === 0 && workLeft.length === 0,
-  `labs=${study.cleanup.labs.map((item) => item.verifiedAbsent).join(",")} wheelhouseRemoved=${study.cleanup.wheelhouseRemoved} containers="${leftovers}" networks="${networks}" labDirs=${labDirs.length} prepTmp=${prepTmp.length} work=${workLeft.join(",")}`);
+const workLeft = (await readdir(join(root, "work")).catch(() => [])).filter((name) => name !== "exports");
+check("verified destruction", study.cleanup.verified && leftovers === "" && prepLeft === "" && networks === "" && labDirs.length === 0 && prepTmp.length === 0 && workLeft.length === 0,
+  `labs=${study.cleanup.labs.map((item) => item.verifiedAbsent).join(",")} dependenciesRemoved=${study.cleanup.dependenciesRemoved} containers="${leftovers}${prepLeft}" networks="${networks}" labDirs=${labDirs.length} prepTmp=${prepTmp.length} work=${workLeft.join(",")}`);
 check("no live agents", study.cleanup.liveAgents.length === 0 && agents.every((agent) => !["created", "running", "waiting"].includes(agent.status)));
 
 store.close();
 await rm(root, { recursive: true, force: true });
 const failed = results.filter((item) => !item.pass);
-console.log(failed.length === 0 ? `\nAll ${results.length} checks passed (scripted agents; infrastructure proof only).` : `\n${failed.length} check(s) failed.`);
+console.log(failed.length === 0 ? `\nAll ${results.length} checks passed (scripted agents; infrastructure proof only, not acceptance).` : `\n${failed.length} check(s) failed.`);
 process.exit(failed.length === 0 ? 0 : 1);

@@ -1,0 +1,46 @@
+{
+  "schemaVersion": 1,
+  "caseId": "pyts-boss-gunpoint",
+  "kind": "positive",
+  "paper": {
+    "title": "pyts: A Python Package for Time Series Classification (JMLR 21(46), 2020)",
+    "file": "acceptance/papers/pyts-jmlr-2020-19-763.pdf",
+    "sha256": "5261f92e14eb07c215b03610477d81330bfc34a89ea004a4a0fb1fa339913ea4",
+    "source": "https://github.com/JmlrOrg/v21/blob/56fb7d7f225c6b30b97a0d620443835b0774bf6e/19-763/19-763.pdf",
+    "license": "CC BY 4.0"
+  },
+  "claim": {
+    "page": 4,
+    "location": "Table 2, row pyts, column GunPoint",
+    "method": "BOSS transformer followed by a one-nearest-neighbor classifier with the BOSS metric",
+    "dataset": "UCR GunPoint (50 train / 150 test series, bundled in the pyts 0.10.0 wheel)",
+    "split": "the fixed UCR train/test split",
+    "metric": "test accuracy",
+    "unit": "fraction",
+    "reportedValue": 1.0
+  },
+  "repository": {
+    "url": "https://github.com/johannfaouzi/pyts-repro",
+    "commitSha": "1f8a8285a70e357274351c0935b5fc332be0e735",
+    "why": "The paper links github.com/johannfaouzi/pyts; its docs at tag v0.10.0 (doc/reproducibility.rst) point to this repository's 0.10.0/BOSS.ipynb, whose saved outputs match Table 2.",
+    "entrypoint": "0.10.0/BOSS.ipynb"
+  },
+  "environment": {
+    "python": "3.11",
+    "wheels": ["pyts==0.10.0", "numpy==1.23.5", "scipy==1.9.3", "scikit-learn==1.1.3", "joblib==1.2.0", "threadpoolctl==3.1.0", "numba==0.57.1", "llvmlite==0.40.1"],
+    "notes": [
+      "The authors used Python 3.7.3; these are the oldest versions with cp311 wheels. The result is unchanged (manually verified: observed 1.000).",
+      "pyts 0.10.0 has malformed Requires-Dist metadata, so its dependencies must be listed explicitly."
+    ]
+  },
+  "expected": {
+    "statuses": ["reproduced", "partially_reproduced"],
+    "why": "The notebook needs the other UCR datasets from timeseriesclassification.com, which the offline lab cannot reach, so the faithful plan runs the notebook's cells unchanged through an adapter that keeps only GunPoint. An adapter caps the status at partially_reproduced.",
+    "observedValueManually": 1.0,
+    "expectedRuntimeSeconds": 30
+  },
+  "caveats": [
+    "1.000 is a ceiling value on GunPoint; it discriminates little between methods.",
+    "The notebook is linked from the paper's repository docs, not from the PDF itself."
+  ]
+}
