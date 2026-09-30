@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { EvidenceBoard, ToolDenied, type ToolContext, type ToolDefinition } from "@dejaml/agent-runtime";
+import { buildPlatformSpec } from "@dejaml/contracts";
 import { RunStore } from "@dejaml/run-store";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
@@ -13,6 +14,7 @@ let dir: string;
 let store: RunStore;
 let ctx: StudyContext;
 let runCalls: Array<{ executable: string; args: string[]; cwd: string }>;
+let integrity: { workRepo: string; venv: string; adapter: string | null };
 
 function context(role: ToolContext["role"], agentId = "agt_eng"): ToolContext {
   return { runId: "run_t", agentId, role, signal: new AbortController().signal, board: new EvidenceBoard(store.ledger, "run_t"), receiptId: "rcp_t" };
@@ -38,7 +40,21 @@ beforeEach(async () => {
   store = new RunStore();
   store.createRun({}, "run_t");
   runCalls = [];
-  const lab: EngineerLab = { agentId: "agt_eng", label: "engineer-1-1", labId: "lab_1", imageId: "sha256:x", commands: [], written: new Map(), artifacts: new Map(), environment: null, destroyed: false };
+  const lab: EngineerLab = {
+    agentId: "agt_eng",
+    label: "engineer-1",
+    labId: "lab_1",
+    imageId: "sha256:x",
+    platform: "linux/amd64",
+    commands: [],
+    artifacts: new Map(),
+    integrity: { workRepo: "w:1", venv: "v:1", adapter: "a:1" },
+    environment: null,
+    official: null,
+    dependencyRequest: null,
+    destroyed: false,
+  };
+  integrity = { workRepo: "w:1", venv: "v:1", adapter: "a:1" };
   ctx = {
     runId: "run_t",
     paper: { schemaVersion: 1, file: { originalName: "p.pdf", bytes: 1, sha256: "a".repeat(64) }, pageCount: 1, pages: [{ pageNumber: 1, text: "We report accuracy 81.66.", charCount: 25 }], totalTextChars: 25, warnings: [] },
@@ -47,32 +63,57 @@ beforeEach(async () => {
     labs: {
       runCommand: async (_labId: string, command: { executable: string; args: string[]; cwd: string }) => {
         runCalls.push(command);
-        return { command, exitCode: 0, timedOut: false, stdout: { text: "ok", bytes: 2, truncated: false }, stderr: { text: "", bytes: 0, truncated: false }, startedAt: "", endedAt: "", durationMs: 5, artifacts: [], strayProcesses: [], scratchBytes: 0 };
+        const stdout = command.args.some((arg) => arg.includes("hashlib")) ? JSON.stringify(integrity) : "accuracy: 0.8";
+        return { command, exitCode: 0, timedOut: false, stdout: { text: stdout, bytes: stdout.length, truncated: false }, stderr: { text: "", bytes: 0, truncated: false }, startedAt: "", endedAt: "", durationMs: 5, artifacts: [], strayProcesses: [], scratchBytes: 0 };
       },
     } as unknown as StudyContext["labs"],
-    prep: null,
-    runtime: undefined as unknown as StudyContext["runtime"],
+    dependencies: null,
+    runtime: { board: (runId: string) => new EvidenceBoard(store.ledger, runId) } as unknown as StudyContext["runtime"],
     config: {
-      image: { name: "img", expectedImageId: "sha256:x" },
+      platform: buildPlatformSpec({ architecture: "amd64", python: "3.11" }),
       resources: { cpus: 1, memoryMb: 512, pids: 64, timeoutSeconds: 60, networkDuringRun: false },
       engineers: 1,
       provider: { id: "scripted", model: "m" },
-      datasetPolicy: { allowedHosts: [], maxRedirects: 3, maxBytes: 1024, timeoutMs: 1000 },
+      datasetPolicy: { allowedHosts: [], maxRedirects: 3, maxBytes: 1024, timeoutMs: 1000 } as never,
       maxStudyMs: 1000,
       commandTimeoutSeconds: 30,
-      maxDelegations: 3,
+      maxReplans: 2,
+      trustedConstraints: [],
     },
     workDir: dir,
     acquire: async () => {
       throw new Error("not called");
     },
     repository: { receipt: {} as never, dir: join(dir, "repo"), root: dir },
-    dependencies: { discovery: null, resolution: null, manifest: null, manifestSha256: null, failures: [] },
+    pinnedCommit: null,
+    contract: {
+      schemaVersion: 1,
+      method: "RF",
+      dataset: { name: "d", source: { kind: "repository", paths: ["src"] } },
+      split: "test",
+      preprocessing: "none",
+      seedPolicy: "none",
+      metric: { name: "accuracy", unit: "fraction" },
+      reportedValue: 0.8,
+      paperReference: { page: 1, location: "T1", excerpt: "0.8" },
+      repository: { url: "https://github.com/example/paper", commitSha: "b".repeat(40) },
+      entrypoint: "src/train.py",
+      command: { argv: ["python", "src/train.py"], cwd: "work/repo" },
+      environment: { platform: buildPlatformSpec({ architecture: "amd64", python: "3.11" }), requirements: [], compatibilityConstraints: [] },
+      expectedRuntimeSeconds: 10,
+      metricParser: { source: "stdout", pattern: "accuracy: ([0-9.]+)" },
+      tolerance: 0.02,
+      stopConditions: ["exit non-zero"],
+    },
+    planDigest: "c".repeat(64),
+    prepared: null,
     datasets: [],
     labsByAgent: new Map([["agt_eng", lab]]),
     exports: new Map(),
-    delegations: { total: 0, byStage: { analysis: 0, plan: 0, engineering: 0, review: 0 } },
-    runStage: async (stage) => `${stage} done`,
+    finishLab: async (agentId: string) => {
+      const found = ctx.labsByAgent.get(agentId);
+      if (found) found.destroyed = true;
+    },
     event: () => undefined,
   };
 });
@@ -106,20 +147,6 @@ describe("study tools", () => {
     await expect(call("repo_acquire", { repositoryUrl: "https://github.com/attacker/other" })).rejects.toThrow(/only the candidate repositories/u);
   });
 
-  it("refuses dataset downloads when no host is allowed and records a policy block", async () => {
-    const result = await call("dataset_fetch", { name: "d", url: "https://example.com/d.csv", fileName: "d.csv" }, "reproduction_planner");
-    expect(result.status).toBe("denied");
-    expect(new EvidenceBoard(store.ledger, "run_t").list(["policy_block"])).toHaveLength(1);
-  });
-
-  it("refuses SSRF targets through the dataset guard", async () => {
-    ctx.config.datasetPolicy = { ...ctx.config.datasetPolicy, allowedHosts: ["example.com"] };
-    for (const url of ["http://example.com/d.csv", "https://127.0.0.1/d.csv", "https://169.254.169.254/latest", "https://user:pw@example.com/d.csv", "https://other.org/d.csv"]) {
-      const result = await call("dataset_fetch", { name: "d", url, fileName: "d.csv" }, "reproduction_planner");
-      expect(result.status, url).toBe("denied");
-    }
-  });
-
   it("runs lab commands inside the workspace, wrapping absolute executables with env", async () => {
     const run = tool("lab_run", "lab_engineer");
     await run.run(run.input.parse({ argv: ["/workspace/case/work/.venv/bin/python", "-V"], cwd: "work" }), context("lab_engineer"));
@@ -131,13 +158,41 @@ describe("study tools", () => {
     expect(receipts[0]?.key).toBe("agt_eng");
   });
 
-  it("caps the Supervisor's delegations", async () => {
-    const delegate = tool("delegate", "supervisor");
-    for (let index = 0; index < 2; index += 1) {
-      await delegate.run(delegate.input.parse({ stage: "analysis", objective: "go" }), context("supervisor", "agt_sup"));
-    }
-    await expect(delegate.run(delegate.input.parse({ stage: "analysis", objective: "again" }), context("supervisor", "agt_sup"))).rejects.toThrow(/already ran/u);
-    await delegate.run(delegate.input.parse({ stage: "plan", objective: "go" }), context("supervisor", "agt_sup"));
-    await expect(delegate.run(delegate.input.parse({ stage: "plan", objective: "go" }), context("supervisor", "agt_sup"))).rejects.toThrow(/delegation limit/u);
+  it("runs only the approved command through lab_run_official, after an integrity check", async () => {
+    const official = tool("lab_run_official", "lab_engineer");
+    const first = await official.run({}, context("lab_engineer"));
+    expect(first.status).not.toBe("denied");
+    expect(runCalls.at(-1)).toMatchObject({ executable: "env", args: ["--", "/workspace/case/work/.venv/bin/python", "src/train.py"], cwd: "/workspace/case/work/repo" });
+    const lab = ctx.labsByAgent.get("agt_eng")!;
+    expect(lab.official).toMatchObject({ official: true, exitCode: 0, stdoutFull: "accuracy: 0.8" });
+    await expect(official.run({}, context("lab_engineer"))).rejects.toThrow(/already succeeded/u);
+    lab.official = null;
+    integrity = { workRepo: "w:1", venv: "v:2", adapter: "a:1" };
+    const refused = await official.run({}, context("lab_engineer"));
+    expect(refused.status).toBe("denied");
+    expect(refused.content).toMatch(/Python environment changed/u);
+    integrity = { workRepo: "w:1", venv: "v:1", adapter: "a:2" };
+    const adapterChanged = await official.run({}, context("lab_engineer"));
+    expect(adapterChanged.status).toBe("denied");
+    expect(adapterChanged.content).toMatch(/approved adapter changed/u);
+  });
+
+  it("records dependency requests and serves logs to the Reviewer", async () => {
+    const request = tool("dependency_request", "lab_engineer");
+    await request.run(request.input.parse({ requirements: ["numpy==1.26.4"], reason: "ImportError" }), context("lab_engineer"));
+    expect(ctx.labsByAgent.get("agt_eng")!.dependencyRequest).toEqual({ requirements: ["numpy==1.26.4"], reason: "ImportError" });
+    const run = tool("lab_run", "lab_engineer");
+    const result = await run.run(run.input.parse({ argv: ["ls"] }), context("lab_engineer"));
+    const receiptId = JSON.parse(result.content).receiptId as string;
+    const logs = tool("logs_read", "independent_reviewer");
+    await expect(logs.run({ engineerAgentId: "agt_eng", receiptId }, context("independent_reviewer", "agt_rev"))).resolves.toMatchObject({ summary: `Logs of ${receiptId}` });
+    await expect(logs.run({ engineerAgentId: "agt_eng", receiptId: "nope" }, context("independent_reviewer", "agt_rev"))).rejects.toBeInstanceOf(ToolDenied);
+  });
+
+  it("destroys the lab on request and refuses lab tools afterwards", async () => {
+    const destroy = tool("lab_destroy", "lab_engineer");
+    await destroy.run({ reason: "done" }, context("lab_engineer"));
+    const run = tool("lab_run", "lab_engineer");
+    await expect(run.run(run.input.parse({ argv: ["ls"] }), context("lab_engineer"))).rejects.toThrow(/destroyed/u);
   });
 });

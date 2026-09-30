@@ -11,6 +11,7 @@ import {
   ProviderSelectionError,
   publicProviders,
 } from "@dejaml/agent-runtime";
+import type { PaperDocument, RepositoryCandidate } from "@dejaml/contracts";
 import { MAX_PDF_BYTES } from "@dejaml/paper-intake";
 import { canonicalizeGithubRepositoryUrl } from "@dejaml/repository-intake";
 import type { StructuredModelClient } from "@dejaml/research-runtime";
@@ -39,22 +40,21 @@ export type ApiOptions = Omit<PipelineDependencies, "model"> & {
    * Builds the chat provider for one study. Keys come only from the server's
    * environment and live only inside that object; the browser never sends one.
    */
-  providerFactory?: (
-    providerId: string,
-    model: string,
-    /** @deprecated Never passed: uploader keys were removed. Typed `never` so older three-argument factories still compile. */
-    removedUploaderKey?: never,
-  ) => ChatProvider;
+  providerFactory?: (providerId: string, model: string) => ChatProvider;
   /** The curated path's structured-JSON client over the chosen provider (tests substitute a stand-in). */
   structuredModel?: (provider: ChatProvider, model: string) => StructuredModelClient;
   /** Built web app to serve at `/`, if present. */
   webRoot?: string;
+  /** Internal diagnostics (image readiness, platform) served at /api/health to loopback clients only. */
+  health?: () => Record<string, unknown>;
 };
 
 export type ApiServer = {
   server: Server;
   /** Resolves when the active study, if any, has finished. */
   idle(): Promise<void>;
+  /** Resumes studies that were running when the service stopped, one at a time, from their saved stages. */
+  resume(runIds: string[]): Promise<void>;
   close(): Promise<void>;
 };
 
@@ -279,6 +279,12 @@ export function createApiServer(options: ApiOptions): ApiServer {
     const url = new URL(request.url ?? "/", "http://localhost");
     const method = request.method ?? "GET";
     if (url.pathname === "/api/runs" && method === "POST") return startRun(request, response);
+    if (url.pathname === "/api/health" && method === "GET") {
+      // Internal diagnostics: never secrets; answered only on the loopback interface.
+      const remote = request.socket.remoteAddress ?? "";
+      if (!["127.0.0.1", "::1", "::ffff:127.0.0.1"].includes(remote)) throw new HttpError(404, "Not found.");
+      return sendJson(response, 200, { ok: true, ...(options.health?.() ?? {}) });
+    }
     if (url.pathname === "/api/config" && method === "GET") {
       // Only providers with a server-held key (or the keyless custom endpoint) are listed: ids, labels, models.
       return sendJson(response, 200, { providers: publicProviders(options.providers) });
@@ -337,10 +343,62 @@ export function createApiServer(options: ApiOptions): ApiServer {
     });
   });
 
+  const resumeOne = async (runId: string): Promise<void> => {
+    const state = store.stages.state(runId);
+    const inputs = (state?.inputs ?? {}) as {
+      paperDocument?: PaperDocument;
+      candidates?: RepositoryCandidate[];
+      provider?: { id: string; model: string };
+    };
+    const fail = (summary: string): void => {
+      store.appendEvent({ runId, actor: "system", type: "run_resume_failed", status: "failed", summary, evidence: [], publicPayload: {} });
+      if (!store.stages.state(runId)?.terminal) store.stages.finish(runId, "failed", "failed");
+      if (!store.isTerminal(runId)) store.transitionRun(runId, "failed");
+    };
+    if (!state || state.terminal || !inputs.paperDocument || !inputs.candidates || !inputs.provider) return fail("The study's saved inputs are incomplete, so it cannot resume");
+    let provider: ChatProvider;
+    try {
+      provider = providerFactory(inputs.provider.id, inputs.provider.model);
+    } catch {
+      return fail("The study's model provider is no longer configured on this server, so it cannot resume");
+    }
+    const model = options.structuredModel ? options.structuredModel(provider, inputs.provider.model) : new ChatStructuredClient(provider, inputs.provider.model);
+    const controller = new AbortController();
+    controllers.set(runId, controller);
+    try {
+      const report = await runStudy(
+        {
+          runId,
+          fileName: inputs.paperDocument.file.originalName,
+          data: new Uint8Array(),
+          signal: controller.signal,
+          modelSource: "server",
+          agents: { provider, selection: inputs.provider },
+          resume: { paper: inputs.paperDocument, candidates: inputs.candidates },
+        },
+        { ...options, model },
+      );
+      reports.set(runId, report);
+    } catch {
+      // runStudy records its own failure.
+    } finally {
+      controllers.delete(runId);
+    }
+  };
+
   return {
     server,
     idle: async () => {
       await active;
+    },
+    resume: async (runIds) => {
+      for (const runId of runIds) {
+        await active;
+        active = resumeOne(runId).finally(() => {
+          active = null;
+        });
+        await active;
+      }
     },
     close: async () => {
       for (const controller of controllers.values()) controller.abort();
@@ -357,9 +415,11 @@ export function createApiServer(options: ApiOptions): ApiServer {
  * An interrupted attempt is never resumed.
  */
 export async function recoverAfterRestart(
-  options: Pick<ApiOptions, "store" | "labs"> & { workRoot?: string },
+  options: Pick<ApiOptions, "store" | "labs"> & { workRoot?: string; resumeStudies?: boolean },
 ): Promise<{
   interruptedRuns: string[];
+  /** Studies with saved stages, to hand to `ApiServer.resume`. */
+  resumableRuns: string[];
   orphanLabs: number;
   staleCheckouts: number;
 }> {
@@ -373,12 +433,29 @@ export async function recoverAfterRestart(
     }
   }
   if (options.workRoot) staleCheckouts += await removeStaleStudyDirs(options.workRoot);
-  // Agents that were mid-loop are recorded as interrupted; a run is never resumed after a restart.
+  // Agents that were mid-loop are recorded as interrupted; their saved conversations can be resumed.
   for (const agent of options.store.ledger.listUnfinishedAgents()) {
     options.store.ledger.updateAgent(agent.id, { status: "interrupted", failure: "the service restarted" });
   }
-  const interrupted = options.store.listActiveRuns();
-  for (const run of interrupted) {
+  const interrupted: string[] = [];
+  const resumable: string[] = [];
+  for (const run of options.store.listActiveRuns()) {
+    const study = options.store.stages.state(run.id);
+    if (study && !study.terminal && options.resumeStudies !== false) {
+      // A persisted study resumes from its stages: running stages become failed with reason process_restart.
+      options.store.stages.recoverAfterRestart(run.id);
+      options.store.appendEvent({
+        runId: run.id,
+        actor: "system",
+        type: "run_interrupted",
+        status: "warning",
+        summary: `The service restarted while this study was ${run.status.replaceAll("_", " ")}; it will resume from its saved stages`,
+        evidence: [],
+        publicPayload: { previousStatus: run.status, resumable: true },
+      });
+      resumable.push(run.id);
+      continue;
+    }
     options.store.appendEvent({
       runId: run.id,
       actor: "system",
@@ -389,17 +466,8 @@ export async function recoverAfterRestart(
       publicPayload: { previousStatus: run.status },
     });
     options.store.transitionRun(run.id, "failed");
+    interrupted.push(run.id);
   }
-  return { interruptedRuns: interrupted.map((run) => run.id), orphanLabs: receipts.length, staleCheckouts };
+  return { interruptedRuns: interrupted, resumableRuns: resumable, orphanLabs: receipts.length, staleCheckouts };
 }
 
-/**
- * @deprecated The legacy single-model settings (DEJAML_MODEL,
- * DEJAML_MODEL_BASE_URL, DEJAML_MODEL_API_KEY) were removed: their base URL
- * bypassed the custom endpoint's address checks. `loadProviderConfig` now
- * reports them as a configuration error. This passthrough remains only so
- * existing callers compile; call `loadProviderConfig(process.env)` directly.
- */
-export function legacyModelEnv(env: Record<string, string | undefined>): Record<string, string | undefined> {
-  return env;
-}

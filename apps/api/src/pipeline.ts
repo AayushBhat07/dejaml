@@ -16,7 +16,7 @@ import type {
   RunStatus,
 } from "@dejaml/contracts";
 import type { ChatProvider } from "@dejaml/agent-runtime";
-import type { ResourceBudgetSchema } from "@dejaml/contracts";
+import { type ContainerPlatform, containerPlatformFor, hostArchitecture, type ResourceBudgetSchema } from "@dejaml/contracts";
 import {
   type ArtifactContent,
   type AttemptOutcome,
@@ -25,7 +25,6 @@ import {
   labSpecFromPlan,
 } from "@dejaml/lab-manager";
 import { ingestPdf, PaperIntakeError } from "@dejaml/paper-intake";
-import type { DependencyPreparer } from "@dejaml/prep";
 import {
   acquireGithubRepository,
   cleanupAcquiredRepository,
@@ -43,7 +42,7 @@ import type { z } from "zod";
 import type { RunStore } from "@dejaml/run-store";
 
 import type { CuratedCase } from "./cases.js";
-import { type LeakCheck, type MultiAgentReport, runMultiAgentStudy, type StudyConfig } from "./study/index.js";
+import { type DatasetPort, type DependencyPort, type LabImagePort, type LeakCheck, type MultiAgentReport, runMultiAgentStudy, type StudyConfig } from "./study/index.js";
 
 type ResourceBudget = z.infer<typeof ResourceBudgetSchema>;
 
@@ -55,7 +54,8 @@ export type PipelineDependencies = {
   projectRoot: string;
   /** Private working directory for repository checkouts and reports. */
   workRoot: string;
-  image: { name: string; expectedImageId: string };
+  /** The curated-path lab image; `platform` defaults to this host's Linux platform. */
+  image: { name: string; expectedImageId: string; platform?: ContainerPlatform };
   acquire?: typeof acquireGithubRepository;
   /** Experimental tool-driven lab execution; the curated path remains the default. */
   labAgentEnabled?: boolean;
@@ -68,9 +68,13 @@ export type PipelineDependencies = {
 
 export type MultiAgentOptions = {
   enabled: boolean;
-  /** Trust zone 2; null disables dependency preparation (the labs then have only the image's Python). */
-  prep: DependencyPreparer | null;
-  config: Omit<StudyConfig, "image" | "provider">;
+  /** Trust zone 2; null disables dependency preparation (the plan may then use only the standard library). */
+  dependencies: DependencyPort | null;
+  /** Resolves the lab image for the approved platform and Python. */
+  images: LabImagePort;
+  /** Trust zone 4; null disables dataset downloads. */
+  datasets: DatasetPort | null;
+  config: Omit<StudyConfig, "provider">;
   leakCheck?: LeakCheck;
 };
 
@@ -132,8 +136,10 @@ export async function runStudy(
     signal: AbortSignal;
     /** A repository the uploader named; it is tried before links found in the paper. */
     repositoryUrl?: string;
-    /** Whose model key drives the agents; recorded without the key itself. */
-    modelSource?: "server" | "uploader";
+    /** Whose model key drives the agents; recorded without the key itself. Keys are only ever the server's. */
+    modelSource?: "server";
+    /** Resume a study after a restart from its saved inputs, skipping intake and discovery. */
+    resume?: { paper: PaperDocument; candidates: RepositoryCandidate[] };
     /** The configured provider and model the agents use; the key stays inside the provider. */
     agents?: { provider: ChatProvider; selection: { id: string; model: string } };
   },
@@ -188,6 +194,17 @@ export async function runStudy(
   signal.addEventListener("abort", onAbort, { once: true });
 
   try {
+    if (input.resume) {
+      const { paper, candidates } = input.resume;
+      report.paper = { name: paper.file.originalName, bytes: paper.file.bytes, sha256: paper.file.sha256, pages: paper.pageCount };
+      event("run_resumed", "progress", "The service restarted; the study resumes from its saved stages", {});
+      if (!deps.multiAgent?.enabled) {
+        report.failure = "Autonomous studies are disabled on this server, so the interrupted study cannot resume";
+        finish("failed");
+        return await finalize();
+      }
+      return await multiAgentStudy(paper, candidates, deps.multiAgent);
+    }
     // 1. Paper intake.
     store.transitionRun(runId, "ingesting");
     let paper: PaperDocument;
@@ -229,7 +246,7 @@ export async function runStudy(
         ]
       : discovered;
     if (input.modelSource) {
-      event("model_connection", "completed", input.modelSource === "uploader" ? "Agents use the model key supplied with this study" : "Agents use the server's model connection", {
+      event("model_connection", "completed", "Agents use the server's model connection", {
         source: input.modelSource,
         ...(input.agents ? { provider: input.agents.selection.id, model: input.agents.selection.model } : {}),
       });
@@ -326,6 +343,7 @@ export async function runStudy(
       projectRoot: deps.projectRoot,
       image: deps.image.name,
       expectedImageId: deps.image.expectedImageId,
+      platform: deps.image.platform ?? hostContainerPlatform(),
     });
     report.lab = {
       image: deps.image.name,
@@ -467,8 +485,10 @@ export async function runStudy(
       {
         store,
         labs: deps.labs,
-        prep: options.prep,
-        config: { ...options.config, image: deps.image, provider: agents.selection },
+        dependencies: options.dependencies,
+        images: options.images,
+        datasets: options.datasets,
+        config: { ...options.config, provider: agents.selection },
         chatProvider: agents.provider,
         workRoot: deps.workRoot,
         ...(deps.acquire ? { acquire: deps.acquire } : {}),
@@ -510,4 +530,10 @@ export async function runStudy(
     await writeFile(join(reportsDir, `${runId}.json`), `${JSON.stringify(complete, null, 2)}\n`);
     return complete;
   }
+}
+
+function hostContainerPlatform(): ContainerPlatform {
+  const architecture = hostArchitecture(process.arch);
+  if (!architecture) throw new Error(`unsupported host architecture ${process.arch}; set the lab image platform explicitly`);
+  return containerPlatformFor(architecture);
 }

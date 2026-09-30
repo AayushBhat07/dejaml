@@ -1,0 +1,9 @@
+# Project-owned compatibility constraints (trusted; never read from a repository or a model).
+#
+# A reproduction plan may apply a constraint only if it is listed here, and every
+# constraint it applies is reported with its reason. Adding one is a reviewed
+# change to this repository. Each line needs a reason comment, for example:
+#
+#   numpy<2  # reason: code written for NumPy 1.x uses np.float, removed in NumPy 1.24
+#
+# The list is empty by default.

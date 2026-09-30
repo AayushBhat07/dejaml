@@ -40,6 +40,9 @@ function ok(stdout = ""): RuntimeCommandResult {
  * Stands in for Docker: success writes the curated result; hang waits to be
  * killed; no_metric exits 0 without a result; crash exits 3.
  */
+const STAND_IN_USER = "10001:10001";
+const STAND_IN_ENV = ["PATH=/usr/local/bin:/usr/bin:/bin", "LANG=C.UTF-8", "HOME=/tmp", "PYTHONUNBUFFERED=1"];
+
 export class ScriptedRuntime implements ContainerRuntime {
   mode: ExecMode = "success";
   /** Spreads the scripted output over this many milliseconds so live views have time to update. */
@@ -51,16 +54,50 @@ export class ScriptedRuntime implements ContainerRuntime {
   failFirstRun = false;
   /** Every `docker exec` argv, for assertions. */
   readonly execs: string[][] = [];
-  readonly #mounts = new Map<string, { artifacts: string; scratch: string; runs: number }>();
+  readonly #mounts = new Map<string, { artifacts: string; scratch: string; runs: number; tampered?: boolean }>();
+  readonly #created = new Map<string, string[]>();
   #kill: (() => void) | null = null;
 
   async docker(args: readonly string[], options: RuntimeCommandOptions = {}): Promise<RuntimeCommandResult> {
     const [command] = args;
-    if (command === "image") return ok(`${STAND_IN_IMAGE_ID} 10001:10001`);
+    if (command === "image") {
+      // `image inspect [--platform p] --format {{json .}} <ref>`: the image exists for whichever platform is asked.
+      const platformIndex = args.indexOf("--platform");
+      const [os, architecture] = (platformIndex > 0 ? (args[platformIndex + 1] ?? "") : "linux/amd64").split("/");
+      return ok(`${JSON.stringify({ Id: STAND_IN_IMAGE_ID, Os: os, Architecture: architecture, RepoDigests: [], Config: { User: STAND_IN_USER, Env: STAND_IN_ENV } })}\n`);
+    }
+    if (command === "container") {
+      // `container inspect <name>`: the created container, read back by the sealed-lab audit.
+      const created = this.#created.get(args.at(-1) ?? "");
+      if (!created) return { ...ok(), exitCode: 1, stderr: { text: "Error: No such container", bytes: 24, truncated: false } };
+      const flag = (name: string): string[] => created.flatMap((value, index) => (created[index - 1] === name ? [value] : []));
+      const [os, architecture] = (flag("--platform")[0] ?? "linux/amd64").split("/");
+      return ok(
+        JSON.stringify({
+          Image: STAND_IN_IMAGE_ID,
+          ImageManifestDescriptor: { digest: `sha256:${"e".repeat(64)}`, platform: { os, architecture } },
+          Config: { User: STAND_IN_USER, Env: STAND_IN_ENV },
+          HostConfig: {
+            NetworkMode: flag("--network")[0] ?? "bridge",
+            ReadonlyRootfs: created.includes("--read-only"),
+            CapDrop: flag("--cap-drop"),
+            CapAdd: null,
+            SecurityOpt: flag("--security-opt"),
+            Privileged: created.includes("--privileged"),
+          },
+          Mounts: flag("--mount").map((mount) => ({
+            Source: /src=([^,]+)/u.exec(mount)?.[1],
+            Destination: /dst=([^,]+)/u.exec(mount)?.[1],
+            RW: !mount.includes(",readonly"),
+          })),
+        }),
+      );
+    }
     if (command === "create") {
       this.createArgs = [...args];
       const container = args[args.indexOf("--name") + 1] ?? "";
       this.containers.add(container);
+      this.#created.set(container, [...args]);
       const mount = args.find((arg) => arg.endsWith("dst=/workspace/case/artifacts")) ?? "";
       const scratchMount = args.find((arg) => arg.endsWith("dst=/workspace/case/work")) ?? "";
       this.#mounts.set(container, {
@@ -72,7 +109,7 @@ export class ScriptedRuntime implements ContainerRuntime {
     }
     if (command === "exec") {
       const name = args.findIndex((arg) => this.containers.has(arg));
-      const mounts = this.#mounts.get(args[name] ?? "") ?? { artifacts: "", scratch: "", runs: 0 };
+      const mounts = this.#mounts.get(args[name] ?? "") ?? { artifacts: "", scratch: "", runs: 0, tampered: false };
       const argv = args.slice(name + 1);
       this.execs.push(argv);
       if (argv[0] === "python" && argv[1] === "-c" && argv[2]?.startsWith("import base64")) {
@@ -87,14 +124,31 @@ export class ScriptedRuntime implements ContainerRuntime {
       }
       if (argv[0] === "python" && argv[1] === "-I" && argv[2] === "-S") {
         // The Lab Manager's file inspector and background-process reaper.
-        const request = argv[5] ? (JSON.parse(argv[5]) as { op?: string; path?: string }) : null;
+        let request: { op?: string; path?: string } | null = null;
+        try {
+          request = argv[5] ? (JSON.parse(argv[5]) as { op?: string; path?: string }) : null;
+        } catch {
+          request = null;
+        }
         if (!request?.op) return ok("[]");
         return ok(JSON.stringify(request.op === "read" ? { path: request.path, content: "import runpy\nrunpy.run_path('repo/train.py')\n", size: 44 } : { path: request.path, entries: ["repo/train.py", "work/run.py"] }));
       }
       if (argv[0] === "cat" && argv[1] === "/proc/1/task/1/children") return ok("7\n");
-      const inner = argv[0] === "timeout" ? argv.slice(3) : argv;
+      let inner = argv[0] === "timeout" ? argv.slice(3) : argv;
+      if (inner[0] === "env" && inner[1] === "--") inner = inner.slice(2);
+      const program = inner[0] ?? "";
+      // The study's own setup steps: copying the checkout and measuring integrity.
+      if (inner[1] === "-I" && inner[4]?.includes("copytree")) return ok();
+      if (inner[1] === "-I" && inner[4]?.includes("hashlib")) return ok(JSON.stringify({ workRepo: `${"d".repeat(64)}:3`, venv: `${"e".repeat(64)}:${mounts.tampered ? 2 : 1}` }));
+      if (program.endsWith("python") && inner[1] === "-m" && inner[2] === "venv") return ok();
+      if (program.endsWith("python") && inner[1] === "-c" && inner[2]?.includes("python_version")) return ok('{"python": "3.11.9"}\n');
+      if (program === "touch") {
+        // An engineer changing the prepared environment, for the integrity check.
+        mounts.tampered = true;
+        return ok();
+      }
       // Exploration such as `find` or `ls` inside an autonomous lab.
-      if (inner[0] !== "python") return ok("repo/train.py\n");
+      if (!program.endsWith("python")) return ok("repo/train.py\n");
       mounts.runs += 1;
       if (this.failFirstRun && mounts.runs === 1) {
         options.onOutput?.("stderr", "Traceback (most recent call last):\nFileNotFoundError: [Errno 2] No such file or directory: 'sheet1.csv'\n");
@@ -131,6 +185,7 @@ export class ScriptedRuntime implements ContainerRuntime {
     }
     if (command === "rm") {
       this.containers.delete(args.at(-1) ?? "");
+      this.#created.delete(args.at(-1) ?? "");
       return ok();
     }
     if (command === "ps") {
@@ -382,7 +437,15 @@ export class ScriptedStudyProvider implements ChatProvider {
   readonly id = "scripted";
   readonly kind = "scripted" as const;
   /** How the Independent Reviewers judge each submission. */
-  review: { verdict: "approve" | "reject"; equivalence: "equivalent" | "minor_deviations" | "not_equivalent" } = { verdict: "approve", equivalence: "minor_deviations" };
+  review: { verdict: "approve" | "reject"; equivalence: "equivalent" | "minor_deviations" | "not_equivalent" } = { verdict: "approve", equivalence: "equivalent" };
+  /** Changes to the Planner's plan (for policy tests). */
+  plan: Record<string, unknown> = {};
+  /** The Supervisor's final proposal; null proposes the computed status. */
+  supervisorProposal: string | null = null;
+  /** The Supervisor's answer at a checkpoint. */
+  checkpoint: { action: "continue" | "replan" | "stop"; reason: string; guidance: string } = { action: "continue", reason: "none", guidance: "" };
+  /** Engineers change the prepared environment before the approved run. */
+  tamper = false;
   /** Engineers ask a Debugger for help after a failed run. */
   debugOnFailure = true;
   /** Delay per model call, so tests can cancel mid-study. */
@@ -427,34 +490,31 @@ export class ScriptedStudyProvider implements ChatProvider {
   #step(role: string, turn: number, inputs: Record<string, unknown>, last: () => Record<string, unknown>, lastFailed: boolean): ScriptedCall[] {
     const finish = (input: unknown): ScriptedCall[] => [{ name: "finish", input }];
     switch (role) {
-      case "Supervisor": {
-        const stages = ["analysis", "plan", "engineering", "review"];
-        const stage = stages[turn];
-        return stage
-          ? [{ name: "delegate", input: { stage, objective: `Run the ${stage} stage.` } }]
-          : finish({ proposedStatus: "partially_reproduced", rationale: "Engineers agree; an adapter wraps the official script." });
-      }
+      case "Supervisor":
+        if (inputs.resultKind === "verdict") {
+          return finish({ proposedStatus: this.supervisorProposal ?? inputs.computedStatus, rationale: "The evidence supports this status." });
+        }
+        return finish(this.checkpoint);
       case "Paper Analyst":
         if (turn === 0) return [{ name: "paper_search", input: { query: "accuracy" } }];
         return finish({
-          schemaVersion: 1,
           status: "ready",
           summary: "Random Forest test accuracy of 81.66% on UCI Urban Land Cover.",
           selectedRepositoryUrl: this.repositoryUrl,
           claim: {
-            experimentLabel: "Random Forest on UCI Urban Land Cover",
+            method: "Random Forest",
             dataset: "UCI Urban Land Cover",
             split: "official test set",
-            model: "Random Forest",
-            metric: { name: "accuracy", unit: "percent", reportedValue: 81.66 },
-            seed: null,
-            hyperparameters: {},
-            evidence: [{ kind: "paper_page", reference: "page 1", excerpt: "Random Forest test accuracy of 81.66" }],
+            preprocessing: "not stated",
+            seedPolicy: "not stated",
+            metric: { name: "accuracy", unit: "percent" },
+            reportedValue: 81.66,
+            page: 1,
+            location: "Section 4",
+            excerpt: "Random Forest test accuracy of 81.66 percent on the test set.",
             missingFields: ["seed"],
-            confidence: "high",
           },
           reasons: [],
-          warnings: [],
         });
       case "Repository Analyst": {
         const candidates = (inputs.repositoryCandidates as Array<{ url: string }> | undefined) ?? [];
@@ -462,11 +522,11 @@ export class ScriptedStudyProvider implements ChatProvider {
         if (turn === 1) return [{ name: "repo_list", input: {} }];
         return finish({
           status: "ready",
-          summary: "train.py trains the Random Forest and prints the test accuracy.",
+          summary: "train.py trains the Random Forest and writes the test accuracy.",
           entrypoints: [{ path: "train.py", why: "trains and evaluates the model" }],
           dataFiles: [],
           dependencyFiles: ["requirements.txt"],
-          metricSources: [{ path: "train.py", description: "prints accuracy" }],
+          metricSources: [{ path: "train.py", description: "writes artifacts/result.json" }],
           runInstructions: "python train.py",
           warnings: [],
         });
@@ -475,49 +535,37 @@ export class ScriptedStudyProvider implements ChatProvider {
         if (turn === 0) return [{ name: "board_read", input: { kinds: ["paper_claim", "repository_mapping"] } }];
         return finish({
           status: "ready",
-          summary: "Run train.py through a small adapter that writes the accuracy to artifacts/result.json.",
-          target: { experimentLabel: "Random Forest on UCI Urban Land Cover", metric: "accuracy", unit: "percent", reportedValue: 81.66 },
-          officialEntrypoint: { path: "train.py", why: "the repository's training script" },
-          steps: ["Write work/run.py that runs repo/train.py", "Run it", "Submit artifacts/result.json"],
-          environment: { requested: [], manifestPrepared: false, deviations: [] },
-          datasets: [{ name: "UCI Urban Land Cover", source: "repository", location: "repo/" }],
-          metricExtraction: "metrics.accuracyPercent in artifacts/result.json",
-          adapterExpected: true,
-          adapterJustification: "train.py prints the metric; the adapter writes it to JSON.",
-          risks: [],
+          summary: "Run train.py unchanged from a writable copy; it writes the accuracy to artifacts/result.json.",
           blockedReason: null,
+          entrypoint: "train.py",
+          command: { argv: ["python", "train.py"], cwd: "work/repo" },
+          python: "3.11",
+          requirements: [],
+          compatibilityConstraints: [],
+          dataset: { name: "UCI Urban Land Cover", source: { kind: "repository", paths: ["train.py"] } },
+          metricParser: { source: "json", path: "artifacts/result.json", key: "metrics.accuracyPercent" },
+          expectedRuntimeSeconds: 30,
+          stopConditions: ["the command exits non-zero"],
+          adapter: null,
+          risks: [],
+          ...this.plan,
         });
       case "Lab Engineer": {
-        const steps: ScriptedCall[][] = [
-          [{ name: "lab_write_file", input: { path: "work/run.py", content: "import runpy\nrunpy.run_path('repo/train.py')\n" } }],
-          [{ name: "lab_run", input: { argv: ["python", "work/run.py"] } }],
-        ];
-        if (turn < steps.length) return steps[turn]!;
+        if (turn === 0 && this.tamper) return [{ name: "lab_run", input: { argv: ["touch", "work/.venv/x"] } }];
         const result = last();
-        if (lastFailed && this.debugOnFailure && typeof result.receiptId === "string") {
-          return [{ name: "request_debugging", input: { question: "The run failed; why?", receiptIds: [result.receiptId] } }];
+        if (turn === 0 || (this.tamper && turn === 1)) return [{ name: "lab_run_official", input: {} }];
+        if (lastFailed && this.debugOnFailure && typeof result.receiptId === "string" && turn < 4) {
+          return [{ name: "request_debugging", input: { question: "The approved run failed; why?", receiptIds: [result.receiptId] } }];
         }
-        if (typeof result.diagnosis === "string") return [{ name: "lab_run", input: { argv: ["python", "work/run.py"] } }];
+        if (typeof result.diagnosis === "string") return [{ name: "lab_run_official", input: {} }];
         if (typeof result.receiptId === "string" && result.exitCode === 0) {
-          return finish({
-            status: "measured",
-            summary: "Ran the repository's train.py through a wrapper; it wrote the test accuracy.",
-            metricFile: "artifacts/result.json",
-            metricKey: "metrics.accuracyPercent",
-            unit: "percent",
-            producingReceiptId: result.receiptId,
-            officialCodeRan: true,
-            officialCommands: ["python work/run.py"],
-            adapters: [{ path: "work/run.py", why: "runs repo/train.py from a writable directory", source: "repo/train.py", differences: [], changesEvidenceEquivalence: false }],
-            deviations: [],
-            failureReason: null,
-          });
+          return finish({ status: "measured", summary: "PRIVATE-ENGINEER-NOTE: ran the approved command.", officialReceiptId: result.receiptId, deviations: [], failureReason: null });
         }
-        return [{ name: "give_up", input: { reason: "the run did not succeed" } }];
+        return finish({ status: "not_measured", summary: "The approved command did not succeed.", officialReceiptId: null, deviations: [], failureReason: "the approved command did not succeed" });
       }
       case "Debugger":
-        if (turn === 0) return [{ name: "lab_read", input: { path: "work/run.py" } }];
-        return finish({ diagnosis: "The script looked for its data in the wrong directory.", rootCause: "working directory", suggestedFix: "Run it again from /workspace/case.", fixableInLab: true, changesMethodology: false });
+        if (turn === 0) return [{ name: "lab_logs", input: {} }];
+        return finish({ diagnosis: "The script looked for its data in the wrong directory.", rootCause: "working directory", suggestedFix: "Run the approved command again.", fixableWithoutChangingThePlan: true, changesMethodology: false });
       case "Independent Reviewer": {
         const key = String(inputs.submissionKey ?? "");
         if (turn === 0) return [{ name: "board_read", input: { key } }];
@@ -525,10 +573,10 @@ export class ScriptedStudyProvider implements ChatProvider {
         return finish({
           verdict: this.review.verdict,
           equivalence: this.review.equivalence,
-          summary: this.review.verdict === "approve" ? "The official script ran; the adapter only runs it." : "The metric does not come from the paper's model.",
+          summary: this.review.verdict === "approve" ? "The approved official command ran and wrote the metric." : "The metric does not come from the paper's model.",
           checks: [
-            { name: "official code ran", passed: true, explanation: "command receipt shows python work/run.py wrapping repo/train.py" },
-            { name: "metric file from run", passed: true, explanation: "artifact digest matches the producing receipt" },
+            { name: "official command ran", passed: true, explanation: "the official receipt exited 0" },
+            { name: "metric from the run", passed: true, explanation: "artifact digest matches the official receipt" },
             { name: "dataset and metric match", passed: this.review.verdict === "approve", explanation: "same dataset and metric as the claim" },
           ],
           concerns: [],
