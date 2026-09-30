@@ -36,10 +36,15 @@ export type ApiOptions = Omit<PipelineDependencies, "model"> & {
   /** Providers and models the administrator configured; the browser may pick only among these. */
   providers: LoadedProviderConfig;
   /**
-   * Builds the chat provider for one study. The key (the server's, or the
-   * uploader's) lives only inside that object, in memory, for the study.
+   * Builds the chat provider for one study. Keys come only from the server's
+   * environment and live only inside that object; the browser never sends one.
    */
-  providerFactory?: (providerId: string, model: string, uploaderKey?: string) => ChatProvider;
+  providerFactory?: (
+    providerId: string,
+    model: string,
+    /** @deprecated Never passed: uploader keys were removed. Typed `never` so older three-argument factories still compile. */
+    removedUploaderKey?: never,
+  ) => ChatProvider;
   /** The curated path's structured-JSON client over the chosen provider (tests substitute a stand-in). */
   structuredModel?: (provider: ChatProvider, model: string) => StructuredModelClient;
   /** Built web app to serve at `/`, if present. */
@@ -88,6 +93,8 @@ async function readBody(request: IncomingMessage, limit: number): Promise<Buffer
 type Upload = {
   fileName: string;
   data: Uint8Array;
+  /** Names of every form field sent, including empty ones. */
+  names: string[];
   field(name: string): string | null;
 };
 
@@ -113,6 +120,7 @@ async function readUpload(request: IncomingMessage): Promise<Upload> {
   return {
     fileName: paper.name || "paper.pdf",
     data: new Uint8Array(await paper.arrayBuffer()),
+    names: [...new Set(form.keys())],
     field: (name) => {
       const value = form.get(name);
       return typeof value === "string" && value.trim() !== "" ? value.trim() : null;
@@ -120,15 +128,36 @@ async function readUpload(request: IncomingMessage): Promise<Upload> {
   };
 }
 
-type Selection = { providerId: string; model: string; uploaderKey?: string };
+type Selection = { providerId: string; model: string };
+
+/** The only fields a study upload may carry. The model is chosen by provider id and model name alone. */
+const UPLOAD_FIELDS: ReadonlySet<string> = new Set(["paper", "providerId", "modelName", "repositoryUrl"]);
+const KEY_FIELD = /key|token|secret|password|credential|auth/iu;
+const ENDPOINT_FIELD = /url|endpoint|host|base/iu;
+/** Request headers that would carry a provider key; never accepted from a browser. */
+const KEY_HEADERS = ["x-api-key", "api-key", "openai-api-key", "anthropic-api-key", "x-openai-api-key", "x-anthropic-api-key"];
 
 /**
- * Reads the provider choice. Only configured provider ids and models are
- * accepted; a base URL from the browser is refused, and the key is never echoed.
+ * Reads the provider choice. Provider keys and endpoints are server
+ * configuration only: an upload carrying a key, a base URL, header fields or
+ * any other field outside `UPLOAD_FIELDS` is refused with 400 before anything
+ * else happens, and no submitted value is ever echoed. Only configured
+ * provider ids and their listed models are accepted.
  */
-function parseSelection(upload: Upload, config: LoadedProviderConfig): Selection {
-  if (upload.field("modelBaseUrl")) {
-    throw new HttpError(400, "Model endpoints are configured by the server administrator; choose one of the listed providers.");
+function parseSelection(upload: Upload, config: LoadedProviderConfig, request: IncomingMessage): Selection {
+  if (KEY_HEADERS.some((name) => request.headers[name] !== undefined)) {
+    throw new HttpError(400, "API keys are configured on the server; do not send one with a study.");
+  }
+  for (const name of upload.names) {
+    if (UPLOAD_FIELDS.has(name)) continue;
+    if (KEY_FIELD.test(name)) throw new HttpError(400, "API keys are configured on the server; do not send one with a study.");
+    if (ENDPOINT_FIELD.test(name)) {
+      throw new HttpError(400, "Model endpoints are configured by the server administrator; choose one of the listed providers.");
+    }
+    throw new HttpError(
+      400,
+      /^[A-Za-z0-9_.-]{1,64}$/u.test(name) ? `The upload has an unexpected field "${name}".` : "The upload has an unexpected field.",
+    );
   }
   const available = publicProviders(config);
   const providerId = upload.field("providerId") ?? available[0]?.id ?? null;
@@ -137,17 +166,13 @@ function parseSelection(upload: Upload, config: LoadedProviderConfig): Selection
   if (!provider) throw new HttpError(400, "Choose one of the configured model providers.");
   const model = upload.field("modelName") ?? provider.models[0] ?? "";
   if (!provider.models.includes(model)) throw new HttpError(400, "Choose one of the models listed for this provider.");
-  const apiKey = upload.field("apiKey");
-  if (!apiKey && provider.keySource === "uploader") throw new HttpError(400, `Enter an API key for ${provider.label} before starting a study.`);
-  return { providerId, model, ...(apiKey ? { uploaderKey: apiKey } : {}) };
+  return { providerId, model };
 }
 
 export function createApiServer(options: ApiOptions): ApiServer {
   const { store } = options;
   const providerFactory =
-    options.providerFactory ??
-    ((providerId: string, model: string, uploaderKey?: string) =>
-      createChatProvider(options.providers, providerId, model, uploaderKey === undefined ? {} : { uploaderKey }));
+    options.providerFactory ?? ((providerId: string, model: string) => createChatProvider(options.providers, providerId, model));
   const controllers = new Map<string, AbortController>();
   const reports = new Map<string, StudyReport>();
   let active: Promise<void> | null = null;
@@ -156,7 +181,7 @@ export function createApiServer(options: ApiOptions): ApiServer {
     // One lab at a time (ARCHITECTURE.md §17: no parallel labs).
     if (active) throw new HttpError(409, "Another study is still running. Try again when it finishes.");
     const upload = await readUpload(request);
-    const selection = parseSelection(upload, options.providers);
+    const selection = parseSelection(upload, options.providers, request);
     const rawRepository = upload.field("repositoryUrl");
     let repositoryUrl: string | undefined;
     if (rawRepository) {
@@ -168,7 +193,7 @@ export function createApiServer(options: ApiOptions): ApiServer {
     }
     let provider: ChatProvider;
     try {
-      provider = providerFactory(selection.providerId, selection.model, selection.uploaderKey);
+      provider = providerFactory(selection.providerId, selection.model);
     } catch (error) {
       if (error instanceof ProviderSelectionError || error instanceof ProviderConfigError) throw new HttpError(400, error.message);
       throw error;
@@ -186,7 +211,7 @@ export function createApiServer(options: ApiOptions): ApiServer {
         data: upload.data,
         signal: controller.signal,
         ...(repositoryUrl ? { repositoryUrl } : {}),
-        modelSource: selection.uploaderKey ? "uploader" : "server",
+        modelSource: "server",
         agents: { provider, selection: { id: selection.providerId, model: selection.model } },
       },
       { ...options, model },
@@ -255,6 +280,7 @@ export function createApiServer(options: ApiOptions): ApiServer {
     const method = request.method ?? "GET";
     if (url.pathname === "/api/runs" && method === "POST") return startRun(request, response);
     if (url.pathname === "/api/config" && method === "GET") {
+      // Only providers with a server-held key (or the keyless custom endpoint) are listed: ids, labels, models.
       return sendJson(response, 200, { providers: publicProviders(options.providers) });
     }
 
@@ -368,23 +394,12 @@ export async function recoverAfterRestart(
 }
 
 /**
- * Maps the earlier single-model settings (DEJAML_MODEL_BASE_URL, DEJAML_MODEL,
- * DEJAML_MODEL_API_KEY) onto the provider settings, so an existing server
- * setup keeps working. New settings win when both are present.
+ * @deprecated The legacy single-model settings (DEJAML_MODEL,
+ * DEJAML_MODEL_BASE_URL, DEJAML_MODEL_API_KEY) were removed: their base URL
+ * bypassed the custom endpoint's address checks. `loadProviderConfig` now
+ * reports them as a configuration error. This passthrough remains only so
+ * existing callers compile; call `loadProviderConfig(process.env)` directly.
  */
 export function legacyModelEnv(env: Record<string, string | undefined>): Record<string, string | undefined> {
-  const model = env.DEJAML_MODEL?.trim();
-  if (!model) return env;
-  const baseUrl = env.DEJAML_MODEL_BASE_URL?.trim() || "https://api.openai.com/v1";
-  const mapped = { ...env };
-  if (/^https:\/\/api\.openai\.com\/v1\/?$/u.test(baseUrl)) {
-    mapped.DEJAML_OPENAI_MODELS ??= model;
-    if (env.DEJAML_MODEL_API_KEY) mapped.DEJAML_OPENAI_API_KEY ??= env.DEJAML_MODEL_API_KEY;
-  } else if (!env.DEJAML_CUSTOM_BASE_URL) {
-    mapped.DEJAML_CUSTOM_BASE_URL = baseUrl;
-    mapped.DEJAML_CUSTOM_MODELS ??= model;
-    if (env.DEJAML_MODEL_API_KEY) mapped.DEJAML_CUSTOM_API_KEY ??= env.DEJAML_MODEL_API_KEY;
-    if (/^http:\/\/(localhost|127\.0\.0\.1)[:/]/u.test(baseUrl)) mapped.DEJAML_CUSTOM_ALLOW_LOCAL_HTTP ??= "1";
-  }
-  return mapped;
+  return env;
 }

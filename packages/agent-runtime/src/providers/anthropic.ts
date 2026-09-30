@@ -1,19 +1,26 @@
-import type { ProviderHttpOptions } from "./openai.js";
 import { DEFAULT_PRICES, estimateCostUsd, priceFor } from "./pricing.js";
 import {
+  DEFAULT_CONNECT_TIMEOUT_MS,
+  DEFAULT_MAX_RESPONSE_BYTES,
   DEFAULT_TIMEOUT_MS,
   type FetchLike,
+  type ProviderHttpOptions,
   type RequestContext,
   type RetryOptions,
+  assertModelAllowed,
+  guardedProviderFetch,
   httpError,
   malformed,
   parseToolInput,
+  readBoundedText,
+  readErrorBody,
   readSse,
   streamError,
   withRetries,
   withTimeout,
 } from "./retry.js";
 import {
+  INSPECT,
   ProviderError,
   type ChatMessage,
   type ChatProvider,
@@ -151,33 +158,58 @@ export function describeStopDetails(details: unknown): string | null {
 
 type Parsed = Omit<ChatResponse, "attempts" | "costUsd">;
 
+/**
+ * Anthropic Messages API: `POST {baseUrl}/v1/messages` with `x-api-key` and
+ * `anthropic-version` headers (never `Authorization: Bearer`), content-block
+ * messages, `tool_use`/`tool_result` blocks and named SSE events.
+ */
 export class AnthropicChatProvider implements ChatProvider {
   readonly id: string;
   readonly kind = "anthropic" as const;
-  readonly baseUrl: string;
+  readonly #baseUrl: string;
   readonly #apiKey: string;
   readonly #fetch: FetchLike;
   readonly #timeoutMs: number;
+  readonly #maxBytes: number;
+  readonly #models: readonly string[] | null;
   readonly #retry: Omit<RetryOptions, "signal">;
   readonly #prices: Readonly<Record<string, ModelPrice>>;
 
   constructor(options: AnthropicChatProviderOptions) {
     this.id = options.id ?? "anthropic";
-    this.baseUrl = (options.baseUrl ?? ANTHROPIC_DEFAULT_BASE_URL).replace(/\/+$/, "");
+    this.#baseUrl = (options.baseUrl ?? ANTHROPIC_DEFAULT_BASE_URL).replace(/\/+$/, "");
     this.#apiKey = options.apiKey;
-    this.#fetch = options.fetchImpl ?? ((input, init) => fetch(input, init));
     this.#timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+    this.#maxBytes = options.maxResponseBytes ?? DEFAULT_MAX_RESPONSE_BYTES;
+    this.#models = options.models ? [...options.models] : null;
+    this.#fetch =
+      options.fetchImpl ??
+      guardedProviderFetch({
+        access: "public",
+        timeoutMs: this.#timeoutMs,
+        connectTimeoutMs: options.connectTimeoutMs ?? DEFAULT_CONNECT_TIMEOUT_MS,
+        maxResponseBytes: this.#maxBytes,
+      });
     this.#retry = options.retry ?? {};
     this.#prices = options.prices ?? DEFAULT_PRICES;
+  }
+
+  get baseUrl(): string {
+    return this.#baseUrl;
   }
 
   toJSON(): Record<string, unknown> {
     return { id: this.id, kind: this.kind };
   }
 
+  [INSPECT](): string {
+    return `AnthropicChatProvider ${JSON.stringify(this.toJSON())}`;
+  }
+
   async chat(request: ChatRequest): Promise<ChatResponse> {
+    assertModelAllowed(this.#models, request.model, "Anthropic");
     const body = JSON.stringify(buildAnthropicRequestBody(this.id, request));
-    const url = `${this.baseUrl}/v1/messages`;
+    const url = `${this.#baseUrl}/v1/messages`;
     const headers: Record<string, string> = {
       "x-api-key": this.#apiKey,
       "anthropic-version": ANTHROPIC_VERSION,
@@ -192,14 +224,14 @@ export class AnthropicChatProvider implements ChatProvider {
           if (!res.ok) {
             let text = "";
             try {
-              text = await res.text();
+              text = await readErrorBody(res, "Anthropic");
             } catch {
               // status alone is enough
             }
             throw httpError("Anthropic", res.status, text, res.headers, [this.#apiKey]);
           }
           if (request.stream) return await this.#readStream(res, request, ctx);
-          const text = await res.text();
+          const text = await readBoundedText(res, this.#maxBytes, "Anthropic");
           let json: unknown;
           try {
             json = JSON.parse(text);
@@ -292,7 +324,7 @@ export class AnthropicChatProvider implements ChatProvider {
       return [index, b];
     };
 
-    for await (const ev of readSse(res.body, ctx.signal)) {
+    for await (const ev of readSse(res.body, ctx.signal, { maxBytes: this.#maxBytes, providerLabel: "Anthropic" })) {
       if (ev.data.trim() === "") continue;
       let data: unknown;
       try {

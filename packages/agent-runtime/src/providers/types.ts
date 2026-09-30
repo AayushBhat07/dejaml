@@ -87,7 +87,13 @@ export type ProviderErrorCode =
   | "network"
   | "cancelled"
   | "malformed_response"
-  | "refusal";
+  | "refusal"
+  /** The response body exceeded the configured byte cap. */
+  | "response_too_large"
+  /** The requested model is not on the provider's configured allowlist; no request was sent. */
+  | "model_not_allowed"
+  /** The endpoint (or where it resolved or redirected to) is refused by the network policy. */
+  | "blocked_endpoint";
 
 export class ProviderError extends Error {
   constructor(
@@ -99,6 +105,9 @@ export class ProviderError extends Error {
     this.name = "ProviderError";
   }
 }
+
+/** `util.inspect` hook: providers print only their public identity, never keys. */
+export const INSPECT = Symbol.for("nodejs.util.inspect.custom");
 
 export interface ChatProvider {
   /** Configured provider id, such as `openai`, `anthropic`, or `custom`. */

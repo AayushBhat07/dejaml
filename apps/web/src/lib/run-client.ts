@@ -7,9 +7,9 @@ export type RunHandle = { runId: string };
 
 /**
  * The model the agents use for one study: a provider and model the server
- * offers. An optional key is sent with the upload and kept only in memory.
+ * offers. Keys live only in the server's environment; the browser never sends one.
  */
-export type ModelSettings = { providerId: string; model: string; apiKey?: string };
+export type ModelSettings = { providerId: string; model: string };
 
 export type StudyOptions = {
   model?: ModelSettings;
@@ -17,8 +17,8 @@ export type StudyOptions = {
   repositoryUrl?: string;
 };
 
-/** A provider the server's administrator configured. `uploader` means the study must bring a key. */
-export type ProviderOption = { id: string; label: string; models: string[]; keySource: "server" | "uploader" };
+/** A provider the server's administrator configured with a server-held key. */
+export type ProviderOption = { id: string; label: string; models: string[] };
 
 export type ServerConfig = { providers: ProviderOption[] };
 
@@ -73,7 +73,6 @@ export class HttpRunClient implements RunClient {
     if (options.model) {
       body.append("providerId", options.model.providerId);
       body.append("modelName", options.model.model);
-      if (options.model.apiKey) body.append("apiKey", options.model.apiKey);
     }
     if (options.repositoryUrl) body.append("repositoryUrl", options.repositoryUrl);
     const response = await fetch(`${this.#base}/runs`, { method: "POST", body });

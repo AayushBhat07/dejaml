@@ -1,5 +1,7 @@
 /** Test-only helpers: fixture loading and a recording fake `fetch`. Never touches the network. */
 import { readFileSync } from "node:fs";
+import http, { type IncomingHttpHeaders, type IncomingMessage, type ServerResponse } from "node:http";
+import type { AddressInfo } from "node:net";
 import type { FetchLike } from "./retry.js";
 
 export function fixture(path: string): string {
@@ -83,6 +85,37 @@ export function recordingSleep(): { sleep: (ms: number) => Promise<void>; delays
     delays,
     sleep: async (ms: number) => {
       delays.push(ms);
+    },
+  };
+}
+
+export type ServerHit = { method: string; url: string; headers: IncomingHttpHeaders; body: string };
+
+/**
+ * A plain-HTTP server on 127.0.0.1 standing in for a custom endpoint, so the
+ * guarded fetch runs for real (resolution, pinning, limits) without leaving
+ * the machine. `handle` answers each request after its body was read.
+ */
+export async function startLocalServer(
+  handle: (req: IncomingMessage, res: ServerResponse, hit: ServerHit) => void,
+): Promise<{ port: number; hits: ServerHit[]; close(): Promise<void> }> {
+  const hits: ServerHit[] = [];
+  const server = http.createServer((req, res) => {
+    const chunks: Buffer[] = [];
+    req.on("data", (chunk: Buffer) => chunks.push(chunk));
+    req.on("end", () => {
+      const hit = { method: req.method ?? "", url: req.url ?? "", headers: req.headers, body: Buffer.concat(chunks).toString("utf8") };
+      hits.push(hit);
+      handle(req, res, hit);
+    });
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  return {
+    port: (server.address() as AddressInfo).port,
+    hits,
+    close: async () => {
+      server.closeAllConnections();
+      await new Promise<void>((resolve) => server.close(() => resolve()));
     },
   };
 }

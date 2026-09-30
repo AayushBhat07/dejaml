@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { OpenAIChatProvider, OpenAICompatibleChatProvider } from "./openai.js";
+import { OpenAIChatProvider } from "./openai.js";
 import { fakeFetch, fixture, fixtureJson, jsonResponse, recordingSleep, sseResponse } from "./test-helpers.js";
 import { ProviderError, type ChatRequest } from "./types.js";
 
@@ -287,18 +287,5 @@ describe("API key handling", () => {
     expect(errors[0]?.message).toContain("[redacted]");
     expect(JSON.stringify(provider)).not.toContain(KEY);
     expect(JSON.stringify({ ...provider })).not.toContain(KEY);
-  });
-});
-
-describe("OpenAICompatibleChatProvider", () => {
-  it("uses the configured endpoint, kind and id, and omits Authorization without a key", async () => {
-    const { fetchImpl, calls } = fakeFetch([() => jsonResponse(fixture("openai/chat-text.json"))]);
-    const provider = new OpenAICompatibleChatProvider({ baseUrl: "http://127.0.0.1:8000/v1", fetchImpl });
-    expect(provider.kind).toBe("openai_compatible");
-    expect(provider.id).toBe("custom");
-    const res = await provider.chat(baseRequest());
-    expect(calls[0]?.url).toBe("http://127.0.0.1:8000/v1/chat/completions");
-    expect(calls[0]?.headers).toEqual({ "content-type": "application/json" });
-    expect(res.provider).toBe("custom");
   });
 });

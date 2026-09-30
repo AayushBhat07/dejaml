@@ -1,18 +1,20 @@
+import { type EndpointAccess, NetGuardError, validateEndpointUrl } from "@dejaml/net-guard";
+
 import { AnthropicChatProvider } from "./anthropic.js";
 import { OPENAI_DEFAULT_BASE_URL, OpenAIChatProvider, OpenAICompatibleChatProvider } from "./openai.js";
 import { DEFAULT_PRICES, PRICE_TABLE_ENV, PriceTableError, parsePriceTable } from "./pricing.js";
-import type { FetchLike, RetryOptions } from "./retry.js";
+import type { FetchLike, NetGuardSeams, RetryOptions } from "./retry.js";
 import type { ChatProvider, ModelPrice } from "./types.js";
 
 /**
  * Server-side provider configuration, read once from the environment at
- * startup. API keys never live on the returned objects: they are held in a
- * module-private WeakMap keyed by the config object, so logging or
- * serializing a config cannot leak them.
+ * startup. Provider keys come only from the server's environment: the browser
+ * picks a provider id and a model name and nothing else. Keys never live on
+ * the returned objects: they are held in a module-private WeakMap keyed by
+ * the config object, so logging or serializing a config cannot leak them.
  */
 
 export const PROVIDER_ENV = {
-  allowUploaderKeys: "DEJAML_ALLOW_UPLOADER_KEYS",
   openaiKey: "DEJAML_OPENAI_API_KEY",
   openaiModels: "DEJAML_OPENAI_MODELS",
   openaiBaseUrl: "DEJAML_OPENAI_BASE_URL",
@@ -22,8 +24,24 @@ export const PROVIDER_ENV = {
   customModels: "DEJAML_CUSTOM_MODELS",
   customKey: "DEJAML_CUSTOM_API_KEY",
   customLabel: "DEJAML_CUSTOM_LABEL",
+  /** Development only: plain http to a loopback custom endpoint. Refused when NODE_ENV=production. */
   customAllowLocalHttp: "DEJAML_CUSTOM_ALLOW_LOCAL_HTTP",
+  /** Development only: a custom endpoint on a private network or internal name. Refused when NODE_ENV=production. */
+  customAllowPrivate: "DEJAML_CUSTOM_ALLOW_PRIVATE",
   prices: PRICE_TABLE_ENV,
+} as const;
+
+/**
+ * Settings that no longer exist. Uploader-supplied keys were removed, and the
+ * legacy single-model settings could route a base URL around the custom
+ * endpoint's checks; setting any of them is a configuration error so a server
+ * never silently runs with a key or endpoint it thinks it has.
+ */
+export const REMOVED_PROVIDER_ENV = {
+  allowUploaderKeys: "DEJAML_ALLOW_UPLOADER_KEYS",
+  legacyModel: "DEJAML_MODEL",
+  legacyModelBaseUrl: "DEJAML_MODEL_BASE_URL",
+  legacyModelKey: "DEJAML_MODEL_API_KEY",
 } as const;
 
 export const DEFAULT_ANTHROPIC_MODELS: readonly string[] = ["claude-opus-5-5", "claude-sonnet-5-5"];
@@ -38,9 +56,11 @@ export type ProviderConfig = {
   readonly models: readonly string[];
   /** Normalized endpoint; only set for `custom` and an overridden `openai`. Never public. */
   readonly baseUrl?: string;
+  /** Which addresses the endpoint may reach (`custom` only; `public` unless a development flag widened it). */
+  readonly endpointAccess?: EndpointAccess;
+  /** Plain http to a loopback custom endpoint (development only). */
+  readonly allowHttp?: boolean;
   readonly hasServerKey: boolean;
-  /** Whether a study may supply its own key (never for `custom`). */
-  readonly allowUploaderKey: boolean;
   readonly available: boolean;
 };
 
@@ -49,11 +69,11 @@ export type LoadedProviderConfig = {
   readonly prices: Readonly<Record<string, ModelPrice>>;
 };
 
+/** What the browser may see: ids, labels and models. Never a key, base URL or key source. */
 export type PublicProvider = {
   id: ProviderId;
   label: string;
   models: string[];
-  keySource: "server" | "uploader";
 };
 
 export class ProviderConfigError extends Error {
@@ -96,6 +116,16 @@ function parseFlag(env: Env, name: string, fallback: boolean, problems: string[]
   return fallback;
 }
 
+/** A development-only flag: refused (and treated as off) when NODE_ENV=production. */
+function parseDevFlag(env: Env, name: string, production: boolean, problems: string[]): boolean {
+  const on = parseFlag(env, name, false, problems);
+  if (on && production) {
+    problems.push(`${name} is a development-only setting and is not allowed when NODE_ENV=production`);
+    return false;
+  }
+  return on;
+}
+
 function parseModels(env: Env, name: string, problems: string[]): string[] | undefined {
   const v = read(env, name);
   if (v === undefined) return undefined;
@@ -121,8 +151,20 @@ function parseKey(env: Env, name: string, problems: string[]): string | undefine
 
 const LOCAL_HOSTS = new Set(["127.0.0.1", "localhost", "[::1]"]);
 
-/** Returns the normalized URL or pushes a problem. */
-function parseBaseUrl(name: string, raw: string, allowLocalHttp: boolean, problems: string[]): string | undefined {
+/**
+ * Returns the normalized URL or pushes a problem. Syntax first (scheme,
+ * credentials, query, fragment), then net-guard's endpoint policy for the
+ * host: loopback, private, link-local, CGNAT, metadata, multicast and
+ * unspecified addresses (IPv4, IPv6 and IPv4-mapped forms) and internal names
+ * are refused unless `access` was widened for development. DNS answers are
+ * checked again on every request.
+ */
+function parseBaseUrl(
+  name: string,
+  raw: string,
+  endpoint: { access: EndpointAccess; allowLocalHttp: boolean },
+  problems: string[],
+): string | undefined {
   let url: URL;
   try {
     url = new URL(raw);
@@ -132,9 +174,9 @@ function parseBaseUrl(name: string, raw: string, allowLocalHttp: boolean, proble
   }
   const errs: string[] = [];
   if (url.protocol === "http:") {
-    if (!(allowLocalHttp && LOCAL_HOSTS.has(url.hostname))) {
+    if (!(endpoint.allowLocalHttp && LOCAL_HOSTS.has(url.hostname))) {
       errs.push(
-        allowLocalHttp
+        endpoint.allowLocalHttp
           ? "must use https (plain http is only allowed for 127.0.0.1, localhost or [::1])"
           : "must use https",
       );
@@ -148,18 +190,60 @@ function parseBaseUrl(name: string, raw: string, allowLocalHttp: boolean, proble
     problems.push(`${name} ${errs.join(", ")}`);
     return undefined;
   }
+  try {
+    validateEndpointUrl(raw, { access: endpoint.access, allowHttp: endpoint.allowLocalHttp });
+  } catch (err) {
+    if (!(err instanceof NetGuardError)) throw err;
+    const hint =
+      endpoint.access === "public" && name === PROVIDER_ENV.customBaseUrl
+        ? ` (for a development server set ${PROVIDER_ENV.customAllowPrivate}=1; never in production)`
+        : "";
+    switch (err.code) {
+      case "private_address":
+        problems.push(`${name} points at a loopback, private, link-local, metadata or otherwise non-public address${hint}`);
+        break;
+      case "unsafe_hostname":
+        problems.push(`${name} uses a local, internal or single-label hostname${hint}`);
+        break;
+      case "ip_literal_not_allowed":
+        problems.push(`${name} uses a non-canonical IP address`);
+        break;
+      default:
+        problems.push(`${name} is refused by the network policy (${err.code})`);
+    }
+    return undefined;
+  }
   return url.href.replace(/\/+$/, "");
 }
 
 /**
  * Reads and validates provider configuration. Throws `ProviderConfigError`
- * listing every problem found.
+ * listing every problem found. A provider without a server key is listed as
+ * unavailable and never offered to the browser.
  */
 export function loadProviderConfig(env: Env): LoadedProviderConfig {
   const problems: string[] = [];
-  const allowUploader = parseFlag(env, PROVIDER_ENV.allowUploaderKeys, true, problems);
+  const production = read(env, "NODE_ENV") === "production";
   const providers: ProviderConfig[] = [];
   const keys = new Map<ProviderConfig, string>();
+
+  // Removed settings. "0" for the uploader-key switch matches today's behaviour, so it is tolerated.
+  {
+    const uploader = read(env, REMOVED_PROVIDER_ENV.allowUploaderKeys);
+    if (uploader !== undefined && uploader !== "0" && uploader !== "false") {
+      problems.push(
+        `${REMOVED_PROVIDER_ENV.allowUploaderKeys} is no longer supported: provider keys come only from ${PROVIDER_ENV.openaiKey}, ${PROVIDER_ENV.anthropicKey} and ${PROVIDER_ENV.customKey}`,
+      );
+    }
+    const legacy = [REMOVED_PROVIDER_ENV.legacyModel, REMOVED_PROVIDER_ENV.legacyModelBaseUrl, REMOVED_PROVIDER_ENV.legacyModelKey].filter(
+      (name) => read(env, name) !== undefined,
+    );
+    if (legacy.length > 0) {
+      problems.push(
+        `${legacy.join(", ")} ${legacy.length === 1 ? "is" : "are"} no longer supported: use ${PROVIDER_ENV.openaiKey}/${PROVIDER_ENV.openaiModels}, ${PROVIDER_ENV.anthropicKey}/${PROVIDER_ENV.anthropicModels}, or ${PROVIDER_ENV.customBaseUrl}/${PROVIDER_ENV.customModels}/${PROVIDER_ENV.customKey}`,
+      );
+    }
+  }
 
   const add = (config: ProviderConfig, key: string | undefined) => {
     providers.push(config);
@@ -171,7 +255,10 @@ export function loadProviderConfig(env: Env): LoadedProviderConfig {
     const key = parseKey(env, PROVIDER_ENV.openaiKey, problems);
     const models = parseModels(env, PROVIDER_ENV.openaiModels, problems) ?? [];
     const rawBase = read(env, PROVIDER_ENV.openaiBaseUrl);
-    const baseUrl = rawBase === undefined ? undefined : parseBaseUrl(PROVIDER_ENV.openaiBaseUrl, rawBase, false, problems);
+    const baseUrl =
+      rawBase === undefined
+        ? undefined
+        : parseBaseUrl(PROVIDER_ENV.openaiBaseUrl, rawBase, { access: "public", allowLocalHttp: false }, problems);
     if (key !== undefined && models.length === 0 && read(env, PROVIDER_ENV.openaiModels) === undefined) {
       problems.push(`${PROVIDER_ENV.openaiModels} is required when ${PROVIDER_ENV.openaiKey} is set`);
     }
@@ -184,8 +271,7 @@ export function loadProviderConfig(env: Env): LoadedProviderConfig {
         models,
         ...(baseUrl !== undefined ? { baseUrl } : {}),
         hasServerKey,
-        allowUploaderKey: allowUploader,
-        available: models.length > 0 && (hasServerKey || allowUploader),
+        available: models.length > 0 && hasServerKey,
       },
       key,
     );
@@ -203,24 +289,26 @@ export function loadProviderConfig(env: Env): LoadedProviderConfig {
         label: "Anthropic",
         models,
         hasServerKey,
-        allowUploaderKey: allowUploader,
-        available: models.length > 0 && (hasServerKey || allowUploader),
+        available: models.length > 0 && hasServerKey,
       },
       key,
     );
   }
 
-  // Custom (administrator-only OpenAI-compatible endpoint)
+  // Custom (administrator-only OpenAI-compatible endpoint; its key is optional, e.g. a local server)
   {
     const rawBase = read(env, PROVIDER_ENV.customBaseUrl);
     const rawModels = read(env, PROVIDER_ENV.customModels);
-    const allowLocal = parseFlag(env, PROVIDER_ENV.customAllowLocalHttp, false, problems);
+    const allowLocalHttp = parseDevFlag(env, PROVIDER_ENV.customAllowLocalHttp, production, problems);
+    const allowPrivate = parseDevFlag(env, PROVIDER_ENV.customAllowPrivate, production, problems);
+    const access: EndpointAccess = allowPrivate ? "private" : allowLocalHttp ? "loopback" : "public";
     const key = parseKey(env, PROVIDER_ENV.customKey, problems);
     const label = read(env, PROVIDER_ENV.customLabel);
     if (rawBase !== undefined || rawModels !== undefined) {
       if (rawBase === undefined) problems.push(`${PROVIDER_ENV.customBaseUrl} is required when ${PROVIDER_ENV.customModels} is set`);
       if (rawModels === undefined) problems.push(`${PROVIDER_ENV.customModels} is required when ${PROVIDER_ENV.customBaseUrl} is set`);
-      const baseUrl = rawBase === undefined ? undefined : parseBaseUrl(PROVIDER_ENV.customBaseUrl, rawBase, allowLocal, problems);
+      const baseUrl =
+        rawBase === undefined ? undefined : parseBaseUrl(PROVIDER_ENV.customBaseUrl, rawBase, { access, allowLocalHttp }, problems);
       const models = parseModels(env, PROVIDER_ENV.customModels, problems) ?? [];
       // eslint-disable-next-line no-control-regex
       if (label !== undefined && (label.length > 64 || /[\u0000-\u001f\u007f]/.test(label))) {
@@ -234,8 +322,9 @@ export function loadProviderConfig(env: Env): LoadedProviderConfig {
             label: label !== undefined && label.length <= 64 ? label : "Custom endpoint",
             models,
             baseUrl,
+            endpointAccess: access,
+            allowHttp: allowLocalHttp,
             hasServerKey: key !== undefined,
-            allowUploaderKey: false,
             available: true,
           },
           key,
@@ -265,25 +354,28 @@ export function loadProviderConfig(env: Env): LoadedProviderConfig {
   return Object.freeze({ providers: Object.freeze(providers.map((p) => Object.freeze(p))), prices: Object.freeze(prices) });
 }
 
-/** Browser-safe provider list: no keys, no base URLs; only available providers. */
+/** Browser-safe provider list: ids, labels and models of available providers only. */
 export function publicProviders(config: LoadedProviderConfig): PublicProvider[] {
-  return config.providers
-    .filter((p) => p.available)
-    .map((p) => ({ id: p.id, label: p.label, models: [...p.models], keySource: p.hasServerKey || !p.allowUploaderKey ? "server" : "uploader" }));
+  return config.providers.filter((p) => p.available).map((p) => ({ id: p.id, label: p.label, models: [...p.models] }));
 }
 
 export type CreateChatProviderOptions = {
-  /** A study-supplied key for `openai`/`anthropic`, used only when uploader keys are allowed. */
-  uploaderKey?: string;
+  /**
+   * Test seam for `openai`/`anthropic` only. The custom endpoint never takes
+   * an injected fetch: it always uses the guarded fetch (see `netGuard`).
+   */
   fetchImpl?: FetchLike;
   timeoutMs?: number;
+  connectTimeoutMs?: number;
+  maxResponseBytes?: number;
   retry?: Omit<RetryOptions, "signal">;
+  /** Test seams for the guarded fetch (resolver, transport, address policy). Never wire to configuration. */
+  netGuard?: NetGuardSeams;
 };
 
 /**
- * Builds the adapter for a configured provider and allowlisted model. An
- * uploader key, when given, must be allowed for the provider and is used in
- * place of the server key; otherwise the server key is required.
+ * Builds the adapter for a configured provider and allowlisted model, with
+ * the server's key. The adapter re-checks the model allowlist on every call.
  */
 export function createChatProvider(
   config: LoadedProviderConfig,
@@ -291,37 +383,43 @@ export function createChatProvider(
   model: string,
   options: CreateChatProviderOptions = {},
 ): ChatProvider {
+  if ("uploaderKey" in options || "apiKey" in options) {
+    throw new ProviderSelectionError("Provider keys come only from the server environment");
+  }
   const provider = config.providers.find((p) => p.id === providerId);
   if (!provider || !provider.available) throw new ProviderSelectionError(`Provider ${JSON.stringify(providerId.slice(0, 64))} is not configured`);
   if (!provider.models.includes(model)) {
     throw new ProviderSelectionError(`Model ${JSON.stringify(model.slice(0, 128))} is not allowed for provider ${provider.id}`);
   }
-
-  let key: string | undefined;
-  if (options.uploaderKey !== undefined) {
-    if (!provider.allowUploaderKey) throw new ProviderSelectionError(`Provider ${provider.id} does not accept uploader-supplied keys`);
-    if (!isValidApiKey(options.uploaderKey)) {
-      throw new ProviderSelectionError("Uploader API key is invalid (8-512 characters, no whitespace or control characters)");
-    }
-    key = options.uploaderKey;
-  } else {
-    key = serverKeys.get(provider);
-    if (key === undefined && provider.kind !== "openai_compatible") {
-      throw new ProviderSelectionError(`Provider ${provider.id} has no server key; an uploader key is required`);
-    }
+  const key = serverKeys.get(provider);
+  if (key === undefined && provider.kind !== "openai_compatible") {
+    throw new ProviderSelectionError(`Provider ${provider.id} has no server key`);
   }
 
   const common = {
     prices: config.prices,
-    ...(options.fetchImpl !== undefined ? { fetchImpl: options.fetchImpl } : {}),
+    models: provider.models,
     ...(options.timeoutMs !== undefined ? { timeoutMs: options.timeoutMs } : {}),
+    ...(options.connectTimeoutMs !== undefined ? { connectTimeoutMs: options.connectTimeoutMs } : {}),
+    ...(options.maxResponseBytes !== undefined ? { maxResponseBytes: options.maxResponseBytes } : {}),
     ...(options.retry !== undefined ? { retry: options.retry } : {}),
   };
   switch (provider.kind) {
     case "openai":
-      return new OpenAIChatProvider({ ...common, apiKey: key as string, baseUrl: provider.baseUrl ?? OPENAI_DEFAULT_BASE_URL, id: provider.id });
+      return new OpenAIChatProvider({
+        ...common,
+        ...(options.fetchImpl !== undefined ? { fetchImpl: options.fetchImpl } : {}),
+        apiKey: key as string,
+        baseUrl: provider.baseUrl ?? OPENAI_DEFAULT_BASE_URL,
+        id: provider.id,
+      });
     case "anthropic":
-      return new AnthropicChatProvider({ ...common, apiKey: key as string, id: provider.id });
+      return new AnthropicChatProvider({
+        ...common,
+        ...(options.fetchImpl !== undefined ? { fetchImpl: options.fetchImpl } : {}),
+        apiKey: key as string,
+        id: provider.id,
+      });
     case "openai_compatible":
       return new OpenAICompatibleChatProvider({
         ...common,
@@ -329,6 +427,9 @@ export function createChatProvider(
         ...(key !== undefined ? { apiKey: key } : {}),
         id: provider.id,
         label: provider.label,
+        access: provider.endpointAccess ?? "public",
+        allowHttp: provider.allowHttp === true,
+        ...(options.netGuard !== undefined ? { netGuard: options.netGuard } : {}),
       });
   }
 }

@@ -5,7 +5,9 @@ the providers' published wire formats (OpenAI Chat Completions and Anthropic
 Messages API documentation: response objects, streaming chunk/event shapes,
 and error bodies). **None of them was captured from a live API call**: no API
 key was available in the environment where they were written, and the tests
-never touch the network (every test injects a fake `fetchImpl`).
+never touch the network: they inject a fake `fetchImpl`, or (for the custom
+endpoint, which always uses net-guard's guarded fetch) serve a fixture from a
+throwaway HTTP server on 127.0.0.1.
 
 What that means in practice:
 

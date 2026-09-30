@@ -1,9 +1,9 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { App } from "./App";
 import recordedRun from "../../../fixtures/events/urban-land-cover-success.json";
-import { ReplayRunClient, replaySourceFrom } from "./lib/run-client";
+import { HttpRunClient, ReplayRunClient, replaySourceFrom } from "./lib/run-client";
 
 afterEach(() => {
   document.body.innerHTML = "";
@@ -94,15 +94,15 @@ describe("live mode", () => {
     expect(window.location.search).toBe("");
   });
 
-  it("offers only the server's providers and models, and sends the key only with the upload", async () => {
+  it("offers only the server's providers and models, and never asks for or sends an API key", async () => {
     const replay = new ReplayRunClient(1);
     const calls: Array<{ name: string; options: unknown }> = [];
     const client = {
       mode: "live" as const,
       config: async () => ({
         providers: [
-          { id: "anthropic", label: "Anthropic", models: ["claude-opus-5-5", "claude-sonnet-5-5"], keySource: "uploader" as const },
-          { id: "custom", label: "Lab model", models: ["llama"], keySource: "server" as const },
+          { id: "anthropic", label: "Anthropic", models: ["claude-opus-5-5", "claude-sonnet-5-5"] },
+          { id: "custom", label: "Lab model", models: ["llama"] },
         ],
       }),
       createRun: async (paper: File, options?: unknown) => {
@@ -115,7 +115,10 @@ describe("live mode", () => {
     };
     window.history.replaceState(null, "", "/");
     const { unmount } = render(<App client={client} />);
-    const key = await screen.findByLabelText("API key");
+    await screen.findByLabelText("Provider");
+    expect(screen.queryByLabelText("API key")).toBeNull();
+    expect(screen.queryByLabelText("API base URL")).toBeNull();
+    expect(document.querySelector('input[type="password"]')).toBeNull();
     await act(async () => {
       fireEvent.change(screen.getByTestId("paper-input"), {
         target: { files: [new File(["%PDF-1.7\nbody"], "paper.pdf", { type: "application/pdf" })] },
@@ -123,16 +126,12 @@ describe("live mode", () => {
     });
     await screen.findByText("paper.pdf");
     const start = screen.getByRole("button", { name: "Start study" }) as HTMLButtonElement;
-    expect(start.disabled).toBe(true);
-    expect(screen.getByText("Choose a model and enter the API key to start.")).toBeTruthy();
-    expect(screen.queryByLabelText("API base URL")).toBeNull();
+    expect(start.disabled).toBe(false);
 
     fireEvent.change(screen.getByLabelText("Model"), { target: { value: "claude-sonnet-5-5" } });
-    fireEvent.change(key, { target: { value: "sk-secret" } });
     fireEvent.change(screen.getByLabelText("Code repository (optional)"), {
       target: { value: "https://github.com/example/new-paper" },
     });
-    expect(start.disabled).toBe(false);
     await act(async () => {
       fireEvent.click(start);
     });
@@ -140,14 +139,31 @@ describe("live mode", () => {
       {
         name: "paper.pdf",
         options: {
-          model: { providerId: "anthropic", model: "claude-sonnet-5-5", apiKey: "sk-secret" },
+          model: { providerId: "anthropic", model: "claude-sonnet-5-5" },
           repositoryUrl: "https://github.com/example/new-paper",
         },
       },
     ]);
-    expect(JSON.stringify(window.localStorage)).not.toContain("sk-secret");
-    expect(window.location.href).not.toContain("sk-secret");
     unmount();
     window.history.replaceState(null, "", "/");
+  });
+
+  it("uploads only the provider id and model name with a study", async () => {
+    const sent: FormData[] = [];
+    const fetchStub = vi.fn(async (_url: string, init?: RequestInit) => {
+      sent.push(init?.body as FormData);
+      return new Response(JSON.stringify({ runId: "run_x" }), { status: 201, headers: { "content-type": "application/json" } });
+    });
+    vi.stubGlobal("fetch", fetchStub);
+    try {
+      const client = new HttpRunClient("/api");
+      await client.createRun(new File(["%PDF-1.7"], "paper.pdf", { type: "application/pdf" }), {
+        model: { providerId: "openai", model: "gpt-x" },
+      });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+    expect(sent).toHaveLength(1);
+    expect([...sent[0]!.keys()].sort()).toEqual(["modelName", "paper", "providerId"]);
   });
 });

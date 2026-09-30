@@ -22,13 +22,10 @@ export function NewStudy({
   const [providerId, setProviderId] = useState(providers[0]?.id ?? "");
   const provider = providers.find((item) => item.id === providerId) ?? providers[0] ?? null;
   const [modelName, setModelName] = useState(provider?.models[0] ?? "");
-  // The key stays in this component's memory only: never in storage, the URL, or logs.
-  const [apiKey, setApiKey] = useState("");
   const [repositoryUrl, setRepositoryUrl] = useState("");
 
   const live = config !== null;
-  const keyRequired = provider?.keySource === "uploader";
-  const modelReady = !live || (provider !== null && provider.models.includes(modelName) && (!keyRequired || apiKey.trim() !== ""));
+  const modelReady = !live || (provider !== null && provider.models.includes(modelName));
 
   const chooseProvider = (id: string) => {
     setProviderId(id);
@@ -51,10 +48,9 @@ export function NewStudy({
     setError(null);
     try {
       await onStart(paper.file, {
-        ...(live && provider ? { model: { providerId: provider.id, model: modelName, ...(apiKey.trim() ? { apiKey: apiKey.trim() } : {}) } } : {}),
+        ...(live && provider ? { model: { providerId: provider.id, model: modelName } } : {}),
         ...(repositoryUrl.trim() ? { repositoryUrl: repositoryUrl.trim() } : {}),
       });
-      setApiKey("");
     } catch (failure) {
       setError(failure instanceof Error ? failure.message : "The study could not be started.");
       setStarting(false);
@@ -109,22 +105,9 @@ export function NewStudy({
                     ))}
                   </select>
                 </label>
-                {provider && (keyRequired || provider.id !== "custom") ? (
-                  <label className="field">
-                    <span>API key</span>
-                    <input
-                      type="password"
-                      placeholder={keyRequired ? "Required" : "Leave blank to use the server's key"}
-                      value={apiKey}
-                      autoComplete="off"
-                      spellCheck={false}
-                      onChange={(event) => setApiKey(event.target.value)}
-                    />
-                  </label>
-                ) : null}
                 <p className="muted small">
-                  Providers and models are set by this server's administrator. A key you enter goes to this server with the
-                  study, is used only to call that provider, and is never saved, logged, shown in reports, or passed into a lab.
+                  Providers, models and their API keys are set by this server's administrator. Keys stay on the server and are
+                  never sent to the browser, saved with a study, shown in reports, or passed into a lab.
                 </p>
               </>
             )}
@@ -170,7 +153,7 @@ export function NewStudy({
             </button>
           ) : null}
         </div>
-        {paper && !modelReady ? <p className="muted small">Choose a model and enter the API key to start.</p> : null}
+        {paper && !modelReady ? <p className="muted small">Choose a model to start.</p> : null}
       </div>
     </section>
   );

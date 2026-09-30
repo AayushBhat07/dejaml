@@ -1,5 +1,16 @@
 import { describe, expect, it } from "vitest";
-import { backoffDelay, httpError, parseRetryAfter, readSse, statusToCode, withRetries } from "./retry.js";
+import {
+  backoffDelay,
+  httpError,
+  parseRateLimitReset,
+  parseResetDuration,
+  parseRetryAfter,
+  readBoundedText,
+  readErrorBody,
+  readSse,
+  statusToCode,
+  withRetries,
+} from "./retry.js";
 import { recordingSleep, sseResponse } from "./test-helpers.js";
 import { ProviderError } from "./types.js";
 
@@ -13,6 +24,47 @@ describe("parseRetryAfter", () => {
     expect(parseRetryAfter(new Headers({ "retry-after-ms": "100", "retry-after": "9" }))).toBe(100);
     expect(parseRetryAfter(new Headers({ "retry-after": "soon" }))).toBeUndefined();
     expect(parseRetryAfter(new Headers())).toBeUndefined();
+  });
+});
+
+describe("rate-limit reset headers", () => {
+  it("parses OpenAI reset durations", () => {
+    expect(parseResetDuration("20ms")).toBe(20);
+    expect(parseResetDuration("1s")).toBe(1000);
+    expect(parseResetDuration("1.5s")).toBe(1500);
+    expect(parseResetDuration("6m0s")).toBe(360_000);
+    expect(parseResetDuration("1h2m3s")).toBe(3_723_000);
+    expect(parseResetDuration("")).toBeUndefined();
+    expect(parseResetDuration("soon")).toBeUndefined();
+  });
+
+  it("uses only exhausted limits and takes the longest wait", () => {
+    const now = () => Date.parse("2026-09-30T12:00:00Z");
+    const headers = new Headers({
+      "anthropic-ratelimit-requests-remaining": "0",
+      "anthropic-ratelimit-requests-reset": "2026-09-30T12:00:02Z",
+      "anthropic-ratelimit-input-tokens-remaining": "0",
+      "anthropic-ratelimit-input-tokens-reset": "2026-09-30T12:00:07Z",
+      "anthropic-ratelimit-output-tokens-remaining": "900",
+      "anthropic-ratelimit-output-tokens-reset": "2026-09-30T12:01:00Z",
+    });
+    expect(parseRateLimitReset(headers, now)).toBe(7000);
+    expect(parseRateLimitReset(new Headers({ "anthropic-ratelimit-tokens-reset": "2026-09-30T12:00:07Z" }), now)).toBeUndefined();
+    expect(parseRateLimitReset(new Headers({ "x-ratelimit-remaining-tokens": "0", "x-ratelimit-reset-tokens": "250ms" }), now)).toBe(250);
+    // A reset already in the past means "now", not a negative wait.
+    expect(
+      parseRateLimitReset(new Headers({ "anthropic-ratelimit-tokens-remaining": "0", "anthropic-ratelimit-tokens-reset": "2026-09-30T11:59:00Z" }), now),
+    ).toBe(0);
+  });
+});
+
+describe("bounded body reads", () => {
+  it("returns small bodies, refuses oversize ones, and cuts error bodies instead of failing", async () => {
+    expect(await readBoundedText(new Response("hello"), 10, "Test")).toBe("hello");
+    await expect(readBoundedText(new Response("x".repeat(11)), 10, "Test")).rejects.toMatchObject({ code: "response_too_large" });
+    const huge = "e".repeat(200 * 1024);
+    const cut = await readErrorBody(new Response(huge, { status: 500 }), "Test");
+    expect(cut.length).toBe(64 * 1024);
   });
 });
 

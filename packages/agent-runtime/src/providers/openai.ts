@@ -1,18 +1,29 @@
+import { type EndpointAccess, NetGuardError, validateEndpointUrl } from "@dejaml/net-guard";
+
 import { estimateCostUsd, priceFor, DEFAULT_PRICES } from "./pricing.js";
 import {
+  DEFAULT_CONNECT_TIMEOUT_MS,
+  DEFAULT_MAX_RESPONSE_BYTES,
   DEFAULT_TIMEOUT_MS,
   type FetchLike,
+  type NetGuardSeams,
+  type ProviderHttpOptions,
   type RequestContext,
   type RetryOptions,
+  assertModelAllowed,
+  guardedProviderFetch,
   httpError,
   malformed,
   parseToolInput,
+  readBoundedText,
+  readErrorBody,
   readSse,
   streamError,
   withRetries,
   withTimeout,
 } from "./retry.js";
 import {
+  INSPECT,
   ProviderError,
   type ChatMessage,
   type ChatProvider,
@@ -26,30 +37,28 @@ import {
 
 export const OPENAI_DEFAULT_BASE_URL = "https://api.openai.com/v1";
 
-/** Options shared by every HTTP adapter. */
-export type ProviderHttpOptions = {
-  /** Injected fetch (tests); defaults to global `fetch`. */
-  fetchImpl?: FetchLike;
-  /** Per-attempt timeout in ms (covers the whole body, including streams). Default 180000. */
-  timeoutMs?: number;
-  /** Retry policy overrides (`signal` comes from each request). */
-  retry?: Omit<RetryOptions, "signal">;
-  /** Price table used to fill `costUsd`; defaults to `DEFAULT_PRICES`. */
-  prices?: Readonly<Record<string, ModelPrice>>;
-};
-
 export type OpenAIChatProviderOptions = ProviderHttpOptions & {
   apiKey: string;
   baseUrl?: string;
   id?: string;
 };
 
-export type OpenAICompatibleChatProviderOptions = ProviderHttpOptions & {
+/**
+ * The administrator's OpenAI-compatible endpoint. It never takes an injected
+ * fetch: every request goes through net-guard's guarded fetch under `access`.
+ */
+export type OpenAICompatibleChatProviderOptions = Omit<ProviderHttpOptions, "fetchImpl"> & {
   baseUrl: string;
   apiKey?: string;
   id?: string;
   /** Display label used in error messages. */
   label?: string;
+  /** Which addresses the endpoint may resolve to. Default `public`; wider levels are for development only. */
+  access?: EndpointAccess;
+  /** Allow plain http (only honored with `loopback` access). */
+  allowHttp?: boolean;
+  /** Test seams for the guarded fetch (resolver, transport, address policy). */
+  netGuard?: NetGuardSeams;
 };
 
 // ---------------------------------------------------------------------------
@@ -186,33 +195,64 @@ type WireKind = "openai" | "openai_compatible";
 class OpenAIWireProvider implements ChatProvider {
   readonly id: string;
   readonly kind: WireKind;
-  readonly baseUrl: string;
+  readonly #baseUrl: string;
   readonly #apiKey: string | undefined;
   readonly #fetch: FetchLike;
   readonly #timeoutMs: number;
+  readonly #maxBytes: number;
+  readonly #models: readonly string[] | null;
   readonly #retry: Omit<RetryOptions, "signal">;
   readonly #prices: Readonly<Record<string, ModelPrice>>;
   readonly #label: string;
 
-  constructor(kind: WireKind, id: string, label: string, baseUrl: string, apiKey: string | undefined, options: ProviderHttpOptions) {
+  constructor(
+    kind: WireKind,
+    id: string,
+    label: string,
+    baseUrl: string,
+    apiKey: string | undefined,
+    options: ProviderHttpOptions,
+    endpoint: { access: EndpointAccess; allowHttp: boolean; seams?: NetGuardSeams | undefined },
+  ) {
     this.kind = kind;
     this.id = id;
     this.#label = label;
-    this.baseUrl = baseUrl.replace(/\/+$/, "");
+    this.#baseUrl = baseUrl.replace(/\/+$/, "");
     this.#apiKey = apiKey;
-    this.#fetch = options.fetchImpl ?? ((input, init) => fetch(input, init));
     this.#timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+    this.#maxBytes = options.maxResponseBytes ?? DEFAULT_MAX_RESPONSE_BYTES;
+    this.#models = options.models ? [...options.models] : null;
+    this.#fetch =
+      options.fetchImpl ??
+      guardedProviderFetch({
+        access: endpoint.access,
+        allowHttp: endpoint.allowHttp,
+        timeoutMs: this.#timeoutMs,
+        connectTimeoutMs: options.connectTimeoutMs ?? DEFAULT_CONNECT_TIMEOUT_MS,
+        maxResponseBytes: this.#maxBytes,
+        seams: endpoint.seams,
+      });
     this.#retry = options.retry ?? {};
     this.#prices = options.prices ?? DEFAULT_PRICES;
+  }
+
+  /** The endpoint origin and path prefix (no key). */
+  get baseUrl(): string {
+    return this.#baseUrl;
   }
 
   toJSON(): Record<string, unknown> {
     return { id: this.id, kind: this.kind };
   }
 
+  [INSPECT](): string {
+    return `${this.constructor.name} ${JSON.stringify(this.toJSON())}`;
+  }
+
   async chat(request: ChatRequest): Promise<ChatResponse> {
+    assertModelAllowed(this.#models, request.model, this.#label);
     const body = JSON.stringify(buildOpenAIRequestBody(request));
-    const url = `${this.baseUrl}/chat/completions`;
+    const url = `${this.#baseUrl}/chat/completions`;
     const headers: Record<string, string> = { "Content-Type": "application/json" };
     if (request.stream) headers["Accept"] = "text/event-stream";
     if (this.#apiKey !== undefined) headers["Authorization"] = `Bearer ${this.#apiKey}`;
@@ -225,14 +265,14 @@ class OpenAIWireProvider implements ChatProvider {
           if (!res.ok) {
             let text = "";
             try {
-              text = await res.text();
+              text = await readErrorBody(res, this.#label);
             } catch {
               // body unreadable; status alone is enough
             }
             throw httpError(this.#label, res.status, text, res.headers, secrets);
           }
           if (request.stream) return await this.#readStream(res, request, ctx);
-          const text = await res.text();
+          const text = await readBoundedText(res, this.#maxBytes, this.#label);
           let json: unknown;
           try {
             json = JSON.parse(text);
@@ -286,7 +326,7 @@ class OpenAIWireProvider implements ChatProvider {
     const calls = new Map<number, { id: string; name: string; args: string }>();
 
     {
-      for await (const ev of readSse(res.body, ctx.signal)) {
+      for await (const ev of readSse(res.body, ctx.signal, { maxBytes: this.#maxBytes, providerLabel: this.#label })) {
         const data = ev.data.trim();
         if (data === "[DONE]") {
           done = true;
@@ -365,23 +405,43 @@ class OpenAIWireProvider implements ChatProvider {
 
 }
 
-/** OpenAI Chat Completions (`POST {baseUrl}/chat/completions`). */
+/**
+ * OpenAI Chat Completions: `POST {baseUrl}/chat/completions` with
+ * `Authorization: Bearer <key>`. An overridden base URL gets the same
+ * public-address guard as every other request.
+ */
 export class OpenAIChatProvider extends OpenAIWireProvider {
   constructor(options: OpenAIChatProviderOptions) {
-    super("openai", options.id ?? "openai", "OpenAI", options.baseUrl ?? OPENAI_DEFAULT_BASE_URL, options.apiKey, options);
+    super("openai", options.id ?? "openai", "OpenAI", options.baseUrl ?? OPENAI_DEFAULT_BASE_URL, options.apiKey, options, {
+      access: "public",
+      allowHttp: false,
+    });
   }
 }
 
-/** Administrator-configured endpoint speaking the Chat Completions wire format. */
+/**
+ * Administrator-configured endpoint speaking the Chat Completions wire
+ * format. The base URL is validated here and every request (each attempt)
+ * goes through the guarded fetch, which re-resolves and re-validates it.
+ */
 export class OpenAICompatibleChatProvider extends OpenAIWireProvider {
   constructor(options: OpenAICompatibleChatProviderOptions) {
-    super(
-      "openai_compatible",
-      options.id ?? "custom",
-      options.label ?? "Custom endpoint",
-      options.baseUrl,
-      options.apiKey,
-      options,
-    );
+    const access = options.access ?? "public";
+    const allowHttp = options.allowHttp === true;
+    const label = options.label ?? "Custom endpoint";
+    try {
+      validateEndpointUrl(options.baseUrl, { access, allowHttp });
+    } catch (err) {
+      if (err instanceof NetGuardError) {
+        throw new ProviderError("blocked_endpoint", `${label} base URL is refused by the network policy (${err.code})`, { retryable: false });
+      }
+      throw err;
+    }
+    const { fetchImpl: _ignored, ...http } = options as OpenAICompatibleChatProviderOptions & { fetchImpl?: unknown };
+    super("openai_compatible", options.id ?? "custom", label, options.baseUrl, options.apiKey, http, {
+      access,
+      allowHttp,
+      seams: options.netGuard,
+    });
   }
 }
