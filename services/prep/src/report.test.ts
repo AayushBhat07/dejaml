@@ -4,7 +4,9 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 import { PrepError } from "./errors.js";
-import { DEFAULT_PREP_POLICY, loadPrepPolicy } from "./policy.js";
+import { DEFAULT_PACKAGE_INDEX } from "@dejaml/contracts";
+
+import { DEFAULT_PREP_IMAGES, DEFAULT_PREP_POLICY, effectivePackageIndex, loadPrepPolicy } from "./policy.js";
 import { classifyPipFailure, parsePipReport, parseProxyLog, parseWheelFilename } from "./report.js";
 import { inspectEnvironmentCommand, offlineInstallCommands } from "./offline.js";
 import { DEFAULT_PROXY_SCRIPT_PATH } from "./downloader.js";
@@ -141,38 +143,66 @@ describe("classifyPipFailure", () => {
 describe("loadPrepPolicy", () => {
   it("uses safe defaults", () => {
     expect(loadPrepPolicy({})).toEqual({
-      image: "python:3.13.15-slim-trixie",
-      indexUrl: "https://pypi.org/simple",
+      images: DEFAULT_PREP_IMAGES,
+      expectedImageIds: {},
+      pullImages: false,
+      resolverMode: "auto",
       allowedHosts: ["pypi.org", "files.pythonhosted.org"],
       maxPackages: 150,
-      maxFileBytes: 150 * 1024 * 1024,
-      maxTotalBytes: 800 * 1024 * 1024,
+      maxFileBytes: 1024 * 1024 * 1024,
+      maxTotalBytes: 3 * 1024 * 1024 * 1024,
+      maxTempBytes: 6 * 1024 * 1024 * 1024,
+      maxTempInodes: 200_000,
+      minFreeBytes: 1024 * 1024 * 1024,
+      diskPollMs: 1000,
       timeoutSeconds: 600,
       cpus: 2,
       memoryMb: 2048,
       pids: 256,
     });
+    for (const [version, image] of Object.entries(DEFAULT_PREP_IMAGES)) {
+      expect(image).toMatch(new RegExp(`^python:${version.replace(".", "\\.")}-slim-trixie@sha256:[a-f0-9]{64}$`, "u"));
+    }
   });
 
   it("reads every supported variable", () => {
+    const pinned = `python:3.12-slim-trixie@sha256:${"c".repeat(64)}`;
     const policy = loadPrepPolicy({
-      DEJAML_PREP_IMAGE: "python:3.12-slim",
+      DEJAML_PREP_IMAGE: pinned,
       DEJAML_PREP_IMAGE_ID: `sha256:${"e".repeat(64)}`,
+      DEJAML_PREP_IMAGES: `3.10=registry.example.org/python:3.10-slim-trixie@sha256:${"f".repeat(64)}`,
+      DEJAML_PREP_PULL: "1",
+      DEJAML_PREP_RESOLVER_MODE: "native",
       DEJAML_PREP_INDEX_URL: "https://mirror.example.org/simple",
       DEJAML_PREP_ALLOWED_HOSTS: "mirror.example.org, Files.Mirror.example.org",
       DEJAML_PREP_MAX_PACKAGES: "20",
+      DEJAML_PREP_MAX_FILE_MB: "50",
       DEJAML_PREP_MAX_TOTAL_MB: "100",
+      DEJAML_PREP_MAX_TEMP_MB: "300",
+      DEJAML_PREP_MAX_TEMP_INODES: "5000",
+      DEJAML_PREP_MIN_FREE_MB: "256",
       DEJAML_PREP_CA_BUNDLE: "/etc/ssl/corp.pem",
     });
     expect(policy).toMatchObject({
-      image: "python:3.12-slim",
-      expectedImageId: `sha256:${"e".repeat(64)}`,
+      images: { ...DEFAULT_PREP_IMAGES, "3.12": pinned, "3.10": `registry.example.org/python:3.10-slim-trixie@sha256:${"f".repeat(64)}` },
+      expectedImageIds: { "3.12": `sha256:${"e".repeat(64)}` },
+      pullImages: true,
+      resolverMode: "native",
       indexUrl: "https://mirror.example.org/simple",
       allowedHosts: ["mirror.example.org", "files.mirror.example.org"],
       maxPackages: 20,
+      maxFileBytes: 50 * 1024 * 1024,
       maxTotalBytes: 100 * 1024 * 1024,
+      maxTempBytes: 300 * 1024 * 1024,
+      maxTempInodes: 5000,
+      minFreeBytes: 256 * 1024 * 1024,
       caBundlePath: "/etc/ssl/corp.pem",
     });
+  });
+
+  it("maps the legacy unpinned DEJAML_PREP_IMAGE to the pinned image of the same Python line", () => {
+    const policy = loadPrepPolicy({ DEJAML_PREP_IMAGE: "python:3.13.15-slim-trixie" });
+    expect(policy.images["3.13"]).toBe(DEFAULT_PREP_IMAGES["3.13"]);
   });
 
   it.each([
@@ -183,10 +213,30 @@ describe("loadPrepPolicy", () => {
     [{ DEJAML_PREP_ALLOWED_HOSTS: "pypi.org,*.evil.com" }, /DNS names/u],
     [{ DEJAML_PREP_MAX_PACKAGES: "-1" }, /positive integer/u],
     [{ DEJAML_PREP_CA_BUNDLE: "relative.pem" }, /absolute/u],
-    [{ DEJAML_PREP_IMAGE: "--privileged" }, /image/u],
-    [{ DEJAML_PREP_IMAGE_ID: "abc" }, /expectedImageId/u],
+    [{ DEJAML_PREP_IMAGE: "--privileged" }, /DEJAML_PREP_IMAGE/u],
+    [{ DEJAML_PREP_IMAGE: "python:3.12-slim" }, /DEJAML_PREP_IMAGE/u],
+    [{ DEJAML_PREP_IMAGES: "3.11=python:3.11-slim-trixie" }, /pinned by digest/u],
+    [{ DEJAML_PREP_IMAGES: "3.9=python:3.9@sha256:" + "a".repeat(64) }, /DEJAML_PREP_IMAGES/u],
+    [{ DEJAML_PREP_IMAGE_ID: "abc" }, /DEJAML_PREP_IMAGE/u],
+    [{ DEJAML_PREP_IMAGE: "python:3.13-slim-trixie", DEJAML_PREP_IMAGE_ID: "abc" }, /expectedImageIds/u],
+    [{ DEJAML_PREP_PULL: "maybe" }, /DEJAML_PREP_PULL/u],
+    [{ DEJAML_PREP_RESOLVER_MODE: "cuda" }, /resolverMode/u],
   ])("rejects %j", (env, message) => {
     expect(() => loadPrepPolicy(env)).toThrow(message);
+  });
+});
+
+describe("effectivePackageIndex", () => {
+  it("uses the platform's profile within the administrator's host allowlist", () => {
+    expect(effectivePackageIndex(DEFAULT_PREP_POLICY, DEFAULT_PACKAGE_INDEX)).toEqual({
+      indexUrl: "https://pypi.org/simple",
+      allowedHosts: ["pypi.org", "files.pythonhosted.org"],
+    });
+    const mirror = { id: "mirror", indexUrl: "https://mirror.example.org/simple", allowedHosts: ["mirror.example.org"], cpuOnly: true as const };
+    expect(() => effectivePackageIndex(DEFAULT_PREP_POLICY, mirror)).toThrow(/does not/u);
+    const policy = loadPrepPolicy({ DEJAML_PREP_ALLOWED_HOSTS: "mirror.example.org,pypi.org", DEJAML_PREP_INDEX_URL: "https://pypi.org/simple" });
+    expect(() => effectivePackageIndex(policy, mirror)).toThrow(/requires https:\/\/pypi\.org\/simple/u);
+    expect(() => effectivePackageIndex(DEFAULT_PREP_POLICY, { ...DEFAULT_PACKAGE_INDEX, allowedHosts: ["files.pythonhosted.org"] })).toThrow(/index host/u);
   });
 });
 

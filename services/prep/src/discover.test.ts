@@ -217,6 +217,63 @@ describe("discoverDependencies", () => {
   });
 });
 
+describe("pyproject optional dependencies", () => {
+  const PYPROJECT = [
+    "[project]",
+    'name = "demo"',
+    'dependencies = ["numpy>=1.20"]',
+    "",
+    "[project.optional-dependencies]",
+    'plot = ["matplotlib>=3.5", "seaborn"]',
+    '"Dev-Tools" = [',
+    '  "pytest",',
+    '  "black @ git+https://github.com/psf/black",',
+    "]",
+    'gpu = ["cupy-cuda12x"]',
+    "",
+    "[tool.poetry.dependencies]",
+    'python = "^3.10"',
+    'rich = { version = "^13", optional = true }',
+    'click = "^8.1"',
+    "",
+    "[tool.poetry.extras]",
+    'cli = ["rich"]',
+    "",
+  ].join("\n");
+
+  it("includes optional groups only when requested", async () => {
+    await put("pyproject.toml", PYPROJECT);
+    const plain = await discoverDependencies(repo);
+    expect(plain.requirements.map((requirement) => requirement.spec)).toEqual(["numpy>=1.20", "click>=8.1.0,<9.0.0"]);
+    expect(plain.optionalGroups).toEqual(["cli", "dev-tools", "gpu", "plot"]);
+    expect(plain.rejected).toEqual([]);
+
+    const extras = await discoverDependencies(repo, { extras: ["plot", "dev_tools", "cli", "missing"] });
+    expect(extras.extras).toEqual(["cli", "dev-tools", "missing", "plot"]);
+    expect(extras.requirements.map((requirement) => requirement.spec)).toEqual([
+      "numpy>=1.20",
+      "matplotlib>=3.5",
+      "seaborn",
+      "pytest",
+      "rich>=13.0.0,<14.0.0",
+      "click>=8.1.0,<9.0.0",
+    ]);
+    expect(extras.requirements.find((requirement) => requirement.name === "seaborn")?.source).toEqual({ file: "pyproject.toml", line: 6 });
+    expect(extras.rejected).toEqual([expect.objectContaining({ file: "pyproject.toml", line: 9, reason: expect.stringMatching(/VCS|direct/u) })]);
+    expect(extras.unsupported).toContainEqual({ path: "pyproject.toml", reason: "optional_dependency_group_missing:missing" });
+  });
+
+  it("reports repository lines that point pip at a CUDA index as rejected", async () => {
+    await put("requirements.txt", "--extra-index-url https://download.pytorch.org/whl/cu121\ntorch==2.3.0+cu121\nnumpy\n");
+    const result = await discoverDependencies(repo);
+    expect(result.rejected).toEqual([
+      expect.objectContaining({ line: 1, reason: expect.stringMatching(/accelerator package indexes/u) }),
+    ]);
+    // The +cu121 build itself is refused later, by the preparer's CPU-only policy, before any download.
+    expect(result.requirements.map((requirement) => requirement.spec)).toEqual(["torch==2.3.0+cu121", "numpy"]);
+  });
+});
+
 describe("poetryConstraint", () => {
   it.each([
     ["^1.2.3", ">=1.2.3,<2.0.0"],

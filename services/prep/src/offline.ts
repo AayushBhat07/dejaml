@@ -63,6 +63,51 @@ const INSPECT_SCRIPT = [
   " 'distributions': [{'name': n, 'version': v} for n, v in dists]}))",
 ].join("\n");
 
+export type InstalledEnvironment = { python: string; distributions: { name: string; version: string }[] };
+
+export type InstallationReceipt = {
+  ok: boolean;
+  python: { expected: string; actual: string; matches: boolean };
+  /** Every manifest package with what the lab reports for it. */
+  packages: { name: string; expected: string; installed: string | null; sha256: string; matches: boolean }[];
+  missing: string[];
+  /** Installed distributions the manifest does not list. */
+  unexpected: string[];
+};
+
+function normalized(name: string): string {
+  return name.toLowerCase().replace(/[-_.]+/gu, "-");
+}
+
+/**
+ * Compare what the offline lab reports (`inspectEnvironmentCommand`) with the
+ * manifest: the interpreter must be the platform's Python minor version and
+ * every locked package must be installed at exactly its locked version.
+ */
+export function installationReceipt(
+  manifest: { platform: { python: { version: string } }; packages: { name: string; version: string; sha256: string }[] },
+  environment: InstalledEnvironment,
+): InstallationReceipt {
+  const installed = new Map(environment.distributions.map((item) => [normalized(item.name), item.version]));
+  const packages = manifest.packages.map((pkg) => {
+    const version = installed.get(normalized(pkg.name)) ?? null;
+    return { name: pkg.name, expected: pkg.version, installed: version, sha256: pkg.sha256, matches: version === pkg.version };
+  });
+  const locked = new Set(manifest.packages.map((pkg) => normalized(pkg.name)));
+  const unexpected = [...installed.keys()].filter((name) => !locked.has(name)).sort();
+  const expected = manifest.platform.python.version;
+  const actual = environment.python;
+  const pythonMatches = actual === expected || actual.startsWith(`${expected}.`);
+  const missing = packages.filter((pkg) => pkg.installed === null).map((pkg) => pkg.name);
+  return {
+    ok: pythonMatches && packages.every((pkg) => pkg.matches) && unexpected.length === 0,
+    python: { expected, actual, matches: pythonMatches },
+    packages,
+    missing,
+    unexpected,
+  };
+}
+
 /** Print installed distributions (importlib.metadata) and the Python version as JSON. */
 export function inspectEnvironmentCommand(venv: string): string[] {
   const root = assertLabPath(venv, "venv");

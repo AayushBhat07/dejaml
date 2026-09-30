@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { lstat, readdir, readFile } from "node:fs/promises";
 import { join, posix } from "node:path";
 
-import { logicalLines, parseRequirementLine, type ParsedRequirement } from "./requirements.js";
+import { logicalLines, normalizePackageName, parseRequirementLine, type ParsedRequirement } from "./requirements.js";
 
 /**
  * Host-side dependency discovery. This module only *reads* a checkout: it
@@ -47,6 +47,10 @@ export type DependencyDiscovery = {
   unsupported: UnsupportedItem[];
   /** True when the walk stopped at {@link MAX_ENTRIES}. */
   truncated: boolean;
+  /** Optional-dependency groups the pyproject files declare. */
+  optionalGroups: string[];
+  /** The groups that were requested (and included when declared). */
+  extras: string[];
 };
 
 const PYTHON_KINDS = new Set<DependencyFileKind>([
@@ -96,7 +100,14 @@ export function classifyDependencyFile(relativePath: string): DependencyFileKind
 
 type Candidate = { path: string; kind: DependencyFileKind; content: string; depth: number };
 
-export async function discoverDependencies(repoDir: string): Promise<DependencyDiscovery> {
+export type DiscoverOptions = {
+  /** pyproject optional-dependency groups (or poetry extras) to include; none by default. */
+  extras?: string[];
+};
+
+export async function discoverDependencies(repoDir: string, options: DiscoverOptions = {}): Promise<DependencyDiscovery> {
+  const extras = new Set((options.extras ?? []).map(normalizePackageName));
+  const groups = new Set<string>();
   const rootStat = await lstat(repoDir);
   if (!rootStat.isDirectory()) throw new Error("repository path must be a directory (symlinks are not followed)");
 
@@ -160,7 +171,7 @@ export async function discoverDependencies(repoDir: string): Promise<DependencyD
   const parsed = new Map<string, { requirements: ParsedRequirement[]; rejectedCount: number; allPinned: boolean }>();
   for (const candidate of candidates) {
     const before = rejected.length;
-    const requirements = parseCandidate(candidate, rejected, unsupported);
+    const requirements = parseCandidate(candidate, rejected, unsupported, extras, groups);
     parsed.set(candidate.path, {
       requirements,
       rejectedCount: rejected.length - before,
@@ -207,16 +218,24 @@ export async function discoverDependencies(repoDir: string): Promise<DependencyD
     rejected,
     unsupported,
     truncated,
+    optionalGroups: [...groups].sort(),
+    extras: [...extras].sort(),
   };
 }
 
-function parseCandidate(candidate: Candidate, rejected: RejectedLine[], unsupported: UnsupportedItem[]): ParsedRequirement[] {
+function parseCandidate(
+  candidate: Candidate,
+  rejected: RejectedLine[],
+  unsupported: UnsupportedItem[],
+  extras: ReadonlySet<string>,
+  groups: Set<string>,
+): ParsedRequirement[] {
   switch (candidate.kind) {
     case "requirements":
     case "constraints":
       return parseRequirementsText(candidate.path, candidate.content, rejected);
     case "pyproject":
-      return parsePyproject(candidate.path, candidate.content, rejected, unsupported);
+      return parsePyproject(candidate.path, candidate.content, rejected, unsupported, extras, groups);
     case "uv.lock":
     case "poetry.lock":
       return parseLockPackages(candidate.path, candidate.content, "package", rejected);
@@ -293,6 +312,21 @@ function tomlString(value: string): string | null {
 function tomlStringArray(body: TomlLine[], key: string): { line: number; value: string }[] | null {
   const start = body.findIndex((entry) => new RegExp(`^\\s*${key}\\s*=\\s*\\[`, "u").test(entry.text));
   if (start === -1) return null;
+  return tomlStringArrayAt(body, start);
+}
+
+/** Keys of `key = [ ... ]` entries in a table body (bare or quoted keys). */
+function tomlArrayKeys(body: TomlLine[]): { key: string; start: number }[] {
+  const keys: { key: string; start: number }[] = [];
+  body.forEach((entry, index) => {
+    const match = /^\s*(?:"([A-Za-z0-9_.-]+)"|'([A-Za-z0-9_.-]+)'|([A-Za-z0-9_-]+))\s*=\s*\[/u.exec(entry.text);
+    const key = match?.[1] ?? match?.[2] ?? match?.[3];
+    if (key) keys.push({ key, start: index });
+  });
+  return keys;
+}
+
+function tomlStringArrayAt(body: TomlLine[], start: number): { line: number; value: string }[] {
   const values: { line: number; value: string }[] = [];
   for (let index = start; index < body.length; index += 1) {
     const entry = body[index];
@@ -330,6 +364,8 @@ function parsePyproject(
   content: string,
   rejected: RejectedLine[],
   unsupported: UnsupportedItem[],
+  extras: ReadonlySet<string>,
+  groups: Set<string>,
 ): ParsedRequirement[] {
   const requirements: ParsedRequirement[] = [];
   const sections = tomlSections(content);
@@ -339,14 +375,41 @@ function parsePyproject(
     if (dynamic?.some((entry) => entry.value === "dependencies")) {
       unsupported.push({ path: file, reason: "dynamic_dependencies" });
     }
+    if (extras.size > 0 && dynamic?.some((entry) => entry.value === "optional-dependencies")) {
+      unsupported.push({ path: file, reason: "dynamic_optional_dependencies" });
+    }
     for (const entry of tomlStringArray(project.body, "dependencies") ?? []) {
       accept(file, entry.line, entry.value, rejected, requirements);
     }
+  }
+  // [project.optional-dependencies]: only the groups the caller asked for.
+  const optional = sections.find((section) => section.header === "project.optional-dependencies" && !section.array);
+  const found = new Set<string>();
+  for (const { key, start } of optional ? tomlArrayKeys(optional.body) : []) {
+    const group = normalizePackageName(key);
+    groups.add(group);
+    found.add(group);
+    if (!extras.has(group)) continue;
+    for (const entry of tomlStringArrayAt(optional?.body ?? [], start)) accept(file, entry.line, entry.value, rejected, requirements);
+  }
+  // Poetry: optional dependencies are installed only through a requested [tool.poetry.extras] group.
+  const poetryExtras = sections.find((section) => section.header === "tool.poetry.extras" && !section.array);
+  const enabledOptional = new Set<string>();
+  for (const { key, start } of poetryExtras ? tomlArrayKeys(poetryExtras.body) : []) {
+    const group = normalizePackageName(key);
+    groups.add(group);
+    found.add(group);
+    if (!extras.has(group)) continue;
+    for (const entry of tomlStringArrayAt(poetryExtras?.body ?? [], start)) enabledOptional.add(normalizePackageName(entry.value));
+  }
+  for (const extra of extras) {
+    if (!found.has(extra) && (optional || poetryExtras || project)) unsupported.push({ path: file, reason: `optional_dependency_group_missing:${extra}` });
   }
   const poetry = sections.find((section) => section.header === "tool.poetry.dependencies" && !section.array);
   if (poetry) {
     for (const { line, key, value } of tomlKeyValues(poetry.body)) {
       if (key.toLowerCase() === "python") continue;
+      if (/\boptional\s*=\s*true\b/u.test(value) && !enabledOptional.has(normalizePackageName(key))) continue;
       const converted = poetryRequirement(key, value);
       if ("reason" in converted) {
         rejected.push({ file, line, text: clip(`${key} = ${value}`), reason: converted.reason });

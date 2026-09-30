@@ -16,6 +16,7 @@
     "verify:docker": "node scripts/verify-prep-docker.mjs"
   },
   "dependencies": {
+    "@dejaml/contracts": "0.1.0",
     "@dejaml/lab-manager": "0.1.0",
     "@dejaml/net-guard": "0.1.0",
     "zod":"^4.1.11"

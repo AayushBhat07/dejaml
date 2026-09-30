@@ -49,6 +49,9 @@ const PipReportSchema = z.object({
 export type ParsedPipReport = {
   packages: ResolvedPackage[];
   pythonVersion: string | null;
+  /** `python_version` marker value of the resolver's interpreter, e.g. `3.11`. */
+  pythonMinor: string | null;
+  /** `platform_machine` of the resolver's interpreter (the host's machine in cross mode). */
   platform: string | null;
 };
 
@@ -129,6 +132,7 @@ export function parsePipReport(raw: unknown, policy: Pick<PrepPolicy, "allowedHo
   return {
     packages,
     pythonVersion: typeof env.python_full_version === "string" ? env.python_full_version : null,
+    pythonMinor: typeof env.python_version === "string" ? env.python_version : null,
     platform: typeof env.platform_machine === "string" ? env.platform_machine : null,
   };
 }

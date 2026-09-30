@@ -71,6 +71,22 @@ const OPTION_REASONS: Record<string, string> = {
   "--hash": "--hash must trail a pinned requirement",
 };
 
+/** Index URLs that serve accelerator builds (PyTorch CUDA/ROCm indexes, NVIDIA's index, JAX CUDA releases). */
+export function isAcceleratorIndexUrl(url: string): boolean {
+  return /download\.pytorch\.org\/whl\/(nightly\/)?(cu\d|rocm|xpu)|pypi\.(ngc\.)?nvidia\.com|developer\.download\.nvidia|jax_cuda|jax-releases\/cuda|repo\.radeon\.com|rocm/iu.test(url);
+}
+
+const INDEX_OPTIONS = new Set(["-i", "--index-url", "--extra-index-url", "-f", "--find-links", "--trusted-host"]);
+
+function rejectOptionLine(line: string): string {
+  const token = line.split(/\s+/u)[0] ?? line;
+  const key = token.split("=")[0] ?? token;
+  if (INDEX_OPTIONS.has(key) && isAcceleratorIndexUrl(line)) {
+    return `accelerator package indexes (CUDA/ROCm/GPU) are not allowed (${key}); the CPU-only policy uses the administrator's index`;
+  }
+  return rejectOption(token);
+}
+
 function rejectOption(token: string): string {
   const key = token.split("=")[0] ?? token;
   return OPTION_REASONS[key] ?? `pip options are not allowed (${key.slice(0, 40)})`;
@@ -94,7 +110,7 @@ export function parseRequirementLine(input: string): RequirementParseResult {
   const line = stripComment(input.replace(/\r$/u, "")).replace(/\t/gu, " ").trim();
   if (line === "") return { ok: true, requirement: null };
 
-  if (line.startsWith("-")) return { ok: false, reason: rejectOption(line.split(/\s+/u)[0] ?? line) };
+  if (line.startsWith("-")) return { ok: false, reason: rejectOptionLine(line) };
 
   // Split trailing options: only `--hash=sha256:<hex>` tokens are allowed.
   const tokens = line.split(/\s+/u);
