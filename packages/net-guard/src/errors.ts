@@ -11,6 +11,7 @@ export type NetGuardErrorCode =
   | "dns_failed"
   | "pinning_violation"
   | "too_many_redirects"
+  | "redirect_refused"
   | "http_error"
   | "response_too_large"
   | "timeout"

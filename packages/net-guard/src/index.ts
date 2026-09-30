@@ -34,6 +34,17 @@ export {
   type SafeDownloadOptions,
 } from "./fetch.js";
 export {
+  createGuardedFetch,
+  DEFAULT_ENDPOINT_USER_AGENT,
+  type EndpointAccess,
+  endpointAddressAllowed,
+  type EndpointPolicy,
+  type EndpointTransport,
+  type GuardedFetch,
+  type GuardedFetchOptions,
+  validateEndpointUrl,
+} from "./endpoint.js";
+export {
   acquireDataset,
   type AcquireDatasetOptions,
   DATASET_MAX_BYTES,
