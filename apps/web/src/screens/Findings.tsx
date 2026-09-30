@@ -83,6 +83,12 @@ const STUDY_RESULTS: Record<StudyResult["status"], { label: string; tone: Tone; 
     tone: "negative",
     explanation: "A safety policy stopped the study before it could measure the claim.",
   },
+  failed: {
+    label: "Failed",
+    tone: "negative",
+    explanation: "The study's infrastructure failed, so nothing about the paper was concluded.",
+  },
+  cancelled: { label: "Cancelled", tone: "neutral", explanation: "The study was cancelled; its agents and labs were stopped and removed." },
 };
 
 function StudyResultCard({ result }: { result: StudyResult }) {

@@ -145,7 +145,7 @@ See `docs/phases/phase-06/subphase-06-03-autonomous-lab-agent.md`.
 
 Seven separate agents (Paper Analyst, Repository Analyst, Reproduction Planner, Lab Engineers, Debugger, Independent Reviewer, Supervisor) coordinate through a typed evidence board. Four trust zones handle repository acquisition, Python wheels, datasets and offline execution, and the final status is decided from evidence. Real OpenAI, Anthropic and custom-endpoint providers have server-side keys.
 
-Infrastructure is verified with real Docker, GitHub and PyPI. The real-model acceptance run on a lightweight paper is still to do.
+The stage machine is persisted and resumes after a restart, the claim contract and policy review are deterministic, and the PlatformSpec keeps images, wheels and labs on the host platform (Apple Silicon arm64, Intel and AWS amd64). Infrastructure is verified with real Docker, GitHub and PyPI, including the whole study on the pyts paper with a scripted model. The real-model acceptance run (`acceptance/cases/pyts-boss-gunpoint.json`) needs a provider key and is pending.
 
 See `docs/phases/phase-06/subphase-06-04-multi-agent-study.md`.
 

@@ -220,7 +220,7 @@ export function buildReport(runId: string, events: readonly RunEvent[], replay: 
 }
 
 export type StudyResult = {
-  status: "reproduced" | "partially_reproduced" | "not_reproduced" | "inconclusive" | "policy_blocked";
+  status: "reproduced" | "partially_reproduced" | "not_reproduced" | "inconclusive" | "policy_blocked" | "failed" | "cancelled";
   reasons: string[];
 };
 
@@ -229,7 +229,7 @@ export function studyResultFor(events: readonly RunEvent[]): StudyResult | null 
   const event = [...events].reverse().find((item) => item.type === "study_result");
   if (!event) return null;
   const payload = event.publicPayload as { status?: unknown; reasons?: unknown };
-  const statuses = ["reproduced", "partially_reproduced", "not_reproduced", "inconclusive", "policy_blocked"];
+  const statuses = ["reproduced", "partially_reproduced", "not_reproduced", "inconclusive", "policy_blocked", "failed", "cancelled"];
   if (typeof payload.status !== "string" || !statuses.includes(payload.status)) return null;
   return {
     status: payload.status as StudyResult["status"],

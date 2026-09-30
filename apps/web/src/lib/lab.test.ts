@@ -2,7 +2,7 @@ import type { RunEvent } from "@dejaml/contracts";
 import { describe, expect, it } from "vitest";
 
 import recorded from "../../../../fixtures/events/urban-land-cover-success.json";
-import { buildReport, findingsFor, labViewFor, MAX_TERMINAL_LINES } from "./lab";
+import { buildReport, findingsFor, labViewFor, MAX_TERMINAL_LINES, studyResultFor } from "./lab";
 
 const events = recorded as RunEvent[];
 const until = (type: string, status: RunEvent["status"]) =>
@@ -68,5 +68,23 @@ describe("findings and report", () => {
       "recorded run run_real from 2026-09-29T10:00:00Z, replayed (nothing was executed now)",
     );
     expect(buildReport("run_x", events, null).source).toBe("live run");
+  });
+});
+
+describe("studyResultFor", () => {
+  it("accepts every final study status, including failed and cancelled", () => {
+    for (const status of [
+      "reproduced",
+      "partially_reproduced",
+      "not_reproduced",
+      "inconclusive",
+      "policy_blocked",
+      "failed",
+      "cancelled",
+    ]) {
+      const event = { type: "study_result", publicPayload: { status, reasons: ["r"] } } as unknown as RunEvent;
+      expect(studyResultFor([event])).toEqual({ status, reasons: ["r"] });
+    }
+    expect(studyResultFor([{ type: "study_result", publicPayload: { status: "raised" } } as unknown as RunEvent])).toBeNull();
   });
 });

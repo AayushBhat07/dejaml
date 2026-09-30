@@ -1,147 +1,200 @@
 # Sub-phase 6.4 — Secure multi-agent study
 
-**Status:** `IN PROGRESS` (infrastructure verified with real Docker, GitHub and PyPI; the real-model acceptance run is still to do)
+**Status:** `IN PROGRESS` (everything but the real-model acceptance run is built and verified; that run needs a provider key and is pending)
 **Completed:** `—`
-**Commit:** `fill after commit`
+**Commit:** `fill after the real-model acceptance run`
 **Owner:** `Claude`
+
+Requirement-by-requirement map: [`subphase-06-04-requirements.md`](subphase-06-04-requirements.md).
+Deployment design: [`../../AWS_DEPLOYMENT_DESIGN.md`](../../AWS_DEPLOYMENT_DESIGN.md).
 
 ## Objective
 
 A paper with no reviewed case is studied by separate agents working in four
-trust zones. The final status comes from evidence, not from any agent's word.
+trust zones. Code drives the stages; the final status comes from evidence, not
+from any agent's word.
 
-## Delivered
+## Architecture
 
-- **Bounded autonomous agent runtime** (`packages/agent-runtime`). Each agent has:
-  - a unique `agt_` id;
-  - its own persisted conversation, tool grants and loop;
-  - limits on iterations, tool calls, tokens, wall time and context;
-  - cancellation, and resume after a restart.
-  Agents share only the typed evidence board and explicit messages. Every
-  model call and tool call is persisted as a receipt in the run's `AgentLedger`.
-  This is DéjàML's own runtime, not OpenClaw.
-- **Seven roles** (`apps/api/src/study/roles.ts`):
-  - Paper Analyst
-  - Repository Analyst
-  - Reproduction Planner
-  - Lab Engineer (1 to 4, each in its own lab)
-  - Debugger (a child agent started by an Engineer)
-  - Independent Reviewer (one per submission)
-  - Supervisor, which drives the stages through `delegate` with per-stage caps
+**Runtime path:** DéjàML native agent runtime (`packages/agent-runtime`) →
+DéjàML provider adapter (`providers/openai.ts`, `anthropic.ts`, or one
+administrator-configured OpenAI-compatible endpoint) → the provider's API.
+**OpenClaw is not required and not used.** No OpenClaw package, binary,
+gateway, session or localhost bridge is on any path; `npm run check:native`
+fails if one appears, and `installNativeRuntimeGuard` refuses one at run time.
+Claude Code only edits and tests the repository; it is not part of the runtime.
 
-  The board's visibility table keeps the Engineer's diagnoses and notes away
-  from the Reviewer.
-- **Trust zone 1, repository acquisition.**
-  - Only the paper's candidate GitHub repositories are accepted, over HTTPS.
-  - Each is pinned to a commit SHA, with size and file limits.
-  - Nothing from the repository is executed during acquisition.
-  - A receipt is recorded with the manifest digest.
-  - Host-side read tools refuse traversal and never follow symlinks.
-- **Trust zone 2, Python dependencies** (`services/prep`).
-  - Steps: `discover`, `resolvePython`, `downloadWheels`, `installOffline` and `inspectEnvironment`.
-  - Downloads use binary wheels only, from a pinned prep image whose egress proxy allows only the package registries.
-  - Wheel hashes are recorded in a manifest.
-  - The lab installs offline from a read-only wheelhouse.
-  - An impossible pin fails as a typed error (for example `no_compatible_wheel`).
-- **Trust zone 3, datasets** (`packages/net-guard`).
-  - Downloads go only to hosts on an HTTPS allowlist.
-  - Every redirect is revalidated.
-  - Private, loopback, link-local and metadata addresses are refused, and the connection is pinned to the checked address.
-  - Datasets are mounted read-only.
-  - With no allowed host, a download request records a policy block.
-- **Trust zone 4, the offline lab** (`services/lab-manager`).
-  - The container runs with `--network none`, a read-only root, all capabilities dropped and `no-new-privileges`, as a non-root user.
-  - It has CPU, memory and PID limits, per-command timeouts, and a reaper for background processes.
-  - Commands take a bare argv, and a relative `cwd` without `..`.
-  - No provider keys, GitHub credentials, host environment or Docker credentials enter a container.
-- **Evidence-based status** (`apps/api/src/study/verdict.ts`).
-  - Provenance checks:
-    - the producing command belongs to the Engineer and exited 0;
-    - the artifact digest matches what that command wrote;
-    - the value is read from the exported file;
-    - the value never appears typed into a command or a written file;
-    - adapters are declared.
-  - Statuses:
-    - `reproduced` needs a majority of independent Engineers to agree within tolerance, equivalent reviews, and no adapters or deviations;
-    - `partially_reproduced` covers approved results with adapters or minor deviations;
-    - `not_reproduced` covers agreed values outside tolerance;
-    - anything else is `inconclusive` or `policy_blocked`.
-  - A toy example, approximation, changed dataset, reduced sample or replacement metric is never `reproduced`.
-  - The Supervisor can only make the status more cautious.
-- **Providers** (`packages/agent-runtime/src/providers`).
-  - Real Anthropic and OpenAI clients, and one administrator-configured OpenAI-compatible endpoint.
-  - Retries with backoff, abort support, and token tracking.
-  - Cost only when `DEJAML_MODEL_PRICES` lists the model.
-  - Keys stay server-side. `/api/config` returns only provider ids, labels, models and key source.
-  - The upload form sends a provider id and model, and the server refuses a base URL.
-  - An uploader's key, when allowed, is used in memory and never stored.
-- **Web.** Provider and model pickers, an agent team view, and a study result card.
-- **Cleanup.** Labs are destroyed, then the wheelhouse, checkout and study directory are removed. A leak check looks for containers and networks labelled with the run. At startup, stale study directories are removed and unfinished agents are marked `interrupted`.
+**Stage machine** (`packages/run-store/src/stages.ts`, persisted in SQLite):
+`ingesting → analyzing_paper ∥ analyzing_repository → reconciling →
+policy_review → preparing → executing (→ debugging) → reviewing → deciding →`
+one of `completed`, `inconclusive`, `policy_blocked`, `failed`, `cancelled`.
 
-## Files changed
+- One owner holds a stage's lease; a second concurrent claim is refused.
+- A completed stage returns its stored output and never reruns unless it is
+  invalidated with a typed reason (which invalidates everything after it).
+- Retries and re-plans carry typed reasons (`dependency_failure_replan`,
+  `execution_failed_replan`, `reviewer_rejected_replan`, `process_restart`).
+- After a restart, running stages fail with `process_restart`, completed stages
+  are kept, the study resumes (`ApiServer.resume`), and each agent resumes its
+  own saved conversation under its stable id instead of starting a duplicate.
+- A terminal study is immutable.
 
-- `packages/agent-runtime/` — runtime, evidence board, tool plumbing, providers and fixtures.
-- `packages/net-guard/` — SSRF-safe HTTPS fetch and dataset acquisition.
-- `packages/run-store/src/ledger.ts`, `src/index.ts` — agent, turn and receipt ledger.
-- `packages/contracts/src/index.ts` — agent, board and study contracts.
-- `packages/repository-intake/` — candidate-only acquisition, receipts and limits.
-- `services/prep/` — the dependency trust zone.
-- `services/lab-manager/src/manager.ts`, `spec.ts` — read-only input mounts, env wrapper, hardening.
-- `apps/api/src/study/` — roles, tools, stages, verdict and tests.
-- `apps/api/src/structured.ts`, `pipeline.ts`, `server.ts`, `main.ts`, `stand-ins.ts`, `api.test.ts` — the study path, provider selection and restart recovery.
-- `apps/api/scripts/verify-study-docker.mjs`, `accept-real-paper.mjs` — the Docker proof and the real-model acceptance script.
-- `apps/web/src/` — provider selection, agent team, study result.
-- `README.md`, `apps/api/README.md`, `docs/runbooks/RESTORE.md`, `.env.example`, `ROADMAP.md` — documentation.
+**Agents** (`apps/api/src/study/roles.ts`, launched by `study.ts`): Paper
+Analyst and Repository Analyst (concurrently), Reproduction Planner, Lab
+Engineer (1–3, each in its own lab), Debugger (on request, at most two per
+Engineer), Independent Reviewer (one per submission), Supervisor.
 
-## Decisions and deviations
+- Each is a separate runtime participant with its own `agt_` id, persisted
+  conversation, tool grants, budgets (tokens, turns, wall time, tool calls),
+  failure state, lifecycle events and tool receipts.
+- They share only the typed evidence board, explicit typed messages, immutable
+  source references, the approved plan, and bounded artifacts and receipts.
+- The board hides Engineer and Debugger prose from the Reviewer.
+- The Supervisor reads the board and answers at checkpoints (continue,
+  re-plan with a typed reason, stop) and proposes a final status that can only
+  keep or lower the computed one.
+- No model can skip policy review, create a lab, or set the status.
 
-- 6.3's in-API autonomous path is replaced. It accepted arbitrary model base URLs from uploaders and had no persisted per-agent state. Three API tests that relied on it were replaced with multi-agent tests. The 6.3 library code and its Docker proof are kept.
-- Source distributions are never built. A package without a compatible wheel fails with a typed error.
-- No model prices are built in, so cost is unknown unless the administrator configures prices.
-- The literal-value provenance check remains a heuristic, and the Independent Reviewer is the second line of review.
+**Claim contract** (`apps/api/src/study/contract.ts`): the reconciler combines
+the Paper Analyst's claim and the Planner's plan into one contract: method,
+dataset and source, split, preprocessing, seed policy, metric and unit,
+reported value, page/location/excerpt, repository URL and commit, entry point,
+exact argv and cwd, PlatformSpec with the plan's Python, requirements, trusted
+compatibility constraints, expected runtime, metric parser, tolerance (by unit)
+and stop conditions. The excerpt must appear verbatim on the cited page and
+hold the reported value. Policy review is deterministic and its plan digest
+(canonical-JSON SHA-256) is recorded.
+
+**Status** (`verdict.ts`): computed from the official run's parsed metric, the
+Reviewers' verdicts, Engineer consensus and the policy. An adapter, a trusted
+compatibility constraint, or Reviewer-declared minor deviations cap the result
+at `partially_reproduced`. Final states: `reproduced`, `partially_reproduced`,
+`not_reproduced`, `inconclusive`, `policy_blocked`, `failed`, `cancelled`.
+
+## Trust zones
+
+1. **Repository acquisition** (`packages/repository-intake`): GitHub HTTPS
+   only, owner/name validation, no credentials, redirect checks, no hooks, pinned
+   commit, symlink and path-escape refusal, size/file/time bounds.
+2. **Python packages** (`services/prep`, `ports.ts#preparerPort`): short-lived
+   egress-restricted containers from a digest-pinned image for the platform;
+   binary wheels only, hashed, platform-tag-checked, transitive resolution,
+   CPU-only (CUDA/ROCm/accelerator packages and indexes refused, typed
+   `accelerator_package_refused`), disk-backed temp storage with byte/inode
+   quotas and `insufficient_preparation_space`, `no_compatible_wheel` instead of
+   a source build. Constraints come only from `config/compatibility-constraints.txt`.
+3. **Datasets** (`packages/net-guard`, `ports.ts#localDatasetPort`): HTTPS
+   allowlist, SSRF defenses, redirect checks, size limits, timeouts, required
+   checksum, safe extraction, identity in evidence, read-only mount. Data
+   bundled in an exactly pinned wheel is identified by that wheel's hash.
+4. **Offline lab** (`services/lab-manager`): no network, non-root, read-only
+   root, all capabilities dropped, no-new-privileges, no Docker socket or
+   credentials, CPU/RAM/PID limits, per-command and lab timeouts, read-only
+   repository/wheelhouse/dataset mounts, one writable artifact directory,
+   bounded output, telemetry, and guaranteed cleanup. The created container is
+   read back and audited before it starts. Agents use narrow lab tools
+   (`lab-tools.ts`); `lab_run_official` runs only the approved argv, after an
+   integrity check of the code, the plan's data, the adapter and the venv.
+
+## Platform
+
+`DEJAML_PLATFORM=auto` picks the Docker host's platform: Apple Silicon →
+`linux/arm64`, Intel Mac or x86-64 Linux → `linux/amd64`; `aws-cpu` →
+`linux/amd64`. The PlatformSpec (`packages/contracts/src/platform.ts`) drives
+the prep image, wheel resolution and tag validation, cache keys, lab image
+(`lab-images/python-base`, one per Python version and platform, base pinned by
+digest), container creation, the plan and every receipt. Nothing runs under
+emulation; amd64 wheels never reach an arm64 lab or the reverse.
+
+## Local Mac setup
+
+1. Install Docker Desktop and Node 24; `npm ci && npm run build`.
+2. Put a key in the server environment only: `export DEJAML_ANTHROPIC_API_KEY=…`
+   (or `DEJAML_OPENAI_API_KEY` with `DEJAML_OPENAI_MODELS`). Never in the
+   browser, a file in the repository, or a Docker build argument.
+3. `npm run start:local`, open <http://127.0.0.1:8787>, or run the acceptance
+   script below. The first study builds the lab base image for your platform.
 
 ## Verification
 
 ```text
-npm run check
-node apps/api/scripts/verify-study-docker.mjs
-npm run verify:failures --workspace @dejaml/api
-npm run verify:docker --workspace @dejaml/lab-manager
+npm run check                                   # build, typecheck, lint, format, native scan, all unit/integration tests
+npm run verify:docker   -w @dejaml/lab-manager  # sealed lab against real Docker
+npm run verify:images   -w @dejaml/lab-manager  # image readiness against real Docker
+npm run verify:docker   -w @dejaml/prep         # wheel zone against real Docker and PyPI
+npm run verify:failures -w @dejaml/api          # API failure scenarios against real Docker
+node apps/api/scripts/verify-study-docker.mjs   # the whole study on the pyts paper, scripted model
+npm audit
 ```
 
-**Observed result (cloud container, Docker 29.3.1, x86_64, 2026-09-30):**
+**Observed (cloud container, Docker 29.3.1, linux/amd64, 2026-09-30):** see the
+PR description for the exact head SHA and every result. In short:
 
-- `npm run check`: 522 tests passed, typecheck and build clean. That includes the SSRF, timeout, cancellation, concurrency, crash-recovery and cleanup tests.
-- `verify-study-docker.mjs` passed all 13 checks in 46 s. It uses a real Docker engine, GitHub and PyPI with a scripted model, so it is an infrastructure proof only.
-  - Ten separate agents ran: a Supervisor, two analysts, a Planner, two Engineers, two Debuggers and two Reviewers.
-  - `reproducibility-sec/reproducibility` was pinned at `b4410c426eed68fff090e3a1a75c86e52762d8a4`.
-  - `requirements.txt` was discovered. `numpy==1.19.5` failed with `no_compatible_wheel`.
-  - 13 wheels were downloaded and installed offline in both labs.
-  - `repo/figure.py` failed from the wrong directory and then ran, after separate Debugger agents diagnosed it.
-  - Both Engineers produced 0.43758 from `artifacts/metric.json`.
-  - The Reviewers rejected the placeholder claim, so the status was `inconclusive`.
-  - No containers, networks, lab directories or prep directories were left.
-- `verify:failures` and the Lab Manager `verify:docker` pass with no remaining containers.
+- `npm run check` passes: 957 tests in 12 workspaces plus 5 native-scan tests, lint and format clean.
+- `verify-study-docker.mjs` passes 14/14 in about 30 s. Deterministic
+  infrastructure only (scripted model): the real pyts PDF is ingested,
+  `johannfaouzi/pyts-repro` is pinned at `1f8a8285…`, the Python 3.11 lab image
+  is made ready by digest for linux/amd64, 8 platform-matched wheels are
+  prepared (pyts 0.10.0, numpy 1.23.5, scipy 1.9.3, scikit-learn 1.1.3, numba
+  0.57.1, llvmlite 0.40.1, joblib, threadpoolctl), the official BOSS notebook runs
+  offline through the declared adapter and prints `Accuracy on the test set:
+  1.000`, the lab parses 1.000, the Reviewer approves with minor deviations,
+  and the computed status is `partially_reproduced` (adapter and installer
+  constraint). Nothing is left behind.
+
+## Real acceptance
+
+```text
+export DEJAML_ANTHROPIC_API_KEY=…      # server environment only
+npm run build && npm run start:local
+node apps/api/scripts/accept-real-paper.mjs acceptance/cases/pyts-boss-gunpoint.json
+node apps/api/scripts/accept-real-paper.mjs acceptance/cases/ccs-reproducibility-survey.json <survey-paper.pdf>
+```
+
+Reports are written to `artifacts/acceptance/<case>-<runId>.json` (sanitized:
+ids, lifecycle, messages, receipts, digests, platform, images, wheels, plan and
+digest, command, bounded logs, metric, reviews, status, cleanup; no prompts,
+keys or environment). Exit code 3 means no provider key was configured.
+
+**Status: pending.** This environment had no provider key, so no real-model run
+has happened. The positive case is expected to end `partially_reproduced` (the
+official notebook needs an adapter to skip datasets the offline lab cannot
+download); the negative case `inconclusive` or `policy_blocked`.
+
+## Security assumptions
+
+- The API is bound to loopback and has no authentication.
+- Docker is the isolation boundary for untrusted repository code.
+- Provider keys live only in the server environment (or a secret manager behind
+  `SecretProvider`); they never reach the browser, reports, events, labs or
+  build arguments.
+- The package index and dataset hosts on the allowlists are trusted to serve
+  what their hashes say.
 
 ## Known limitations
 
-- **No real-model run yet.** The cloud session has no model key, so the real-model acceptance run on a lightweight paper has not happened.
-- One claim per study.
-- Papers that need a GPU, a source build, or a dataset host that is not allowlisted end as `inconclusive` or `policy_blocked`.
-- Honest metric computation is checked by provenance rules and review, not proven.
+- **No real-model run yet** (no key in this environment).
+- One bounded claim per paper.
+- Papers that need a GPU, a source build, or a non-allowlisted dataset host end
+  `policy_blocked` or `inconclusive`.
+- The accelerator denylist is by package name and version; quotas are enforced
+  by polling; cross-platform resolution evaluates markers on the engine's
+  interpreter (wheel tags are still validated).
+- pyts 0.10.0's malformed metadata needs the trusted `pip<24.1` installer
+  constraint; it is reported as a change.
+- The pyts claim is a ceiling value (1.000), which discriminates little.
+- The API process still runs Docker locally; `LabWorker`, `DependencyPort` and
+  `LabImagePort` are the seams for moving that to lab hosts.
 
-## Restore procedure
+## Recovery procedure
 
-1. Start Docker, build the lab image, and run `npm run build`.
-2. Run `npm run check`.
-3. Run `node apps/api/scripts/verify-study-docker.mjs`. On a network that intercepts TLS, set `DEJAML_PREP_CA_BUNDLE`.
-4. Expect `All 13 checks passed` and no containers labelled `dejaml.run`.
-
-## Remaining work
-
-1. Configure a server key, for example `DEJAML_ANTHROPIC_API_KEY`, and start the API with `npm run start:local`.
-2. Run `node apps/api/scripts/accept-real-paper.mjs <paper.pdf> https://github.com/reproducibility-sec/reproducibility`.
-3. Record the run id, provider, model, status and the 12 checks here.
+1. Start Docker. `npm ci && npm run build`.
+2. Restart the API: interrupted studies resume from their last completed stage;
+   orphan labs, prep containers and stale checkouts are removed at startup.
+3. Run `npm run check`, then `node apps/api/scripts/verify-study-docker.mjs`
+   (set `DEJAML_PREP_CA_BUNDLE` on networks that intercept TLS).
+4. Expect `All 14 checks passed` and no containers labelled `dejaml.run` or
+   `dejaml.prep`.
 
 ## Next sub-phase
 

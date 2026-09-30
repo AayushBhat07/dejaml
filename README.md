@@ -43,9 +43,7 @@ the website may offer in `.env.local` (`DEJAML_ANTHROPIC_MODELS`,
 `DEJAML_OPENAI_MODELS`, or an OpenAI-compatible `DEJAML_CUSTOM_BASE_URL` with
 `DEJAML_CUSTOM_MODELS`) and supplies the matching `DEJAML_*_API_KEY` as a server
 environment secret. The browser only picks a configured provider and model; it
-never sees a key or a base URL. When `DEJAML_ALLOW_UPLOADER_KEYS=1` and a listed
-provider has no server key, the website asks the uploader for one, which is used
-in memory for that study only. OpenClaw is not required and not used: the
+never sees a key or a base URL, and uploaders cannot bring their own. OpenClaw is not required and not used: the
 backend's agents run on DéjàML's native runtime (`packages/agent-runtime`)
 and reach OpenAI or Anthropic through its own provider adapters. No personal
 agent configuration is needed, and `npm run check:native` fails if OpenClaw
@@ -60,8 +58,12 @@ npm run start:local
 Open <http://127.0.0.1:8787> and upload `artifacts/demo/paper.pdf`. A paper without a reviewed case goes to the multi-agent study (see `docs/phases/phase-06/subphase-06-04-multi-agent-study.md`). To check a real-model study end to end against the running API:
 
 ```bash
-node apps/api/scripts/accept-real-paper.mjs <paper.pdf> [https://github.com/owner/repo]
+node apps/api/scripts/accept-real-paper.mjs acceptance/cases/pyts-boss-gunpoint.json
 ```
+
+It writes a sanitized report to `artifacts/acceptance/`. On an Apple Silicon Mac
+the labs run as `linux/arm64` and on an Intel Mac as `linux/amd64`
+(`DEJAML_PLATFORM=auto`); wheels, images and caches follow that choice.
 
 The command reads `.env.local`, verifies the local image identity and required files, and starts the real API. The API is intentionally bound to loopback because it has no authentication.
 
