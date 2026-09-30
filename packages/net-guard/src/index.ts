@@ -42,3 +42,34 @@ export {
   isSafeFileName,
   parseAllowedHosts,
 } from "./dataset.js";
+export {
+  acquireLabDataset,
+  cleanupDataset,
+  type CleanupReceipt,
+  type DatasetExtraction,
+  type DatasetIdentity,
+  LAB_DATASET_DOWNLOAD_DIR,
+  LAB_DATASET_EXTRACTED_DIR,
+  type LabDataset,
+  type LabDatasetOptions,
+} from "./dataset.js";
+export {
+  type ArchiveErrorCode,
+  DatasetError,
+  type DatasetErrorCode,
+  datasetFailurePolicy,
+  type DatasetFailurePolicy,
+} from "./dataset-errors.js";
+export {
+  type ArchiveFormat,
+  type ArchiveLimits,
+  crc32,
+  DEFAULT_ARCHIVE_LIMITS,
+  detectArchiveFormat,
+  extractArchive,
+  type ExtractArchiveOptions,
+  type ExtractedFile,
+  type ExtractionResult,
+  listingDigest,
+  normalizeEntryPath,
+} from "./archive.js";
