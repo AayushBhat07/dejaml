@@ -14,7 +14,8 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run src",
     "verify:docker": "node scripts/verify-docker.mjs",
-    "verify:curated": "node scripts/verify-curated.mjs"
+    "verify:curated": "node scripts/verify-curated.mjs",
+    "verify:images": "node scripts/verify-images-docker.mjs"
   },
   "dependencies": {
     "@dejaml/contracts": "0.1.0",

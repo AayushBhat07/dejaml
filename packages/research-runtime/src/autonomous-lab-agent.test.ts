@@ -45,7 +45,8 @@ class SimulatedLab implements ContainerRuntime {
 
   async docker(args: readonly string[], _options: RuntimeCommandOptions = {}): Promise<RuntimeCommandResult> {
     const [command] = args;
-    if (command === "image") return ok(`${IMAGE_ID} 10001:10001`);
+    if (command === "image") return ok(JSON.stringify({ Id: IMAGE_ID, Os: "linux", Architecture: "amd64", Config: { User: "10001:10001", Env: [] } }));
+    if (command === "container") return ok(JSON.stringify({ Image: IMAGE_ID, Config: { User: "10001:10001", Env: [] }, HostConfig: { NetworkMode: "none", ReadonlyRootfs: true, CapDrop: ["ALL"], SecurityOpt: ["no-new-privileges"] }, Mounts: [] }));
     if (command === "create") {
       for (const value of args) {
         const match = /^type=bind,src=([^,]+),dst=([^,]+)$/u.exec(value);
@@ -127,6 +128,7 @@ beforeEach(async () => {
     runId: "run_auto",
     image: "dejaml/python-cpu:0.1.0",
     expectedImageId: IMAGE_ID,
+    platform: "linux/amd64",
     workdir: WORKDIR,
     artifactsDir: "artifacts",
     scratchDir: "work",

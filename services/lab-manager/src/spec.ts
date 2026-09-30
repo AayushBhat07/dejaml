@@ -1,7 +1,13 @@
 import { posix } from "node:path";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 
-import { ExperimentPlanSchema, ResourceBudgetSchema, type ExperimentPlan } from "@dejaml/contracts";
+import {
+  ContainerPlatformSchema,
+  ExperimentPlanSchema,
+  ResourceBudgetSchema,
+  type ContainerPlatform,
+  type ExperimentPlan,
+} from "@dejaml/contracts";
 import { z } from "zod";
 
 export const ImageIdSchema = z
@@ -35,9 +41,12 @@ export const LabLimitsSchema = z.object({
   maxArtifactBytes: z.number().int().positive().max(64 * 1024 * 1024),
   maxArtifactTotalBytes: z.number().int().positive().max(256 * 1024 * 1024),
   maxArtifactFiles: z.number().int().positive().max(1_000),
-  tmpfsMb: z.number().int().positive().max(1_024),
+  /** Size of the lab's in-memory, noexec `/tmp`; it counts against the container's memory limit. */
+  tmpfsMb: z.number().int().positive().max(4_096),
   /** Largest the writable scratch directory may grow (a prepared Python environment lives there). */
   maxScratchMb: z.number().int().positive().max(20_480).optional(),
+  /** Longest the whole lab may exist; afterwards it is killed whatever it is doing. */
+  labTimeoutSeconds: z.number().int().positive().max(24 * 3_600).optional(),
 });
 
 export const LabSpecSchema = z
@@ -45,6 +54,8 @@ export const LabSpecSchema = z
     runId: z.string().min(1),
     image: z.string().min(1),
     expectedImageId: ImageIdSchema,
+    /** The container platform the lab runs on; the image must be built for exactly this platform. */
+    platform: ContainerPlatformSchema,
     workdir: z
       .string()
       .regex(/^\/workspace(?:\/[A-Za-z0-9._-]+)+$/u, "workdir must be beneath /workspace"),
@@ -90,13 +101,19 @@ export type LabInput = z.infer<typeof LabInputSchema>;
 export type LabLimits = z.infer<typeof LabLimitsSchema>;
 export type LabSpec = z.infer<typeof LabSpecSchema>;
 
+/** Default size of the lab's `/tmp` tmpfs. */
+export const DEFAULT_LAB_TMPFS_MB = 64;
+/** Overall lifetime of a lab when its limits do not set one. */
+export const DEFAULT_LAB_TIMEOUT_SECONDS = 6 * 3_600;
+
 export const DEFAULT_LAB_LIMITS: LabLimits = {
   maxLogBytes: 256 * 1024,
   maxArtifactBytes: 8 * 1024 * 1024,
   maxArtifactTotalBytes: 32 * 1024 * 1024,
   maxArtifactFiles: 64,
-  tmpfsMb: 64,
+  tmpfsMb: DEFAULT_LAB_TMPFS_MB,
   maxScratchMb: 3_072,
+  labTimeoutSeconds: DEFAULT_LAB_TIMEOUT_SECONDS,
 };
 
 /**
@@ -110,6 +127,7 @@ export function labSpecFromPlan(input: {
   projectRoot: string;
   image: string;
   expectedImageId: string;
+  platform: ContainerPlatform;
   limits?: Partial<LabLimits>;
 }): LabSpec {
   const plan = ExperimentPlanSchema.parse(input.plan);
@@ -127,6 +145,7 @@ export function labSpecFromPlan(input: {
     runId: input.runId,
     image: input.image,
     expectedImageId: input.expectedImageId,
+    platform: input.platform,
     workdir: plan.command.cwd,
     artifactsDir,
     inputs: [

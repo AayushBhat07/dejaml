@@ -44,8 +44,12 @@ describe("labSpecFromPlan", () => {
       projectRoot,
       image: "dejaml/python-cpu:0.1.0",
       expectedImageId: `sha256:${"c".repeat(64)}`,
+      platform: "linux/arm64",
     });
 
+    expect(spec.platform).toBe("linux/arm64");
+    expect(spec.limits.tmpfsMb).toBe(DEFAULT_LAB_LIMITS.tmpfsMb);
+    expect(spec.limits.labTimeoutSeconds).toBe(DEFAULT_LAB_LIMITS.labTimeoutSeconds);
     expect(spec.workdir).toBe("/workspace/case");
     expect(spec.artifactsDir).toBe("artifacts");
     expect(spec.inputs.map((input) => input.containerPath)).toEqual([
@@ -65,6 +69,7 @@ describe("labSpecFromPlan", () => {
       projectRoot,
       image: "dejaml/python-cpu:0.1.0",
       expectedImageId: `sha256:${"c".repeat(64)}`,
+      platform: "linux/amd64",
     });
     const withInput = (containerPath: string) =>
       LabSpecSchema.safeParse({ ...base, inputs: [{ hostPath: "/tmp/x", containerPath }] }).success;
@@ -76,6 +81,28 @@ describe("labSpecFromPlan", () => {
     expect(LabSpecSchema.safeParse({ ...base, workdir: "/" }).success).toBe(false);
     expect(LabSpecSchema.safeParse({ ...base, resources: { ...base.resources, networkDuringRun: true } }).success).toBe(false);
   });
+
+  it("requires a supported container platform and bounded tmpfs and lifetime limits", () => {
+    const base = labSpecFromPlan({
+      plan,
+      runId: "run_1",
+      projectRoot,
+      image: "dejaml/python-cpu:0.1.0",
+      expectedImageId: `sha256:${"c".repeat(64)}`,
+      platform: "linux/amd64",
+    });
+    const { platform: _omitted, ...withoutPlatform } = base;
+    expect(LabSpecSchema.safeParse(withoutPlatform).success).toBe(false);
+    for (const platform of ["linux/386", "linux/arm/v7", "darwin/arm64", "amd64", ""]) {
+      expect(LabSpecSchema.safeParse({ ...base, platform }).success).toBe(false);
+    }
+    expect(LabSpecSchema.safeParse({ ...base, platform: "linux/arm64" }).success).toBe(true);
+    expect(LabSpecSchema.safeParse({ ...base, limits: { ...base.limits, tmpfsMb: 512 } }).success).toBe(true);
+    expect(LabSpecSchema.safeParse({ ...base, limits: { ...base.limits, tmpfsMb: 0 } }).success).toBe(false);
+    expect(LabSpecSchema.safeParse({ ...base, limits: { ...base.limits, tmpfsMb: 8_192 } }).success).toBe(false);
+    expect(LabSpecSchema.safeParse({ ...base, limits: { ...base.limits, labTimeoutSeconds: 0 } }).success).toBe(false);
+    expect(LabSpecSchema.safeParse({ ...base, limits: { ...base.limits, labTimeoutSeconds: 90_000 } }).success).toBe(false);
+  });
 });
 
 describe("scratch directory", () => {
@@ -83,6 +110,7 @@ describe("scratch directory", () => {
     runId: "run_1",
     image: "dejaml/python-cpu:0.1.0",
     expectedImageId: `sha256:${"c".repeat(64)}`,
+    platform: "linux/amd64",
     workdir: "/workspace/case",
     artifactsDir: "artifacts",
     resources: policy.maximumResources,
