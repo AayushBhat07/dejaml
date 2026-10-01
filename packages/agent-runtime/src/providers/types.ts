@@ -78,6 +78,8 @@ export type ChatResponse = {
 export type ProviderErrorCode =
   | "authentication"
   | "permission"
+  /** HTTP 402: the account needs payment or credit. Never retried. */
+  | "payment_required"
   | "invalid_request"
   | "not_found"
   | "rate_limited"
@@ -110,7 +112,7 @@ export class ProviderError extends Error {
 export const INSPECT = Symbol.for("nodejs.util.inspect.custom");
 
 export interface ChatProvider {
-  /** Configured provider id, such as `openai`, `anthropic`, or `custom`. */
+  /** Configured provider id, such as `openai`, `anthropic`, `cheaper_inference`, or `custom`. */
   readonly id: string;
   readonly kind: "openai" | "anthropic" | "openai_compatible" | "scripted";
   chat(request: ChatRequest): Promise<ChatResponse>;

@@ -82,8 +82,9 @@ describe("backoffDelay", () => {
 
 describe("statusToCode / httpError", () => {
   it("maps statuses", () => {
-    expect([401, 403, 404, 400, 422, 429, 529, 500, 502, 503, 504, 408].map(statusToCode)).toEqual([
+    expect([401, 402, 403, 404, 400, 422, 429, 529, 500, 502, 503, 504, 408].map(statusToCode)).toEqual([
       "authentication",
+      "payment_required",
       "permission",
       "not_found",
       "invalid_request",

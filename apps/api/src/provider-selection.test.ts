@@ -8,6 +8,7 @@ import { LabManager } from "@dejaml/lab-manager";
 import { RunStore } from "@dejaml/run-store";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
+import { withSecrets } from "./boundaries.js";
 import { createApiServer, type ApiServer } from "./server.js";
 import { paperPdf, ScriptedModel, ScriptedRuntime, STAND_IN_IMAGE_ID } from "./stand-ins.js";
 
@@ -22,6 +23,7 @@ import { paperPdf, ScriptedModel, ScriptedRuntime, STAND_IN_IMAGE_ID } from "./s
 const SERVER_OPENAI_KEY = "sk-test-FIXTURE-server-openai-0001";
 const SERVER_ANTHROPIC_KEY = "sk-ant-test-FIXTURE-server-0002";
 const SENT_KEY = "sk-test-FIXTURE-browser-key-9999";
+const CHEAPER_KEY = "ci-test-key-000000";
 
 let work: string;
 let store: RunStore;
@@ -93,6 +95,24 @@ describe("GET /api/config", () => {
     for (const secret of [SERVER_OPENAI_KEY, "custom-FIXTURE-key-3333", "llm.lab.example.test", "keySource", "baseUrl", "apiKey"]) {
       expect(text).not.toContain(secret);
     }
+  });
+
+  it("lists Cheaper Inference as its id, label and allowed model only, never its key or gateway host", async () => {
+    // The key comes through the secret boundary, like every other provider key.
+    const env = withSecrets({}, { get: (name) => (name === "DEJAML_CHEAPER_INFERENCE_API_KEY" ? CHEAPER_KEY : undefined) });
+    expect(env).toEqual({ DEJAML_CHEAPER_INFERENCE_API_KEY: CHEAPER_KEY });
+    await start(env as Record<string, string>);
+    const text = await (await fetch(`${base}/api/config`)).text();
+    expect(JSON.parse(text)).toEqual({
+      providers: [{ id: "cheaper_inference", label: "Cheaper Inference", models: ["claude-sonnet-5.5"] }],
+      reviewedCases: [],
+    });
+    for (const hidden of [CHEAPER_KEY, "cheaperinference.com", "trusted_gateway", "baseUrl", "apiKey"]) expect(text).not.toContain(hidden);
+    const unlisted = await upload({ providerId: "cheaper_inference", modelName: "claude-opus-5-5" });
+    expect(unlisted).toEqual({ status: 400, error: "Choose one of the models listed for this provider." });
+    expect(selections).toEqual([]);
+    await upload({ providerId: "cheaper_inference", modelName: "claude-sonnet-5.5" });
+    expect(selections).toEqual([["cheaper_inference", "claude-sonnet-5.5"]]);
   });
 
   it("is empty when no provider key is configured", async () => {

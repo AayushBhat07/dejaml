@@ -21,6 +21,7 @@ pinned `dejaml/python-cpu:0.1.0` image, and the case dataset in
 | `DEJAML_EXPECTED_IMAGE_ID` | image lock | Override on a platform other than `linux/arm64`. |
 | `DEJAML_ANTHROPIC_MODELS` / `DEJAML_ANTHROPIC_API_KEY` | `claude-opus-5-5,claude-sonnet-5-5` / unset | Anthropic models the website may offer, and the server key. |
 | `DEJAML_OPENAI_MODELS` / `DEJAML_OPENAI_API_KEY` | unset | OpenAI models and the server key. |
+| `DEJAML_CHEAPER_INFERENCE_MODELS` / `DEJAML_CHEAPER_INFERENCE_API_KEY` | `claude-sonnet-5.5` / unset | Cheaper Inference, a trusted third-party gateway (see below). `claude-sonnet-5.5` is the only permitted model. |
 | `DEJAML_CUSTOM_BASE_URL` / `_MODELS` / `_API_KEY` / `_LABEL` | unset | One administrator-configured OpenAI-compatible endpoint (HTTPS; plain HTTP only for localhost with `DEJAML_CUSTOM_ALLOW_LOCAL_HTTP=1`). |
 | `DEJAML_MODEL_PRICES` | unset | JSON price table for cost tracking. No prices are built in. |
 | `DEJAML_LAB_AGENT_ENABLED` | enabled | Set to `0` for the original deterministic lab path. |
@@ -31,7 +32,25 @@ pinned `dejaml/python-cpu:0.1.0` image, and the case dataset in
 | `DEJAML_PREP_ENABLED`, `DEJAML_PREP_IMAGES`, `DEJAML_PREP_PULL`, `DEJAML_PREP_RESOLVER_MODE`, `DEJAML_PREP_MAX_*_MB`, `DEJAML_PREP_MIN_FREE_MB`, `DEJAML_PREP_ALLOWED_HOSTS`, `DEJAML_PREP_CA_BUNDLE` | enabled | The egress-restricted, CPU-only, digest-pinned wheel download zone and its disk bounds. Compatibility constraints come only from `config/compatibility-constraints.txt`. |
 | `DEJAML_DATASET_ALLOWED_HOSTS` | empty | Dataset hosts the study may download from over HTTPS. Empty refuses every download. |
 
-`GET /api/health` (loopback clients only) reports the platform and lab image readiness.
+`GET /api/health` (loopback clients only) reports the platform and lab image readiness, and for each available
+provider its `id`, `kind`, `endpointHost`, `official`, `https` and `route`: `official` (the default
+`api.openai.com` / `api.anthropic.com` endpoints), `trusted_gateway` (Cheaper Inference) or `custom` (the custom
+endpoint or an overridden OpenAI base URL). It never includes a key. `GET /api/config` lists only provider ids,
+labels and allowed models.
+
+### Cheaper Inference
+
+Cheaper Inference (provider id `cheaper_inference`, label "Cheaper Inference") is a trusted third-party
+OpenAI-compatible gateway in front of Claude. It is **not** the official Anthropic API, and health reports it as
+`route: "trusted_gateway"`, `official: false`. Its endpoint, `https://api.cheaperinference.com/v1`, is fixed in
+server code and no setting can change it; requests use the same guarded OpenAI-compatible adapter as the custom
+endpoint (public addresses only, no redirects, bounded retries and response sizes). Its key stays on the server.
+
+The owner's catalog check reported its discounted route at about 23.08% discounted pricing with
+zero-data-retention **disabled**: prompts and paper content sent through it may be retained by the gateway. Enable
+it only for papers you may share with that third party. `apps/api/scripts/accept-real-paper.mjs` accepts it only
+on that host over HTTPS with `claude-sonnet-5.5`, and labels such runs "trusted third-party gateway", never a
+direct Anthropic run.
 
 To prove the multi-agent study on the real pyts paper against real Docker, GitHub and PyPI with a scripted model (infrastructure only; it is never an acceptance run):
 

@@ -28,6 +28,9 @@ export const PROVIDER_ENV = {
   customAllowLocalHttp: "DEJAML_CUSTOM_ALLOW_LOCAL_HTTP",
   /** Development only: a custom endpoint on a private network or internal name. Refused when NODE_ENV=production. */
   customAllowPrivate: "DEJAML_CUSTOM_ALLOW_PRIVATE",
+  /** Cheaper Inference: a trusted third-party gateway at a fixed endpoint (not configurable). */
+  cheaperInferenceKey: "DEJAML_CHEAPER_INFERENCE_API_KEY",
+  cheaperInferenceModels: "DEJAML_CHEAPER_INFERENCE_MODELS",
   prices: PRICE_TABLE_ENV,
 } as const;
 
@@ -44,17 +47,46 @@ export const REMOVED_PROVIDER_ENV = {
   legacyModelKey: "DEJAML_MODEL_API_KEY",
 } as const;
 
+/**
+ * Cheaper Inference is a trusted third-party OpenAI-compatible gateway in
+ * front of Claude: not the official Anthropic API. Its endpoint is fixed here
+ * in server code; no setting can change it, and setting one of the names in
+ * `CHEAPER_INFERENCE_ENDPOINT_ENV` is a configuration error.
+ */
+export const CHEAPER_INFERENCE_BASE_URL = "https://api.cheaperinference.com/v1";
+export const CHEAPER_INFERENCE_HOST = "api.cheaperinference.com";
+export const CHEAPER_INFERENCE_LABEL = "Cheaper Inference";
+/** The only models an administrator may enable for Cheaper Inference. */
+export const CHEAPER_INFERENCE_ALLOWED_MODELS: readonly string[] = Object.freeze(["claude-sonnet-5.5"]);
+export const DEFAULT_CHEAPER_INFERENCE_MODELS: readonly string[] = CHEAPER_INFERENCE_ALLOWED_MODELS;
+export const CHEAPER_INFERENCE_ENDPOINT_ENV: readonly string[] = Object.freeze([
+  "DEJAML_CHEAPER_INFERENCE_BASE_URL",
+  "DEJAML_CHEAPER_INFERENCE_URL",
+  "DEJAML_CHEAPER_INFERENCE_ENDPOINT",
+]);
+
 export const DEFAULT_ANTHROPIC_MODELS: readonly string[] = ["claude-opus-5-5", "claude-sonnet-5-5"];
 export const MODEL_NAME_PATTERN = /^[A-Za-z0-9._:/-]{1,128}$/;
 
-export type ProviderId = "openai" | "anthropic" | "custom";
+export type ProviderId = "openai" | "anthropic" | "custom" | "cheaper_inference";
+
+/**
+ * Where a provider's calls go: `official` is the vendor's own default API
+ * (api.openai.com, api.anthropic.com); `trusted_gateway` is the fixed Cheaper
+ * Inference endpoint, a third party in front of the model; `custom` is an
+ * administrator-supplied endpoint (the generic custom provider or an
+ * overridden OpenAI base URL).
+ */
+export type ProviderRoute = "official" | "trusted_gateway" | "custom";
 
 export type ProviderConfig = {
   readonly id: ProviderId;
+  /** The wire adapter. Cheaper Inference is `openai_compatible` with `route: "trusted_gateway"`. */
   readonly kind: "openai" | "anthropic" | "openai_compatible";
+  readonly route: ProviderRoute;
   readonly label: string;
   readonly models: readonly string[];
-  /** Normalized endpoint; only set for `custom` and an overridden `openai`. Never public. */
+  /** Normalized endpoint; set for `custom`, an overridden `openai` and the fixed Cheaper Inference endpoint. Never public. */
   readonly baseUrl?: string;
   /** Which addresses the endpoint may reach (`custom` only; `public` unless a development flag widened it). */
   readonly endpointAccess?: EndpointAccess;
@@ -230,7 +262,7 @@ export function loadProviderConfig(env: Env): LoadedProviderConfig {
     const uploader = read(env, REMOVED_PROVIDER_ENV.allowUploaderKeys);
     if (uploader !== undefined && uploader !== "0" && uploader !== "false") {
       problems.push(
-        `${REMOVED_PROVIDER_ENV.allowUploaderKeys} is no longer supported: provider keys come only from ${PROVIDER_ENV.openaiKey}, ${PROVIDER_ENV.anthropicKey} and ${PROVIDER_ENV.customKey}`,
+        `${REMOVED_PROVIDER_ENV.allowUploaderKeys} is no longer supported: provider keys come only from ${PROVIDER_ENV.openaiKey}, ${PROVIDER_ENV.anthropicKey}, ${PROVIDER_ENV.cheaperInferenceKey} and ${PROVIDER_ENV.customKey}`,
       );
     }
     const legacy = [REMOVED_PROVIDER_ENV.legacyModel, REMOVED_PROVIDER_ENV.legacyModelBaseUrl, REMOVED_PROVIDER_ENV.legacyModelKey].filter(
@@ -265,6 +297,7 @@ export function loadProviderConfig(env: Env): LoadedProviderConfig {
       {
         id: "openai",
         kind: "openai",
+        route: baseUrl === undefined ? "official" : "custom",
         label: "OpenAI",
         models,
         ...(baseUrl !== undefined ? { baseUrl } : {}),
@@ -284,10 +317,44 @@ export function loadProviderConfig(env: Env): LoadedProviderConfig {
       {
         id: "anthropic",
         kind: "anthropic",
+        route: "official",
         label: "Anthropic",
         models,
         hasServerKey,
         available: models.length > 0 && hasServerKey,
+      },
+      key,
+    );
+  }
+
+  // Cheaper Inference (trusted third-party gateway at a fixed endpoint; its key is required)
+  {
+    for (const name of CHEAPER_INFERENCE_ENDPOINT_ENV) {
+      if (read(env, name) !== undefined) {
+        problems.push(`${name} is not supported: the ${CHEAPER_INFERENCE_LABEL} endpoint is fixed at ${CHEAPER_INFERENCE_BASE_URL}`);
+      }
+    }
+    const key = parseKey(env, PROVIDER_ENV.cheaperInferenceKey, problems);
+    const models = parseModels(env, PROVIDER_ENV.cheaperInferenceModels, problems) ?? [...DEFAULT_CHEAPER_INFERENCE_MODELS];
+    for (const m of models.filter((name) => !CHEAPER_INFERENCE_ALLOWED_MODELS.includes(name))) {
+      problems.push(
+        `${PROVIDER_ENV.cheaperInferenceModels} lists ${JSON.stringify(m.slice(0, 64))}, which is not permitted for ${CHEAPER_INFERENCE_LABEL} (allowed: ${CHEAPER_INFERENCE_ALLOWED_MODELS.join(", ")})`,
+      );
+    }
+    const allowed = models.filter((name) => CHEAPER_INFERENCE_ALLOWED_MODELS.includes(name));
+    const hasServerKey = key !== undefined;
+    add(
+      {
+        id: "cheaper_inference",
+        kind: "openai_compatible",
+        route: "trusted_gateway",
+        label: CHEAPER_INFERENCE_LABEL,
+        models: allowed,
+        baseUrl: CHEAPER_INFERENCE_BASE_URL,
+        endpointAccess: "public",
+        allowHttp: false,
+        hasServerKey,
+        available: allowed.length > 0 && hasServerKey,
       },
       key,
     );
@@ -317,6 +384,7 @@ export function loadProviderConfig(env: Env): LoadedProviderConfig {
           {
             id: "custom",
             kind: "openai_compatible",
+            route: "custom",
             label: label !== undefined && label.length <= 64 ? label : "Custom endpoint",
             models,
             baseUrl,
@@ -357,10 +425,43 @@ export function publicProviders(config: LoadedProviderConfig): PublicProvider[] 
   return config.providers.filter((p) => p.available).map((p) => ({ id: p.id, label: p.label, models: [...p.models] }));
 }
 
+/** What `/api/health` may say about a provider's route: never a key, a path or a full URL. */
+export type ProviderRouteInfo = {
+  id: ProviderId;
+  kind: ProviderConfig["kind"];
+  /** The endpoint's host (and port, if any). */
+  endpointHost: string | null;
+  /** The vendor's own default API (api.openai.com or api.anthropic.com). False for gateways and custom endpoints. */
+  official: boolean;
+  route: ProviderRoute;
+  https: boolean;
+};
+
+const OFFICIAL_BASE_URLS: Record<"openai" | "anthropic", string> = {
+  openai: OPENAI_DEFAULT_BASE_URL,
+  anthropic: "https://api.anthropic.com/v1",
+};
+
+/** Classifies a configured provider's route truthfully, for health reports. Never includes a key. */
+export function providerRoute(config: ProviderConfig): ProviderRouteInfo {
+  const raw =
+    config.route === "trusted_gateway"
+      ? CHEAPER_INFERENCE_BASE_URL
+      : (config.baseUrl ?? (config.kind === "openai_compatible" ? undefined : OFFICIAL_BASE_URLS[config.kind]));
+  let endpointHost: string | null = null;
+  let https = false;
+  if (raw !== undefined) {
+    const url = new URL(raw);
+    endpointHost = url.host;
+    https = url.protocol === "https:";
+  }
+  return { id: config.id, kind: config.kind, endpointHost, official: config.route === "official", route: config.route, https };
+}
+
 export type CreateChatProviderOptions = {
   /**
-   * Test seam for `openai`/`anthropic` only. The custom endpoint never takes
-   * an injected fetch: it always uses the guarded fetch (see `netGuard`).
+   * Test seam for `openai`/`anthropic` only. The custom endpoint and Cheaper
+   * Inference never take an injected fetch: it always uses the guarded fetch (see `netGuard`).
    */
   fetchImpl?: FetchLike;
   timeoutMs?: number;
@@ -391,7 +492,7 @@ export function createChatProvider(
     throw new ProviderSelectionError(`Model ${JSON.stringify(model.slice(0, 128))} is not allowed for provider ${provider.id}`);
   }
   const key = serverKeys.get(provider);
-  if (key === undefined && provider.kind !== "openai_compatible") {
+  if (key === undefined && (provider.kind !== "openai_compatible" || provider.route === "trusted_gateway")) {
     throw new ProviderSelectionError(`Provider ${provider.id} has no server key`);
   }
 
@@ -420,6 +521,19 @@ export function createChatProvider(
         id: provider.id,
       });
     case "openai_compatible":
+      if (provider.route === "trusted_gateway") {
+        // The fixed gateway: its endpoint comes from this module, never from configuration or the caller.
+        return new OpenAICompatibleChatProvider({
+          ...common,
+          baseUrl: CHEAPER_INFERENCE_BASE_URL,
+          apiKey: key as string,
+          id: provider.id,
+          label: CHEAPER_INFERENCE_LABEL,
+          access: "public",
+          allowHttp: false,
+          ...(options.netGuard !== undefined ? { netGuard: options.netGuard } : {}),
+        });
+      }
       return new OpenAICompatibleChatProvider({
         ...common,
         baseUrl: provider.baseUrl as string,

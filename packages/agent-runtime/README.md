@@ -38,7 +38,14 @@ denied receipt and returned to the model as an error.
 
 `providers/` holds real chat clients for Anthropic (Messages API) and OpenAI
 (Chat Completions), plus one administrator-configured OpenAI-compatible
-endpoint. `loadProviderConfig(env)` reads the provider settings, and
+endpoint and Cheaper Inference (`cheaper_inference`). Cheaper Inference is a
+trusted third-party OpenAI-compatible gateway in front of Claude, not the
+official Anthropic API: its endpoint (`https://api.cheaperinference.com/v1`)
+is fixed in `registry.ts`, `claude-sonnet-5.5` is its only permitted model, and
+`providerRoute(config)` reports it as `route: "trusted_gateway"`,
+`official: false`. The owner's catalog check reported its discounted route at
+about 23.08% discounted pricing with zero-data-retention disabled, so prompts
+and paper content sent through it may be retained by the gateway. `loadProviderConfig(env)` reads the provider settings, and
 `publicProviders` returns only ids, labels, models and key source for the
 browser: never a key or a base URL. Clients retry rate limits, overloads,
 server errors and network failures with jittered backoff, honour abort

@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 
 import { platformFromEnv } from "@dejaml/contracts";
 import { ImageReadiness, LabManager, loadBaseImageLock } from "@dejaml/lab-manager";
-import { loadProviderConfig, ProviderConfigError, publicProviders } from "@dejaml/agent-runtime";
+import { loadProviderConfig, ProviderConfigError, providerRoute, publicProviders } from "@dejaml/agent-runtime";
 import { DEFAULT_DATASET_POLICY, parseAllowedHosts } from "@dejaml/net-guard";
 import { DependencyPreparer, loadCompatibilityConstraints, loadPrepPolicy } from "@dejaml/prep";
 import { RunStore } from "@dejaml/run-store";
@@ -64,7 +64,6 @@ const prepOrphans = await prep?.cleanupOrphans().catch(() => null);
 const trustedConstraints = (
   await loadCompatibilityConstraints(join(projectRoot, "config/compatibility-constraints.txt"), "config/compatibility-constraints.txt")
 ).map((item) => ({ requirement: item.spec, reason: item.reason }));
-const OFFICIAL_HOSTS: Record<string, string> = { openai: "api.openai.com", anthropic: "api.anthropic.com" };
 // Reviewed claim targets are server-owned files; each adapter is checked against its reviewed hash here.
 const reviewedTargets = await loadReviewedTargets(join(projectRoot, "config/reviewed-targets"), projectRoot);
 const datasetHosts = parseAllowedHosts(process.env.DEJAML_DATASET_ALLOWED_HOSTS ?? "");
@@ -124,15 +123,9 @@ const api = createApiServer({
     reviewedTargets: [...reviewedTargets.keys()],
     // The administrator's dataset allowlist (host names only), so a client can tell why a download would be refused.
     datasetHosts,
-    // Where each available provider's calls go (host only, never a key): `official` means the vendor's own API, not a bridge.
-    providers: providers.providers
-      .filter((item) => item.available)
-      .map((item) => ({
-        id: item.id,
-        kind: item.kind,
-        endpointHost: item.baseUrl ? new URL(item.baseUrl).host : (OFFICIAL_HOSTS[item.kind] ?? null),
-        official: item.baseUrl === undefined && item.kind in OFFICIAL_HOSTS,
-      })),
+    // Where each available provider's calls go (host only, never a key): `official` means the vendor's own API, not a bridge;
+    // `route` is "official", "trusted_gateway" (the fixed Cheaper Inference endpoint, a third party) or "custom".
+    providers: providers.providers.filter((item) => item.available).map(providerRoute),
   }),
 });
 

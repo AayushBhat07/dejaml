@@ -99,7 +99,8 @@ try {
     env: { VITE_DEJAML_API: "live" },
   });
 
-  // Only the generated image ID is updated (and missing defaults added); provider keys and model lists are kept.
+  // Only the generated image ID is updated (and missing defaults added, including DEJAML_CHEAPER_INFERENCE_MODELS);
+  // provider keys and model lists are kept, and only key names are reported.
   const environment = await updateEnvLocal(environmentPath, { DEJAML_EXPECTED_IMAGE_ID: imageId });
 
   const resultPath = join(root, "cases/urban-land-cover/artifacts/result.json");
@@ -118,7 +119,7 @@ try {
   );
   process.stdout.write("Explore the labelled replay UI:\n  npm run demo:replay\n\n");
   process.stdout.write(
-    "Put DEJAML_ANTHROPIC_API_KEY or DEJAML_OPENAI_API_KEY (with DEJAML_OPENAI_MODELS) in the server environment or .env.local (bootstrap keeps them), then run npm run start:local. Keys are never entered in the page or printed.\n",
+    "Put DEJAML_ANTHROPIC_API_KEY, DEJAML_OPENAI_API_KEY (with DEJAML_OPENAI_MODELS) or DEJAML_CHEAPER_INFERENCE_API_KEY (a trusted third-party gateway, not the official Anthropic API; zero-data-retention disabled) in the server environment or .env.local (bootstrap keeps them), then run npm run start:local. Keys are never entered in the page or printed.\n",
   );
 } catch (error) {
   fail(error instanceof Error ? error.message : String(error));

@@ -25,10 +25,16 @@ try {
       "DEJAML_ALLOW_UPLOADER_KEYS is no longer supported: uploaders cannot bring keys; put a provider key in the server environment",
     );
   }
-  const providerSet = ["DEJAML_ANTHROPIC_API_KEY", "DEJAML_OPENAI_API_KEY", "DEJAML_CUSTOM_BASE_URL"].some((name) => env[name]?.trim());
-  if (!providerSet) {
+  // Configured providers are named by the setting that enables them; values are never printed.
+  const providerSettings = [
+    "DEJAML_ANTHROPIC_API_KEY",
+    "DEJAML_OPENAI_API_KEY",
+    "DEJAML_CHEAPER_INFERENCE_API_KEY",
+    "DEJAML_CUSTOM_BASE_URL",
+  ].filter((name) => env[name]?.trim());
+  if (providerSettings.length === 0) {
     throw new Error(
-      "no model provider is configured; set DEJAML_ANTHROPIC_API_KEY, or DEJAML_OPENAI_API_KEY with DEJAML_OPENAI_MODELS, in the server environment (see .env.example)",
+      "no model provider is configured; set DEJAML_ANTHROPIC_API_KEY, DEJAML_OPENAI_API_KEY with DEJAML_OPENAI_MODELS, or DEJAML_CHEAPER_INFERENCE_API_KEY in the server environment (see .env.example)",
     );
   }
   await access(join(root, "cases/urban-land-cover/data/training.csv"));
@@ -46,6 +52,7 @@ try {
   }
 
   process.stdout.write(`Starting the live DéjàML API at http://${env.HOST ?? "127.0.0.1"}:${env.PORT ?? "8787"}\n`);
+  process.stdout.write(`Provider settings present (values not shown): ${providerSettings.join(", ")}\n`);
   process.stdout.write(`Upload ${join(root, "artifacts/demo/paper.pdf")}\n`);
   const child = spawn(process.execPath, ["apps/api/dist/main.js"], { cwd: root, env, stdio: "inherit" });
   child.on("error", (error) => {

@@ -97,7 +97,7 @@ describe("loadProviderConfig (server-only keys)", () => {
   it("refuses the removed uploader-key switch and legacy single-model settings", () => {
     for (const value of ["1", "true", "yes"]) {
       expect(problemsOf({ DEJAML_ALLOW_UPLOADER_KEYS: value })).toEqual([
-        "DEJAML_ALLOW_UPLOADER_KEYS is no longer supported: provider keys come only from DEJAML_OPENAI_API_KEY, DEJAML_ANTHROPIC_API_KEY and DEJAML_CUSTOM_API_KEY",
+        "DEJAML_ALLOW_UPLOADER_KEYS is no longer supported: provider keys come only from DEJAML_OPENAI_API_KEY, DEJAML_ANTHROPIC_API_KEY, DEJAML_CHEAPER_INFERENCE_API_KEY and DEJAML_CUSTOM_API_KEY",
       ]);
     }
     // "0" already meant "no uploader keys", so an existing deployment keeps starting.

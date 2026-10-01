@@ -313,6 +313,7 @@ export function redact(text: string, secrets: readonly (string | undefined)[]): 
 
 export function statusToCode(status: number): ProviderErrorCode {
   if (status === 401) return "authentication";
+  if (status === 402) return "payment_required";
   if (status === 403) return "permission";
   if (status === 404) return "not_found";
   if (status === 408) return "timeout";

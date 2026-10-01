@@ -113,11 +113,11 @@ export function environmentSecrets(env: Record<string, string | undefined>): Sec
 
 /**
  * The provider configuration's view of the environment: settings from `env`,
- * keys from the secret provider. Only the three key names are ever read.
+ * keys from the secret provider. Only the provider key names are ever read.
  */
 export function withSecrets(env: Record<string, string | undefined>, secrets: SecretProvider): Record<string, string | undefined> {
   const merged = { ...env };
-  for (const name of ["DEJAML_OPENAI_API_KEY", "DEJAML_ANTHROPIC_API_KEY", "DEJAML_CUSTOM_API_KEY"]) {
+  for (const name of ["DEJAML_OPENAI_API_KEY", "DEJAML_ANTHROPIC_API_KEY", "DEJAML_CHEAPER_INFERENCE_API_KEY", "DEJAML_CUSTOM_API_KEY"]) {
     const value = secrets.get(name);
     if (value === undefined) delete merged[name];
     else merged[name] = value;

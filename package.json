@@ -13,7 +13,7 @@
     "build": "node scripts/run-workspaces.mjs build",
     "check": "npm run build && npm run typecheck && npm run lint && npm run format:check && npm run check:native && npm run check:scripts && npm test",
     "check:native": "node scripts/check-native-runtime.mjs && node --test scripts/check-native-runtime.test.mjs",
-    "check:scripts": "node --test scripts/env-local.test.mjs",
+    "check:scripts": "node --test scripts/env-local.test.mjs apps/api/scripts/acceptance-route.test.mjs",
     "demo:replay": "npm run dev --workspace @dejaml/web",
     "verify:lab-image": "node lab-images/python-cpu/verify.mjs",
     "start:local": "node scripts/start-local.mjs",

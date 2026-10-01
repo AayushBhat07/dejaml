@@ -1,7 +1,9 @@
 // Real-model acceptance run.
 //
 // Uploads a real paper to a running DéjàML API whose server environment holds a
-// real provider key (DEJAML_OPENAI_API_KEY or DEJAML_ANTHROPIC_API_KEY). A case
+// real provider key (DEJAML_OPENAI_API_KEY or DEJAML_ANTHROPIC_API_KEY, or
+// DEJAML_CHEAPER_INFERENCE_API_KEY for the trusted third-party Cheaper Inference
+// gateway, which is not the official Anthropic API; see acceptance-route.mjs). A case
 // with `reviewedCaseId` names the server's reviewed claim target by id only (the
 // claim itself lives in config/reviewed-targets on the server); other cases name
 // their repository and let the agents choose the claim. It follows
@@ -31,6 +33,8 @@ import { createHash } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+
+import { checkAcceptanceProvider, classifyAcceptanceRoute } from "./acceptance-route.mjs";
 
 const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
 const [casePath, paperArgument] = process.argv.slice(2);
@@ -67,25 +71,26 @@ if (!provider) {
     [
       "PENDING: the API lists no model provider, so no real-model run can start.",
       "Put a key in the API's own environment (never in the browser or this script), restart it, and run this again:",
-      "  export DEJAML_ANTHROPIC_API_KEY=…   # or DEJAML_OPENAI_API_KEY=… with DEJAML_OPENAI_MODELS=…",
+      "  export DEJAML_ANTHROPIC_API_KEY=…   # or DEJAML_OPENAI_API_KEY=… with DEJAML_OPENAI_MODELS=…, or DEJAML_CHEAPER_INFERENCE_API_KEY=…",
       "  npm run build && npm run start:local",
       `  node apps/api/scripts/accept-real-paper.mjs ${casePath}${paperArgument ? ` ${paperArgument}` : ""}`,
     ].join("\n"),
   );
   process.exit(3);
 }
-// Acceptance needs a vendor's own API: no custom endpoint, local bridge, or stand-in model.
+// Acceptance needs a vendor's own API or the fixed trusted Cheaper Inference gateway (claude-sonnet-5.5 only):
+// no custom endpoint, local bridge, other host, plain http, or stand-in model.
 const health = await fetch(`${api}/health`)
   .then((response) => (response.ok ? response.json() : null))
   .catch(() => null);
 const route = health?.providers?.find((item) => item.id === provider.id) ?? null;
-if (!["openai", "anthropic"].includes(provider.id) || !route?.official) {
-  console.error(
-    `Provider ${provider.id} (${route?.endpointHost ?? "unknown endpoint"}) is not a direct OpenAI or Anthropic API; acceptance refuses custom endpoints, local bridges, and stand-in models.`,
-  );
+const model = process.env.DEJAML_ACCEPT_MODEL ?? provider.models[0];
+const routeClassification = classifyAcceptanceRoute({ providerId: provider.id, model, health: route });
+if (!routeClassification.ok) {
+  console.error(`Acceptance refused: ${routeClassification.reason}.`);
   process.exit(2);
 }
-const model = process.env.DEJAML_ACCEPT_MODEL ?? provider.models[0];
+console.log(`provider route: ${routeClassification.label} (${routeClassification.reason})`);
 // A case whose dataset is downloaded needs its host on the server's allowlist; refuse before any tokens are spent.
 const datasetHost = acceptanceCase.dataset?.allowedHost;
 if (datasetHost && !(health?.datasetHosts ?? []).includes(datasetHost)) {
@@ -181,7 +186,10 @@ const acceptanceReport = {
   messages: study?.messages ?? [],
   toolReceipts: study?.receipts ?? [],
   paper: { file: basename(paperPath), sha256: paperSha256, pages: study?.paper?.pages ?? null },
-  providerRoute: route ? { id: route.id, endpointHost: route.endpointHost, official: route.official } : null,
+  providerRoute: route
+    ? { id: route.id, endpointHost: route.endpointHost, route: route.route ?? null, https: route.https ?? null, official: route.official }
+    : null,
+  providerRouteLabel: routeClassification.label,
   reviewedTarget: study?.reviewedTarget ?? null,
   repository: study?.repository ?? null,
   platform: study?.platform ?? null,
@@ -251,11 +259,10 @@ if (!study) {
   check("the native multi-agent study ran", false, report.failure ?? "the report has no study section");
 } else {
   const roles = new Set(study.agents.map((agent) => agent.role));
-  check(
-    "direct provider through DéjàML's own adapter",
-    ["openai", "anthropic"].includes(study.provider.id) && route?.official === true && study.runtime === "native autonomous agent runtime",
-    `${study.provider.id}/${study.provider.model} via ${route?.endpointHost}; ${study.runtime}`,
-  );
+  {
+    const providerCheck = checkAcceptanceProvider({ providerId: provider.id, model, health: route, study });
+    check(providerCheck.name, providerCheck.pass, providerCheck.detail);
+  }
   check(
     "independent native agents",
     ["paper_analyst", "repository_analyst", "reproduction_planner", "supervisor"].every((role) => roles.has(role)) &&
@@ -378,7 +385,7 @@ const secretShapes = [
   /sk-(proj-)?[A-Za-z0-9_-]{20,}/u,
   /authorization["']?\s*[:=]/iu,
   /x-api-key/iu,
-  /DEJAML_(OPENAI|ANTHROPIC|CUSTOM)_API_KEY\s*[=:]\s*\S/u,
+  /DEJAML_(OPENAI|ANTHROPIC|CHEAPER_INFERENCE|CUSTOM)_API_KEY\s*[=:]\s*\S/u,
 ];
 check("no secret in the report", !secretShapes.some((shape) => shape.test(reportText)));
 check("no OpenClaw on the path", !/openclaw/iu.test(reportText));
