@@ -15,6 +15,15 @@
  * exist, and every one must be down, without addresses and without routes.
  * Any other device, or any device other than `lo` that is up, has an address
  * or has a route, is a violation.
+ *
+ * `/sys/class/net` also holds files that are not devices: a kernel with the
+ * bonding driver adds the control attribute `bonding_masters` there (a
+ * regular file; every device entry is a symlink to a device directory with an
+ * `ifindex`). The observer decides what is a device from the kernel itself
+ * (`if_nameindex()`, i.e. netlink, and `/proc/net/dev`) and from the entry's
+ * structure, never from its name: an entry is skipped only when it is a
+ * regular file that no kernel interface list names. Every device the kernel
+ * reports is evaluated, whether or not sysfs shows it.
  */
 
 /** Fallback devices that built-in tunnel drivers create in every network namespace. */
@@ -52,7 +61,12 @@ export type ObservedInterface = {
 export type ObservedRoute = { family: 4 | 6; device: string; destination: string };
 
 export type NetworkObservation = {
+  /** Every genuine network device: what sysfs shows as a device directory, plus every name the kernel lists. */
   interfaces: ObservedInterface[];
+  /** Device names the kernel reports (`if_nameindex()` and `/proc/net/dev`); absent in older observations. */
+  kernelInterfaces?: string[];
+  /** `/sys/class/net` entries that are not devices (regular files such as `bonding_masters`), with why. */
+  ignoredEntries?: Array<{ name: string; reason: string }>;
   /** IPv4 main-table routes (`/proc/net/route`) and IPv6 routes of every table (`/proc/net/ipv6_route`). */
   routes: ObservedRoute[];
 };
@@ -74,6 +88,14 @@ export function evaluateNetworkIsolation(observation: NetworkObservation): Netwo
   const inertDevices: string[] = [];
   const names = new Set(observation.interfaces.map((item) => item.name));
   if (!names.has("lo")) violations.push("no loopback interface");
+  for (const name of observation.kernelInterfaces ?? []) {
+    if (!names.has(name)) violations.push(`the kernel reports interface ${name}, which was not observed`);
+  }
+  for (const entry of observation.ignoredEntries ?? []) {
+    // Only a non-device file may be skipped; a name the kernel knows as a device is never ignored.
+    if ((observation.kernelInterfaces ?? []).includes(entry.name) || names.has(entry.name))
+      violations.push(`sysfs entry ${entry.name} was skipped but is a network interface`);
+  }
   for (const route of observation.routes) {
     if (route.device !== "lo") {
       violations.push(`IPv${route.family} route ${route.destination} via ${route.device}`);
@@ -109,11 +131,11 @@ export function evaluateNetworkIsolation(observation: NetworkObservation): Netwo
  * `SIOCGIFADDR` ioctl per interface; it sends no packet.
  */
 export const NETWORK_OBSERVER_PY = String.raw`
-def observe_network():
+def observe_network(net_dir="/sys/class/net", proc_dir="/proc/net", kernel_names=None):
     import fcntl, os, socket, struct
     def sysfs(name, key):
         try:
-            with open(f"/sys/class/net/{name}/{key}") as handle:
+            with open(os.path.join(net_dir, name, key)) as handle:
                 return handle.read().strip()
         except OSError:
             return None
@@ -124,16 +146,41 @@ def observe_network():
             return None
     inet6 = {}
     try:
-        for line in open("/proc/net/if_inet6").read().splitlines():
+        for line in open(os.path.join(proc_dir, "if_inet6")).read().splitlines():
             parts = line.split()
             if len(parts) >= 6:
                 raw = parts[0]
                 inet6.setdefault(parts[5], []).append(":".join(raw[i:i + 4] for i in range(0, 32, 4)))
     except OSError:
         pass
+    # Device names from the kernel itself: netlink (if_nameindex) and /proc/net/dev.
+    kernel = set(kernel_names or [])
+    if kernel_names is None:
+        try:
+            kernel.update(name for _, name in socket.if_nameindex())
+        except OSError:
+            pass
+        try:
+            for line in open(os.path.join(proc_dir, "dev")).read().splitlines()[2:]:
+                if ":" in line:
+                    kernel.add(line.split(":", 1)[0].strip())
+        except OSError:
+            pass
+    # A sysfs entry is a device when the kernel lists it or it is a device directory with an ifindex.
+    # Only a regular file the kernel does not list (such as bonding_masters) is skipped.
+    devices = set(kernel)
+    ignored = []
+    for name in os.listdir(net_dir):
+        path = os.path.join(net_dir, name)
+        if name in kernel or (os.path.isdir(path) and os.path.isfile(os.path.join(path, "ifindex"))):
+            devices.add(name)
+        elif os.path.isfile(path) and not os.path.islink(path):
+            ignored.append({"name": name, "reason": "regular file in /sys/class/net, not a network device"})
+        else:
+            devices.add(name)
     probe = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     interfaces = []
-    for name in sorted(os.listdir("/sys/class/net")):
+    for name in sorted(devices):
         ipv4 = []
         try:
             packed = fcntl.ioctl(probe.fileno(), 0x8915, struct.pack("256s", name[:15].encode()))
@@ -151,7 +198,7 @@ def observe_network():
     probe.close()
     routes = []
     try:
-        for line in open("/proc/net/route").read().splitlines()[1:]:
+        for line in open(os.path.join(proc_dir, "route")).read().splitlines()[1:]:
             parts = line.split()
             if len(parts) >= 8:
                 destination = socket.inet_ntoa(struct.pack("<I", int(parts[1], 16)))
@@ -160,11 +207,11 @@ def observe_network():
     except OSError:
         pass
     try:
-        for line in open("/proc/net/ipv6_route").read().splitlines():
+        for line in open(os.path.join(proc_dir, "ipv6_route")).read().splitlines():
             parts = line.split()
             if len(parts) >= 10:
                 routes.append({"family": 6, "device": parts[9], "destination": f"{parts[0]}/{int(parts[1], 16)}"})
     except OSError:
         pass
-    return {"interfaces": interfaces, "routes": routes}
+    return {"interfaces": interfaces, "routes": routes, "kernelInterfaces": sorted(kernel), "ignoredEntries": sorted(ignored, key=lambda item: item["name"])}
 `;

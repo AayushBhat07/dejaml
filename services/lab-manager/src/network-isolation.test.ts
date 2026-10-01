@@ -1,6 +1,11 @@
-import { describe, expect, it } from "vitest";
+import { spawnSync } from "node:child_process";
+import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
-import { evaluateNetworkIsolation, type NetworkObservation, type ObservedInterface } from "./network-isolation.js";
+import { afterEach, describe, expect, it } from "vitest";
+
+import { evaluateNetworkIsolation, NETWORK_OBSERVER_PY, type NetworkObservation, type ObservedInterface } from "./network-isolation.js";
 
 const LO: ObservedInterface = { name: "lo", flags: 0x9, operstate: "unknown", type: 772, ipv4: ["127.0.0.1"], ipv6: [] };
 const LO_V6_ROUTES = [
@@ -76,5 +81,94 @@ describe("evaluateNetworkIsolation", () => {
       routes: [{ family: 4, device: "lo", destination: "0.0.0.0/0" }],
     });
     expect(verdict.violations).toEqual(["IPv4 main-table route 0.0.0.0/0 via lo", "lo has non-loopback address 192.0.2.1"]);
+  });
+});
+
+describe("evaluateNetworkIsolation with kernel and sysfs listings", () => {
+  it("refuses a device the kernel reports but the observation lacks, and a skipped entry that is a device", () => {
+    expect(evaluateNetworkIsolation({ interfaces: [LO], routes: [], kernelInterfaces: ["lo", "eth0"] }).violations).toEqual([
+      "the kernel reports interface eth0, which was not observed",
+    ]);
+    const skipped = evaluateNetworkIsolation({
+      interfaces: [LO],
+      routes: [],
+      kernelInterfaces: ["lo", "bond0"],
+      ignoredEntries: [{ name: "bond0", reason: "regular file" }],
+    });
+    expect(skipped.violations).toEqual([
+      "the kernel reports interface bond0, which was not observed",
+      "sysfs entry bond0 was skipped but is a network interface",
+    ]);
+  });
+});
+
+const python = spawnSync("python3", ["--version"]).status === 0 ? "python3" : null;
+
+/** Runs the in-lab observer against a fake /sys/class/net and /proc/net, with the kernel's device list given. */
+function observe(netDir: string, procDir: string, kernel: string[]): NetworkObservation {
+  const code = `import json\n${NETWORK_OBSERVER_PY}\nprint(json.dumps(observe_network(${JSON.stringify(netDir)}, ${JSON.stringify(procDir)}, ${JSON.stringify(kernel)})))`;
+  const result = spawnSync(python!, ["-c", code], { encoding: "utf8" });
+  if (result.status !== 0) throw new Error(result.stderr);
+  return JSON.parse(result.stdout) as NetworkObservation;
+}
+
+describe.skipIf(python === null)("the in-lab network observer", () => {
+  let root: string;
+  afterEach(async () => {
+    await rm(root, { recursive: true, force: true });
+  });
+
+  /** A device as sysfs shows it: /sys/class/net/<name> is a symlink to a device directory with ifindex. */
+  async function device(name: string, flags: string, operstate: string, type: number): Promise<void> {
+    const target = join(root, "devices", name);
+    await mkdir(target, { recursive: true });
+    for (const [key, value] of [
+      ["ifindex", "1"],
+      ["flags", flags],
+      ["operstate", operstate],
+      ["type", String(type)],
+    ] as const)
+      await writeFile(join(target, key), `${value}\n`);
+    await symlink(target, join(root, "net", name));
+  }
+
+  async function setUp(): Promise<{ net: string; proc: string }> {
+    root = await mkdtemp(join(tmpdir(), "dejaml-netobs-"));
+    await mkdir(join(root, "net"));
+    await mkdir(join(root, "proc"));
+    await device("lo", "0x9", "unknown", 772);
+    await device("tunl0", "0x80", "down", 768);
+    // The bonding driver's control attribute: a regular file, not a device.
+    await writeFile(join(root, "net", "bonding_masters"), "\n");
+    return { net: join(root, "net"), proc: join(root, "proc") };
+  }
+
+  it("ignores non-device control files such as bonding_masters and still evaluates every device", async () => {
+    const { net, proc } = await setUp();
+    const observation = observe(net, proc, ["lo", "tunl0"]);
+    expect(observation.interfaces.map((item) => item.name)).toEqual(["lo", "tunl0"]);
+    expect(observation.ignoredEntries).toEqual([
+      { name: "bonding_masters", reason: "regular file in /sys/class/net, not a network device" },
+    ]);
+    expect(evaluateNetworkIsolation(observation)).toEqual({ isolated: true, violations: [], inertDevices: ["tunl0"] });
+  });
+
+  it("still fails on an unknown genuine interface, even one the kernel list omits", async () => {
+    const { net, proc } = await setUp();
+    await device("eth1", "0x1002", "down", 1);
+    const verdict = evaluateNetworkIsolation(observe(net, proc, ["lo", "tunl0"]));
+    expect(verdict.isolated).toBe(false);
+    expect(verdict.violations).toEqual(["interface eth1 is not a known fallback tunnel device"]);
+  });
+
+  it("evaluates a kernel-listed device that sysfs does not show, and never skips a file the kernel names", async () => {
+    const { net, proc } = await setUp();
+    const hidden = evaluateNetworkIsolation(observe(net, proc, ["lo", "tunl0", "veth9"]));
+    expect(hidden.violations.join("; ")).toMatch(
+      /interface veth9 is not a known fallback tunnel device, has unreadable flags, has operstate unreadable/u,
+    );
+    const named = observe(net, proc, ["lo", "tunl0", "bonding_masters"]);
+    expect(named.ignoredEntries).toEqual([]);
+    expect(evaluateNetworkIsolation(named).isolated).toBe(false);
   });
 });

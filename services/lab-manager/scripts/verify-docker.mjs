@@ -225,6 +225,13 @@ try {
   // network namespace; isolation means no device but loopback can carry traffic, not one exact listing.
   const isolation = evaluateNetworkIsolation(checks.networkObservation);
   assert(isolation.isolated, `no usable interface or route besides loopback: ${isolation.violations.join("; ")}`);
+  console.log(
+    `      interfaces ${checks.networkObservation.interfaces.map((item) => item.name).join(",")}; kernel lists ${(
+      checks.networkObservation.kernelInterfaces ?? []
+    ).join(",")}; inert ${isolation.inertDevices.join(",") || "none"}; non-device sysfs entries ${
+      (checks.networkObservation.ignoredEntries ?? []).map((item) => item.name).join(",") || "none"
+    }`,
+  );
   assert(
     JSON.stringify(Object.keys(inspected.NetworkSettings?.Networks ?? {})) === JSON.stringify(["none"]),
     `attached only to the none network: ${Object.keys(inspected.NetworkSettings?.Networks ?? {}).join(",")}`,
