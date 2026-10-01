@@ -27,6 +27,8 @@ import type { RunStore } from "@dejaml/run-store";
 
 import type { CuratedCase } from "./cases.js";
 import {
+  checkTargetPaper,
+  type ClaimTarget,
   type DatasetPort,
   type DependencyPort,
   type LabImagePort,
@@ -34,6 +36,7 @@ import {
   type MultiAgentReport,
   runMultiAgentStudy,
   type StudyConfig,
+  targetSummary,
 } from "./study/index.js";
 
 type ResourceBudget = z.infer<typeof ResourceBudgetSchema>;
@@ -131,7 +134,9 @@ export async function runStudy(
     /** Whose model key drives the agents; recorded without the key itself. Keys are only ever the server's. */
     modelSource?: "server";
     /** Resume a study after a restart from its saved inputs, skipping intake and discovery. */
-    resume?: { paper: PaperDocument; candidates: RepositoryCandidate[] };
+    resume?: { paper: PaperDocument; candidates: RepositoryCandidate[]; target?: ClaimTarget | null };
+    /** A reviewed claim target the server resolved from its own registry by case id; never built from the request. */
+    target?: ClaimTarget;
     /** The configured provider and model the agents use; the key stays inside the provider. */
     agents?: { provider: ChatProvider; selection: { id: string; model: string } };
   },
@@ -195,7 +200,7 @@ export async function runStudy(
         finish("failed");
         return await finalize();
       }
-      return await multiAgentStudy(paper, candidates, deps.multiAgent);
+      return await multiAgentStudy(paper, candidates, deps.multiAgent, input.resume.target ?? null);
     }
     // 1. Paper intake.
     store.transitionRun(runId, "ingesting");
@@ -219,9 +224,43 @@ export async function runStudy(
     );
     checkCancelled();
 
+    const target = input.target ?? null;
+    if (target) {
+      // The reviewed target must describe this exact paper, and its excerpt must be on its cited page.
+      const problem = checkTargetPaper(target, { sha256: paper.file.sha256, pages: paper.pages });
+      if (problem) {
+        event("reviewed_target_refused", "failed", `The reviewed target does not fit the paper: ${problem}`, { caseId: target.caseId });
+        report.failure = problem;
+        finish("inconclusive");
+        return await finalize();
+      }
+      event("reviewed_target", "completed", `Investigating the reviewed claim ${target.caseId}`, targetSummary(target));
+    }
+
     // 2. Repository discovery: only a reviewed case may proceed.
     store.transitionRun(runId, "discovering_repository");
     const discovered = discoverGithubRepositories(paper);
+    if (target) {
+      // The reviewed repository is the only candidate; agents still acquire and inspect it themselves.
+      const [owner = "", name = ""] = target.repository.url.split("/").slice(3);
+      const found = discovered.find((candidate) => candidate.repositoryUrl === target.repository.url);
+      const candidates: RepositoryCandidate[] = [
+        { repositoryUrl: target.repository.url, owner, name, occurrences: found?.occurrences ?? [], providedByUser: false },
+      ];
+      if (input.modelSource) {
+        event("model_connection", "completed", "Agents use the server's model connection", {
+          source: input.modelSource,
+          ...(input.agents ? { provider: input.agents.selection.id, model: input.agents.selection.model } : {}),
+        });
+      }
+      if (!deps.multiAgent?.enabled) {
+        report.failure = "Autonomous studies are disabled on this server, so the reviewed claim cannot be studied";
+        event("agents_unavailable", "failed", report.failure, {});
+        finish("inconclusive");
+        return await finalize();
+      }
+      return await multiAgentStudy(paper, candidates, deps.multiAgent, target);
+    }
     const provided = input.repositoryUrl;
     const candidates: RepositoryCandidate[] = provided
       ? [
@@ -245,7 +284,7 @@ export async function runStudy(
     }
     const match = deps.cases.find((curated) => candidates.some((candidate) => candidate.repositoryUrl === curated.policy.repository.url));
     if (!match && deps.multiAgent?.enabled && candidates[0]) {
-      return await multiAgentStudy(paper, candidates, deps.multiAgent);
+      return await multiAgentStudy(paper, candidates, deps.multiAgent, null);
     }
     if (!match) {
       const summary =
@@ -476,6 +515,7 @@ export async function runStudy(
     paper: PaperDocument,
     candidates: RepositoryCandidate[],
     options: MultiAgentOptions,
+    target: ClaimTarget | null,
   ): Promise<StudyReport> {
     const agents = input.agents;
     if (!agents) {
@@ -487,14 +527,18 @@ export async function runStudy(
     event(
       "repository_found",
       "completed",
-      "Found repository candidates; no reviewed case exists, so independent agents will run the study",
+      target
+        ? "Independent agents will verify and reproduce the reviewed claim"
+        : "Found repository candidates; no reviewed case exists, so independent agents will run the study",
       {
         candidates: candidates.map((candidate) => candidate.repositoryUrl),
         autonomous: true,
+        reviewedTarget: target?.caseId ?? null,
       },
     );
+    if (target) report.caseId = target.caseId;
     const result = await runMultiAgentStudy(
-      { runId, paper, candidates, signal },
+      { runId, paper, candidates, signal, target },
       {
         store,
         labs: deps.labs,

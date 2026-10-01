@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { readdir, readFile, rm, stat } from "node:fs/promises";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { extname, join, normalize, resolve, sep } from "node:path";
@@ -19,7 +19,7 @@ import type { StructuredModelClient } from "@dejaml/research-runtime";
 import { InProcessJobDispatcher, type JobDispatcher } from "./boundaries.js";
 import { runStudy, type PipelineDependencies, type StudyReport } from "./pipeline.js";
 import { ChatStructuredClient } from "./structured.js";
-import { removeStaleStudyDirs } from "./study/index.js";
+import { CASE_ID, type ClaimTarget, removeStaleStudyDirs } from "./study/index.js";
 
 const MAX_UPLOAD_BYTES = MAX_PDF_BYTES + 64 * 1024;
 const HEARTBEAT_MS = 15_000;
@@ -50,6 +50,8 @@ export type ApiOptions = Omit<PipelineDependencies, "model"> & {
   jobs?: JobDispatcher;
   /** Internal diagnostics (image readiness, platform) served at /api/health to loopback clients only. */
   health?: () => Record<string, unknown>;
+  /** The server-owned registry of reviewed claim targets; an upload may name one by id and nothing else. */
+  reviewedTargets?: ReadonlyMap<string, ClaimTarget>;
 };
 
 export type ApiServer = {
@@ -134,7 +136,7 @@ async function readUpload(request: IncomingMessage): Promise<Upload> {
 type Selection = { providerId: string; model: string };
 
 /** The only fields a study upload may carry. The model is chosen by provider id and model name alone. */
-const UPLOAD_FIELDS: ReadonlySet<string> = new Set(["paper", "providerId", "modelName", "repositoryUrl"]);
+const UPLOAD_FIELDS: ReadonlySet<string> = new Set(["paper", "providerId", "modelName", "repositoryUrl", "reviewedCaseId"]);
 const KEY_FIELD = /key|token|secret|password|credential|auth/iu;
 const ENDPOINT_FIELD = /url|endpoint|host|base/iu;
 /** Request headers that would carry a provider key; never accepted from a browser. */
@@ -194,6 +196,17 @@ export function createApiServer(options: ApiOptions): ApiServer {
         throw new HttpError(400, "The repository must be a public GitHub repository URL.");
       }
     }
+    // A reviewed claim target is chosen by id only; its contents come from the server's registry, never the request.
+    const caseId = upload.field("reviewedCaseId");
+    let target: ClaimTarget | undefined;
+    if (caseId !== null) {
+      target = CASE_ID.test(caseId) ? options.reviewedTargets?.get(caseId) : undefined;
+      if (!target) throw new HttpError(400, "There is no reviewed case with that id on this server.");
+      if (createHash("sha256").update(upload.data).digest("hex") !== target.paper.sha256)
+        throw new HttpError(400, "The uploaded paper is not the paper reviewed for this case.");
+      if (repositoryUrl && repositoryUrl !== target.repository.url)
+        throw new HttpError(400, "A reviewed case names its own repository; leave the repository empty or use that one.");
+    }
     let provider: ChatProvider;
     try {
       provider = providerFactory(selection.providerId, selection.model);
@@ -220,6 +233,7 @@ export function createApiServer(options: ApiOptions): ApiServer {
               data: upload.data,
               signal,
               ...(repositoryUrl ? { repositoryUrl } : {}),
+              ...(target ? { target } : {}),
               modelSource: "server",
               agents: { provider, selection: { id: selection.providerId, model: selection.model } },
             },
@@ -367,6 +381,7 @@ export function createApiServer(options: ApiOptions): ApiServer {
       paperDocument?: PaperDocument;
       candidates?: RepositoryCandidate[];
       provider?: { id: string; model: string };
+      reviewedTarget?: ClaimTarget | null;
     };
     const fail = (summary: string): void => {
       store.appendEvent({ runId, actor: "system", type: "run_resume_failed", status: "failed", summary, evidence: [], publicPayload: {} });
@@ -393,7 +408,7 @@ export function createApiServer(options: ApiOptions): ApiServer {
           signal,
           modelSource: "server",
           agents: { provider, selection: inputs.provider },
-          resume: { paper: inputs.paperDocument, candidates: inputs.candidates },
+          resume: { paper: inputs.paperDocument, candidates: inputs.candidates, target: inputs.reviewedTarget ?? null },
         },
         { ...options, model },
       );

@@ -65,6 +65,28 @@ and stop conditions. The excerpt must appear verbatim on the cited page and
 hold the reported value. Policy review is deterministic and its plan digest
 (canonical-JSON SHA-256) is recorded.
 
+**Reviewed claim targets** (`apps/api/src/study/targets.ts`,
+`config/reviewed-targets/*.json`): a server-owned registry of claims a person
+checked against a paper and its repository. An upload may name one by
+`reviewedCaseId` and nothing else; a request can never carry a claim,
+command, parser, commit, adapter, dependency set or expected answer. The
+server refuses an unknown id, a paper whose SHA-256 differs from the reviewed
+one, and a different repository; at start-up it refuses a target whose
+excerpt lacks its value or whose adapter file does not match its reviewed
+hash, and before any agent starts it checks the excerpt is verbatim on the
+cited page. A target tells the Paper Analyst which claim to verify (never
+the excerpt), the Repository Analyst which pinned repository and claim to
+map (never the paper analysis), and the Planner the reviewed limits; the
+Engineers, Reviewers and Supervisor never see it, and it holds no observed
+value. Each agent may still reject the target: a Paper Analyst claim that is
+not the target (`claimMismatch`) stops the study before planning, and policy
+review refuses any plan outside the target (entry point, requirements,
+constraints, dataset source, parser, runtime ceiling, adapter by hash) on top
+of every normal check. A plan names the reviewed adapter by id and code
+substitutes the hash-checked file. The target's `maximumVerdict` caps the
+computed status (`partially_reproduced` for pyts, because of the adapter).
+Without a target, the agents choose one claim themselves as before.
+
 **Status** (`verdict.ts`): computed from the official run's parsed metric, the
 Reviewers' verdicts, Engineer consensus and the policy. An adapter, a trusted
 compatibility constraint, or Reviewer-declared minor deviations cap the result
@@ -131,7 +153,7 @@ npm audit
 PR description for the exact head SHA and every result. In short:
 
 - `npm run check` passes: 957 tests in 12 workspaces plus 5 native-scan tests, lint and format clean.
-- `verify-study-docker.mjs` passes 14/14 in about 30 s. Deterministic
+- `verify-study-docker.mjs` passes 15/15 in about 30 s. Deterministic
   infrastructure only (scripted model): the real pyts PDF is ingested,
   `johannfaouzi/pyts-repro` is pinned at `1f8a8285…`, the Python 3.11 lab image
   is made ready by digest for linux/amd64, 8 platform-matched wheels are
@@ -150,6 +172,18 @@ npm run build && npm run start:local
 node apps/api/scripts/accept-real-paper.mjs acceptance/cases/pyts-boss-gunpoint.json
 node apps/api/scripts/accept-real-paper.mjs acceptance/cases/ccs-reproducibility-survey.json <survey-paper.pdf>
 ```
+
+The positive case sends only `reviewedCaseId=pyts-boss-gunpoint` with the
+paper. The script refuses any provider that is not OpenAI or Anthropic at the
+vendor's own endpoint (it reads `/api/health`, loopback only, which reports
+each provider's endpoint host, never a key).
+
+**First real run (2026-10-01, `run_7c997066…`, anthropic):** the native agents
+worked, but the Paper Analyst chose the BOSSVS Listing 1 claim (0.98) instead
+of Table 2's BOSS/GunPoint value (1.000), because the script sent only the
+paper and repository and the agents were told to pick any claim; policy then
+refused the plan. The reviewed target above is the fix: the claim under study
+is fixed by the server, while each agent still verifies it independently.
 
 Reports are written to `artifacts/acceptance/<case>-<runId>.json` (sanitized:
 ids, lifecycle, messages, receipts, digests, platform, images, wheels, plan and
@@ -193,7 +227,7 @@ download); the negative case `inconclusive` or `policy_blocked`.
    orphan labs, prep containers and stale checkouts are removed at startup.
 3. Run `npm run check`, then `node apps/api/scripts/verify-study-docker.mjs`
    (set `DEJAML_PREP_CA_BUNDLE` on networks that intercept TLS).
-4. Expect `All 14 checks passed` and no containers labelled `dejaml.run` or
+4. Expect `All 15 checks passed` and no containers labelled `dejaml.run` or
    `dejaml.prep`.
 
 ## Next sub-phase

@@ -63,6 +63,14 @@ export const AdapterSchema = z.object({
   differences: z.array(z.string().max(500)).max(20),
 });
 
+/** A plan may name a reviewed adapter by id instead of writing one; code substitutes the reviewed, hash-checked file. */
+export const ReviewedAdapterRefSchema = z.object({
+  reviewedAdapterId: z
+    .string()
+    .regex(/^[a-z0-9][a-z0-9-]{0,63}$/u)
+    .describe("The id of the reviewed adapter you were given."),
+});
+
 export const PlanSchema = z.object({
   status: z.enum(["ready", "blocked", "inconclusive"]),
   summary: z.string().min(1).max(2_000),
@@ -109,7 +117,7 @@ export const PlanSchema = z.object({
     .positive()
     .max(24 * 3_600),
   stopConditions: z.array(z.string().min(1).max(300)).min(1).max(10),
-  adapter: AdapterSchema.nullable(),
+  adapter: z.union([AdapterSchema, ReviewedAdapterRefSchema]).nullable(),
   risks: z.array(z.string().max(500)).max(10),
 });
 
@@ -160,7 +168,11 @@ export const SupervisorVerdictSchema = z.object({
 export type PaperClaim = z.infer<typeof PaperClaimSchema>;
 export type PaperClaimResult = z.infer<typeof PaperClaimResultSchema>;
 export type RepositoryMapping = z.infer<typeof RepositoryMappingSchema>;
-export type Plan = z.infer<typeof PlanSchema>;
+export type Adapter = z.infer<typeof AdapterSchema>;
+/** The Planner's output, which may reference a reviewed adapter by id. */
+export type ProposedPlan = z.infer<typeof PlanSchema>;
+/** A plan after code resolved any reviewed adapter reference: the adapter is always the full text. */
+export type Plan = Omit<ProposedPlan, "adapter"> & { adapter: Adapter | null };
 export type Submission = z.infer<typeof SubmissionSchema>;
 export type Diagnosis = z.infer<typeof DiagnosisSchema>;
 export type Review = z.infer<typeof ReviewSchema>;
@@ -242,12 +254,36 @@ export const INSTRUCTIONS: Record<AgentRole, string> = {
   independent_reviewer: [
     "Review one measured result independently. You see the approved plan (claim contract), the paper, the repository, dependency and dataset receipts, command receipts and logs, the exported artifacts, the declared adapter and deviations, and the metric the lab parsed. You do not see the Engineer's reasoning and must not assume it.",
     "Check: the approved official command ran and exited 0; the metric came from that run; the dataset, split, preprocessing, and metric match the paper's claim; declared deviations and compatibility changes are acceptable.",
-    "equivalence is `equivalent` only if nothing methodological changed, `minor_deviations` for library-version or path-only differences that should not change the number, and `not_equivalent` for any toy example, approximation, changed dataset, subset, altered filtering, or replacement metric. Reject anything not_equivalent or unsupported by the evidence.",
+    "equivalence is `equivalent` only if nothing methodological changed, `minor_deviations` for library-version or path-only differences that should not change the number, and `not_equivalent` for any toy example, approximation, changed dataset, subset, altered filtering, altered algorithm, changed split, or replacement metric. Reject anything not_equivalent or unsupported by the evidence, including a number read from saved notebook output or any value that did not come from the official run's own output.",
   ].join("\n"),
   supervisor: [
     "You oversee a reproduction study that code runs stage by stage. You read the evidence board and answer at checkpoints.",
     "At a checkpoint after execution or review, choose continue, replan (with the typed reason and concrete guidance for the Planner), or stop. A re-plan is allowed once per reason; do not ask for the same thing twice.",
     "At the end, propose the status the evidence supports with your rationale. The final status is computed from evidence: you can make it more cautious, never more favourable, and you cannot create evidence.",
+  ].join("\n"),
+};
+
+/**
+ * Replacements for the standing instructions when the study investigates a
+ * reviewed claim target. The target says which claim to check; it never says
+ * the claim holds, and every agent may still reject it on the evidence.
+ */
+export const TARGETED_INSTRUCTIONS: Partial<Record<AgentRole, string>> = {
+  paper_analyst: [
+    "This study investigates one reviewed claim, given in `reviewedTarget` (page, location, method, dataset, split, metric, and the value the paper reports). Verify it against the uploaded paper with your tools; do not choose a different claim.",
+    "If the paper supports it, finish ready with that claim: its page and location, an `excerpt` copied verbatim from that page that contains the reported value, and the method, dataset, split, metric, and reported value as the paper states them.",
+    "If the paper does not state that claim on that page, or states a different value, method, dataset, or metric, finish inconclusive and say exactly what does not match. Never substitute another table, listing, method (for example a variant with a similar name), or value.",
+    "selectedRepositoryUrl must be one of the repository candidates you were given. Write `not stated` for preprocessing or seed when the paper does not say, and list them in missingFields; never guess. You cannot see the repository or the other analysts.",
+  ].join("\n"),
+  repository_analyst: [
+    "This study investigates one reviewed claim (`reviewedTarget`). Acquire the repository with repo_acquire (it is pinned to the reviewed commit), then inspect it independently: does the claim map to official code here? Identify the official notebook or script for it, where its data comes from, the dependency files and the environment it needs, and where the code computes or prints the metric.",
+    "Do not assume the target is valid: if the repository has no official code for this method, dataset, and metric, finish inconclusive and say why. Use dependency_discover to report which dependency files exist. You only read files: nothing in the repository is executed by you. You do not see the Paper Analyst's work.",
+  ].join("\n"),
+  reproduction_planner: [
+    "This study investigates one reviewed claim (`reviewedTarget`). Reconcile it with the Paper Analyst's verified claim and the Repository Analyst's map (both on the board) into one exact plan that reproduces that claim with the reviewed entry point of the pinned repository in an offline, CPU-only Linux lab.",
+    "Plan only for the reviewed claim: never switch to another method, a variant with a similar name, another library version, another dataset, split, or metric. If the analysts' evidence does not support the reviewed claim, or the repository's code does not produce it, finish blocked or inconclusive with the reason.",
+    "Your plan must fit the reviewed limits, which policy enforces: the entry point, a Python version from `environment.python`, requirements only from `environment.requirements`, compatibility constraints only from `environment.allowedCompatibilityConstraints` (copied exactly, and only if also listed in trustedCompatibilityConstraints), the reviewed dataset source, the reviewed `metricParser` exactly, and an expected runtime within the ceiling.",
+    "The command runs `python <entrypoint or adapter> [args]` from `repo` (read-only) or `work/repo`. When a reviewed adapter is given, read it; if it is needed, set adapter to {reviewedAdapterId: <its id>} and run it at its path (for example `../work/adapter/<file>.py` from `repo`) with the arguments it expects. Do not write your own adapter for a reviewed claim. Use dependency_check to confirm binary wheels exist for the lab platform.",
   ].join("\n"),
 };
 

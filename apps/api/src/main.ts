@@ -14,7 +14,7 @@ import { loadCases } from "./cases.js";
 import { DEFAULT_STUDY_RESOURCES } from "./pipeline.js";
 import { environmentSecrets, withSecrets } from "./boundaries.js";
 import { createApiServer, recoverAfterRestart } from "./server.js";
-import { localDatasetPort, preparerPort, readinessLabImagePort } from "./study/index.js";
+import { loadReviewedTargets, localDatasetPort, preparerPort, readinessLabImagePort } from "./study/index.js";
 
 const projectRoot = resolve(fileURLToPath(new URL("../../../", import.meta.url)));
 const dataDir = resolve(process.env.DEJAML_DATA_DIR ?? join(projectRoot, "artifacts", "api"));
@@ -64,6 +64,9 @@ const prepOrphans = await prep?.cleanupOrphans().catch(() => null);
 const trustedConstraints = (
   await loadCompatibilityConstraints(join(projectRoot, "config/compatibility-constraints.txt"), "config/compatibility-constraints.txt")
 ).map((item) => ({ requirement: item.spec, reason: item.reason }));
+const OFFICIAL_HOSTS: Record<string, string> = { openai: "api.openai.com", anthropic: "api.anthropic.com" };
+// Reviewed claim targets are server-owned files; each adapter is checked against its reviewed hash here.
+const reviewedTargets = await loadReviewedTargets(join(projectRoot, "config/reviewed-targets"), projectRoot);
 const datasetHosts = parseAllowedHosts(process.env.DEJAML_DATASET_ALLOWED_HOSTS ?? "");
 const number = (name: string, fallback: number): number => {
   const value = Number(process.env[name] ?? "");
@@ -104,6 +107,7 @@ const api = createApiServer({
     },
   },
   webRoot: join(projectRoot, "apps/web/dist"),
+  reviewedTargets,
   health: () => ({
     platform: platform.containerPlatform,
     python: platform.python.version,
@@ -117,6 +121,16 @@ const api = createApiServer({
       error: item.error?.code ?? null,
     })),
     dependencyPreparation: prep ? "enabled" : "disabled",
+    reviewedTargets: [...reviewedTargets.keys()],
+    // Where each available provider's calls go (host only, never a key): `official` means the vendor's own API, not a bridge.
+    providers: providers.providers
+      .filter((item) => item.available)
+      .map((item) => ({
+        id: item.id,
+        kind: item.kind,
+        endpointHost: item.baseUrl ? new URL(item.baseUrl).host : (OFFICIAL_HOSTS[item.kind] ?? null),
+        official: item.baseUrl === undefined && item.kind in OFFICIAL_HOSTS,
+      })),
     datasetHosts: datasetHosts.length,
   }),
 });

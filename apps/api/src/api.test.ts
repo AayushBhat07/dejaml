@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { copyFile, mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
@@ -16,7 +17,7 @@ import { loadProviderConfig } from "@dejaml/agent-runtime";
 
 import { DEFAULT_STUDY_RESOURCES } from "./pipeline.js";
 import { createApiServer, recoverAfterRestart, type ApiServer } from "./server.js";
-import { fixedLabImagePort } from "./study/index.js";
+import { type ClaimTarget, fixedLabImagePort, loadClaimTarget } from "./study/index.js";
 import { paperPdf, ScriptedModel, ScriptedRuntime, ScriptedStudyProvider, STAND_IN_IMAGE_ID, standInAcquire } from "./stand-ins.js";
 
 const repoRoot = fileURLToPath(new URL("../../../", import.meta.url));
@@ -44,6 +45,8 @@ async function startServer(
     engineers?: number;
     /** Provider settings as the server's environment would carry them. */
     providerEnv?: Record<string, string>;
+    /** The server's reviewed claim targets. */
+    reviewedTargets?: Map<string, ClaimTarget>;
   } = {},
 ): Promise<void> {
   // A private project root holding the reviewed adapter and placeholder data files.
@@ -82,6 +85,7 @@ async function startServer(
     image: { name: "dejaml/python-cpu:0.1.0", expectedImageId: STAND_IN_IMAGE_ID },
     acquire: standInAcquire(cases[0]!, checkoutsCreated, options.commitSha),
     ...(options.labAgentEnabled ? { labAgentEnabled: true } : {}),
+    ...(options.reviewedTargets ? { reviewedTargets: options.reviewedTargets } : {}),
     ...(options.autonomous
       ? {
           multiAgent: {
@@ -358,6 +362,119 @@ describe("Run API", () => {
       JSON.stringify(store.ledger.listReceipts({ runId })),
     ].join("\n");
     expect(persisted).not.toContain("sk-server-test-key-0001");
+  });
+
+  /** A reviewed target for the fixture paper, as the server's registry would hold it. */
+  async function fixtureTarget(paper: Uint8Array, change: Record<string, unknown> = {}): Promise<Map<string, ClaimTarget>> {
+    const target = await loadClaimTarget(
+      {
+        schemaVersion: 1,
+        caseId: "fixture-rf-accuracy",
+        paper: { title: "Fixture paper", sha256: createHash("sha256").update(paper).digest("hex") },
+        claim: {
+          page: 1,
+          location: "Section 4",
+          excerpt: "Random Forest test accuracy of 81.66 percent on the test set.",
+          method: "Random Forest",
+          dataset: "UCI Urban Land Cover",
+          split: "official test set",
+          preprocessing: "not stated",
+          seedPolicy: "not stated",
+          metric: { name: "accuracy", unit: "percent" },
+          reportedValue: 81.66,
+          identify: { methodIncludes: ["Random Forest"], methodExcludes: [], datasetIncludes: ["Urban Land Cover"] },
+        },
+        repository: {
+          url: "https://github.com/example/new-paper",
+          commitSha: "7f8b1c4cbe5b4caf2f6cc8bc0d6fc31ce2f6bd71",
+          entrypoint: "train.py",
+        },
+        environment: { python: ["3.11"], requirements: [], allowedCompatibilityConstraints: [] },
+        dataset: { source: { kind: "repository" } },
+        adapter: null,
+        metricParser: { source: "json", path: "artifacts/result.json", key: "metrics.accuracyPercent" },
+        expectedRuntimeCeilingSeconds: 60,
+        tolerance: 2,
+        maximumVerdict: "reproduced",
+        ...change,
+      },
+      repoRoot,
+    );
+    return new Map([[target.caseId, target]]);
+  }
+
+  it("studies a reviewed claim target chosen by id, with every agent still independent", async () => {
+    const paper = await paperPdf(false);
+    const targets = await fixtureTarget(paper);
+    await startServer({
+      autonomous: true,
+      repositoryUrl: "https://github.com/example/new-paper",
+      commitSha: "7f8b1c4cbe5b4caf2f6cc8bc0d6fc31ce2f6bd71",
+      reviewedTargets: targets,
+    });
+    const response = await upload(paper, "paper.pdf", { reviewedCaseId: "fixture-rf-accuracy" });
+    expect(response.status).toBe(202);
+    const { runId } = (await response.json()) as { runId: string };
+    await api.idle();
+    const report = (await (await fetch(`${base}/api/runs/${runId}/report`)).json()) as StudyReport;
+    const study = report.study!;
+    expect(report.status).toBe("completed");
+    expect(report.caseId).toBe("fixture-rf-accuracy");
+    expect(study.reviewedTarget).toMatchObject({ caseId: "fixture-rf-accuracy", claim: { page: 1, reportedValue: 81.66 } });
+    expect(study.repository).toMatchObject({ commitSha: "7f8b1c4cbe5b4caf2f6cc8bc0d6fc31ce2f6bd71" });
+    expect(study.result.status).toBe("reproduced");
+
+    // The target reaches the analysts and the Planner, with targeted instructions; never the Engineers or Reviewers.
+    const firstTurn = (role: string): string => {
+      const agent = study.agents.find((item) => item.role === role)!;
+      return JSON.stringify(store.ledger.listTurns(agent.agentId)[0]);
+    };
+    for (const role of ["paper_analyst", "repository_analyst", "reproduction_planner"]) expect(firstTurn(role)).toContain("reviewedTarget");
+    for (const role of ["lab_engineer", "independent_reviewer", "supervisor"]) expect(firstTurn(role)).not.toContain("reviewedTarget");
+    expect(studyProvider.systems.some((system) => system.includes("do not choose a different claim"))).toBe(true);
+    // Policy review still ran, the lab still ran the official command, and the Reviewer still judged it.
+    expect(study.stages.map((stage) => stage.stage)).toEqual(
+      expect.arrayContaining(["policy_review", "preparing", "executing", "reviewing", "deciding"]),
+    );
+    expect(study.engineers[0]).toMatchObject({ official: { exitCode: 0 }, review: { verdict: "approve" } });
+  });
+
+  it("stops before planning when the Paper Analyst returns a different claim than the reviewed target", async () => {
+    const paper = await paperPdf(false);
+    const original = [...(await fixtureTarget(paper)).values()][0]!;
+    const targets = await fixtureTarget(paper, {
+      claim: { ...original.claim, identify: { methodIncludes: ["Gradient Boosting"], methodExcludes: [], datasetIncludes: ["Urban"] } },
+    });
+    await startServer({
+      autonomous: true,
+      repositoryUrl: "https://github.com/example/new-paper",
+      commitSha: "7f8b1c4cbe5b4caf2f6cc8bc0d6fc31ce2f6bd71",
+      reviewedTargets: targets,
+    });
+    const { runId } = (await (await upload(paper, "paper.pdf", { reviewedCaseId: "fixture-rf-accuracy" })).json()) as { runId: string };
+    await api.idle();
+    const report = (await (await fetch(`${base}/api/runs/${runId}/report`)).json()) as StudyReport;
+    expect(report.study?.result.status).toBe("inconclusive");
+    expect(report.study?.result.reasons.join(" ")).toContain("different claim than the reviewed target");
+    expect(report.study?.agents.map((agent) => agent.role)).not.toContain("reproduction_planner");
+    expect(report.events.some((event) => event.type === "claim_mismatch")).toBe(true);
+    expect(runtime.containers.size).toBe(0);
+  });
+
+  it("refuses an unknown reviewed case, a different paper, and a different repository", async () => {
+    const paper = await paperPdf(false);
+    await startServer({ autonomous: true, reviewedTargets: await fixtureTarget(paper) });
+    expect((await upload(paper, "paper.pdf", { reviewedCaseId: "no-such-case" })).status).toBe(400);
+    expect((await upload(paper, "paper.pdf", { reviewedCaseId: "../../etc" })).status).toBe(400);
+    expect((await upload(await paperPdf(true), "paper.pdf", { reviewedCaseId: "fixture-rf-accuracy" })).status).toBe(400);
+    const otherRepository = await upload(paper, "paper.pdf", {
+      reviewedCaseId: "fixture-rf-accuracy",
+      repositoryUrl: "https://github.com/example/other",
+    });
+    expect(otherRepository.status).toBe(400);
+    // A request can name a case, never carry one.
+    expect((await upload(paper, "paper.pdf", { reviewedCaseId: "fixture-rf-accuracy", claimContract: "{}" })).status).toBe(400);
+    expect(store.listActiveRuns()).toHaveLength(0);
   });
 
   it("recovers from a failed official run with a separate Debugger agent", async () => {

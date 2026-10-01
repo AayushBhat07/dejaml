@@ -45,6 +45,7 @@ import { convertUnit, parseMetric } from "./metric.js";
 import {
   DiagnosisSchema,
   INSTRUCTIONS,
+  TARGETED_INSTRUCTIONS,
   type PaperClaimResult,
   PaperClaimResultSchema,
   type Plan,
@@ -63,6 +64,7 @@ import {
   type SupervisorVerdict,
   SupervisorVerdictSchema,
 } from "./roles.js";
+import { type ClaimTarget, claimMismatch, paperAnalystTarget, plannerTarget, repositoryAnalystTarget, targetSummary } from "./targets.js";
 import { acquireRepository, buildStudyTools } from "./tools.js";
 import {
   applySupervisor,
@@ -182,6 +184,8 @@ export type MultiAgentReport = {
   }>;
   messages: Array<{ from: string | null; to: string; at: string }>;
   paper: { name: string; sha256: string; pages: number };
+  /** The reviewed claim target the study investigated, or null when the agents chose the claim. */
+  reviewedTarget: Record<string, unknown> | null;
   repository: Record<string, unknown> | null;
   contract: ClaimContract | null;
   planDigest: string | null;
@@ -325,7 +329,14 @@ function resultSchemaFor(role: AgentRole, task: Record<string, unknown>): z.ZodT
  * where the study stopped.
  */
 export async function runMultiAgentStudy(
-  input: { runId: string; paper: PaperDocument; candidates: RepositoryCandidate[]; signal: AbortSignal },
+  input: {
+    runId: string;
+    paper: PaperDocument;
+    candidates: RepositoryCandidate[];
+    signal: AbortSignal;
+    /** A reviewed claim target from the server's registry: which claim to investigate, never a result. */
+    target?: ClaimTarget | null;
+  },
   deps: MultiAgentDependencies,
 ): Promise<MultiAgentResult> {
   const { runId } = input;
@@ -333,6 +344,7 @@ export async function runMultiAgentStudy(
   const stages = store.stages;
   const owner = deps.owner ?? `orchestrator_${randomUUID().replaceAll("-", "").slice(0, 12)}`;
   const provider = config.provider;
+  const target = input.target ?? null;
   const event = (type: string, status: RunEvent["status"], summary: string, payload: Record<string, unknown> = {}): void => {
     store.appendEvent({ runId, actor: "system", type, status, summary, evidence: [], publicPayload: payload });
   };
@@ -352,6 +364,7 @@ export async function runMultiAgentStudy(
       candidates: input.candidates,
       provider,
       platform: config.platform,
+      reviewedTarget: target,
     });
   }
   const resumed = stages.stages(runId).some((record) => record.attempt > 0);
@@ -381,7 +394,8 @@ export async function runMultiAgentStudy(
     workDir,
     acquire: deps.acquire ?? acquireGithubRepository,
     repository: null,
-    pinnedCommit: null,
+    // A reviewed target pins the repository to its reviewed commit from the first acquisition.
+    pinnedCommit: target?.repository.commitSha ?? null,
     contract: null,
     planDigest: null,
     prepared: null,
@@ -518,7 +532,7 @@ export async function runMultiAgentStudy(
       agentId,
       parentAgentId: options.parentAgentId ?? null,
       label: options.label,
-      instructions: INSTRUCTIONS[role],
+      instructions: (target ? TARGETED_INSTRUCTIONS[role] : undefined) ?? INSTRUCTIONS[role],
       objective: options.objective,
       inputs: options.inputs,
       grants: [...ROLE_GRANTS[role]],
@@ -688,8 +702,12 @@ export async function runMultiAgentStudy(
         const handle = await launch("paper_analyst", {
           stage: "analyzing_paper",
           label: "paper-analyst",
-          objective: "Select the one claim to reproduce.",
-          inputs: { paper: { name: input.paper.file.originalName, pages: input.paper.pageCount }, repositoryCandidates: urls },
+          objective: target ? "Verify the reviewed claim against the paper." : "Select the one claim to reproduce.",
+          inputs: {
+            paper: { name: input.paper.file.originalName, pages: input.paper.pageCount },
+            repositoryCandidates: urls,
+            ...(target ? { reviewedTarget: paperAnalystTarget(target) } : {}),
+          },
           schema: PaperClaimResultSchema,
         });
         const outcome = await handle.done;
@@ -707,8 +725,11 @@ export async function runMultiAgentStudy(
         const handle = await launch("repository_analyst", {
           stage: "analyzing_repository",
           label: "repository-analyst",
-          objective: "Acquire and map the paper's repository.",
+          objective: target
+            ? "Acquire the pinned repository and map the reviewed claim to its official code."
+            : "Acquire and map the paper's repository.",
           inputs: {
+            ...(target ? { reviewedTarget: repositoryAnalystTarget(target) } : {}),
             repositoryCandidates: input.candidates.map((candidate) => ({
               url: candidate.repositoryUrl,
               namedByUploader: candidate.providedByUser === true,
@@ -744,6 +765,15 @@ export async function runMultiAgentStudy(
   async function plan(): Promise<boolean> {
     const claim = paperOut?.result?.claim ?? null;
     const repository = repoOut?.repository ?? null;
+    if (target && claim && paperOut?.result?.status === "ready") {
+      // A reviewed target is the claim under study: the analyst may reject it, but never swap it for another.
+      const mismatch = claimMismatch(target, claim);
+      if (mismatch) {
+        stopReasons.push(mismatch);
+        event("claim_mismatch", "warning", mismatch, { caseId: target.caseId });
+        return false;
+      }
+    }
     planOut = await runStage<PlanStageOutput>("reconciling", async () => {
       const handle = await launch("reproduction_planner", {
         stage: "reconciling",
@@ -765,16 +795,46 @@ export async function runMultiAgentStudy(
           trustedCompatibilityConstraints: config.trustedConstraints,
           dependencyPreparation: deps.dependencies ? "available" : "disabled on this server",
           previousRounds: replanGuidance,
+          ...(target ? { reviewedTarget: plannerTarget(target) } : {}),
         },
         schema: PlanSchema,
       });
       const outcome = await handle.done;
-      const plan = outcome.status === "completed" ? (outcome.result ?? null) : null;
-      if (plan) board.post({ kind: "plan", authorAgentId: handle.agentId, authorRole: "reproduction_planner", payload: plan });
+      const proposed = outcome.status === "completed" ? (outcome.result ?? null) : null;
+      if (proposed) board.post({ kind: "plan", authorAgentId: handle.agentId, authorRole: "reproduction_planner", payload: proposed });
       let contract: ClaimContract | null = null;
       let reconcileErrors: string[] = [];
-      if (plan?.status === "ready" && claim && repository) {
-        const reconciled = reconcile({ claim, plan, repository, platform: config.platform, pages: ctx.paper.pages });
+      let plan: Plan | null = null;
+      if (proposed) {
+        // A reference to a reviewed adapter becomes the reviewed, hash-checked file; any other id is refused.
+        let adapter: Plan["adapter"] = null;
+        if (proposed.adapter && "reviewedAdapterId" in proposed.adapter) {
+          const reviewed = target?.adapter;
+          if (reviewed && reviewed.id === proposed.adapter.reviewedAdapterId) {
+            adapter = {
+              path: reviewed.path,
+              content: reviewed.content,
+              why: reviewed.why,
+              source: reviewed.source,
+              differences: reviewed.differences,
+            };
+          } else {
+            reconcileErrors.push(`the plan names an unknown reviewed adapter ${proposed.adapter.reviewedAdapterId}`);
+          }
+        } else {
+          adapter = proposed.adapter;
+        }
+        plan = { ...proposed, adapter };
+      }
+      if (plan?.status === "ready" && claim && repository && reconcileErrors.length === 0) {
+        const reconciled = reconcile({
+          claim,
+          plan,
+          repository,
+          platform: config.platform,
+          pages: ctx.paper.pages,
+          ...(target ? { tolerance: target.tolerance } : {}),
+        });
         if (reconciled.ok) contract = reconciled.contract;
         else reconcileErrors = reconciled.reasons;
       }
@@ -809,6 +869,7 @@ export async function runMultiAgentStudy(
         dependencies: deps.dependencies,
         commandTimeoutSeconds: config.commandTimeoutSeconds,
         trustedConstraints: config.trustedConstraints,
+        target,
       });
       if (review.outcome === "approved") {
         board.post({
@@ -1476,7 +1537,7 @@ export async function runMultiAgentStudy(
 
   function decide(isCancelled: boolean): StatusDecision {
     const engineers = execOut?.engineers ?? [];
-    return decideStatus({
+    const decision = decideStatus({
       cancelled: isCancelled,
       failure: infrastructureFailure,
       policyViolations,
@@ -1486,6 +1547,15 @@ export async function runMultiAgentStudy(
       outcomes: engineers,
       engineersLaunched: engineers.length,
     });
+    // A reviewed target states the most favourable status its evidence can honestly support.
+    if (target?.maximumVerdict === "partially_reproduced" && decision.status === "reproduced") {
+      return {
+        ...decision,
+        status: "partially_reproduced",
+        reasons: [...decision.reasons, `the reviewed target ${target.caseId} allows at most partially reproduced`],
+      };
+    }
+    return decision;
   }
 
   // ---------------------------------------------------------------------------
@@ -1678,6 +1748,7 @@ export async function runMultiAgentStudy(
       })),
       messages: store.ledger.listMessages({ runId }).map((item) => ({ from: item.fromAgentId, to: item.toAgentId, at: item.createdAt })),
       paper: { name: input.paper.file.originalName, sha256: input.paper.file.sha256, pages: input.paper.pageCount },
+      reviewedTarget: target ? targetSummary(target) : null,
       repository: ctx.repository || repoOut?.repository ? (repoOut?.repository ?? null) : null,
       contract: ctx.contract,
       planDigest: ctx.planDigest,

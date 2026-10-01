@@ -31,11 +31,12 @@ import { ingestPdf } from "@dejaml/paper-intake";
 import { DependencyPreparer, loadCompatibilityConstraints, loadPrepPolicy } from "@dejaml/prep";
 import { RunStore } from "@dejaml/run-store";
 
-import { preparerPort, readinessLabImagePort, runMultiAgentStudy } from "../dist/study/index.js";
+import { checkTargetPaper, loadReviewedTargets, preparerPort, readinessLabImagePort, runMultiAgentStudy } from "../dist/study/index.js";
 
 const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
 const acceptance = JSON.parse(await readFile(join(projectRoot, "acceptance/cases/pyts-boss-gunpoint.json"), "utf8"));
-const ADAPTER = await readFile(join(projectRoot, "acceptance/proof/pyts_run_boss_notebook.py"), "utf8");
+// The server's reviewed claim target for this case, as the API resolves it from the id.
+const TARGET = (await loadReviewedTargets(join(projectRoot, "config/reviewed-targets"), projectRoot)).get(acceptance.reviewedCaseId);
 const REPOSITORY = acceptance.repository.url;
 const TRUSTED = (await loadCompatibilityConstraints(join(projectRoot, "config/compatibility-constraints.txt"))).map((item) => ({
   requirement: item.spec,
@@ -139,13 +140,8 @@ class ScriptedProofProvider {
           metricParser: { source: "stdout", pattern: "Accuracy on the test set: (\\d\\.\\d{3})" },
           expectedRuntimeSeconds: 60,
           stopConditions: ["the command exits non-zero", "no accuracy line is printed"],
-          adapter: {
-            path: "work/adapter/run_boss_notebook.py",
-            content: ADAPTER,
-            why: "The notebook is not a script, and its other datasets must be downloaded, which the offline lab cannot do.",
-            source: "0.10.0/BOSS.ipynb code cells, executed unchanged in order",
-            differences: ["dataset_params is filtered to GunPoint after the cell that defines it"],
-          },
+          // The reviewed adapter, by id: code substitutes the hash-checked file.
+          adapter: { reviewedAdapterId: inputs.reviewedTarget?.reviewedAdapter?.id ?? "missing" },
           risks: ["newer numpy/scipy/scikit-learn/numba than the authors' Python 3.7 environment"],
         });
       case "Lab Engineer":
@@ -225,9 +221,11 @@ const paper = await ingestPdf({
   data: new Uint8Array(await readFile(join(projectRoot, acceptance.paper.file))),
 });
 check(
-  "paper ingested from the real PDF",
-  paper.file.sha256 === acceptance.paper.sha256,
-  `sha256 ${paper.file.sha256}, ${paper.pageCount} pages`,
+  "paper ingested from the real PDF and matched to the reviewed target",
+  paper.file.sha256 === acceptance.paper.sha256 &&
+    TARGET !== undefined &&
+    checkTargetPaper(TARGET, { sha256: paper.file.sha256, pages: paper.pages }) === null,
+  `sha256 ${paper.file.sha256}, ${paper.pageCount} pages; target ${TARGET?.caseId}`,
 );
 
 const started = Date.now();
@@ -239,6 +237,7 @@ const result = await runMultiAgentStudy(
       { repositoryUrl: REPOSITORY, owner: "johannfaouzi", name: "pyts-repro", occurrences: [{ pageNumber: 1, rawUrl: REPOSITORY }] },
     ],
     signal: new AbortController().signal,
+    target: TARGET,
   },
   {
     store,
@@ -279,6 +278,15 @@ check(
       roles.has(role),
     ),
   agents.map((agent) => `${agent.roleLabel}${agent.label ? ` (${agent.label})` : ""} ${agent.agentId} ${agent.status}`).join("\n      "),
+);
+const firstTurn = (role) =>
+  JSON.stringify(store.ledger.listTurns(agents.find((agent) => agent.role === role)?.agentId ?? "none")[0] ?? null);
+check(
+  "the reviewed target reached the analysts and the Planner only",
+  study.reviewedTarget?.caseId === acceptance.reviewedCaseId &&
+    ["paper_analyst", "repository_analyst", "reproduction_planner"].every((role) => firstTurn(role).includes("reviewedTarget")) &&
+    ["lab_engineer", "independent_reviewer", "supervisor"].every((role) => !firstTurn(role).includes("reviewedTarget")),
+  `target ${study.reviewedTarget?.caseId}; adapter ${study.adapter?.sha256}`,
 );
 check(
   "stages ran in order, once each",

@@ -2,6 +2,7 @@
   "schemaVersion": 1,
   "caseId": "pyts-boss-gunpoint",
   "kind": "positive",
+  "reviewedCaseId": "pyts-boss-gunpoint",
   "paper": {
     "title": "pyts: A Python Package for Time Series Classification (JMLR 21(46), 2020)",
     "file": "acceptance/papers/pyts-jmlr-2020-19-763.pdf",
@@ -37,6 +38,7 @@
     "statuses": ["reproduced", "partially_reproduced"],
     "why": "The notebook needs the other UCR datasets from timeseriesclassification.com, which the offline lab cannot reach, so the faithful plan runs the notebook's cells unchanged through an adapter that keeps only GunPoint. An adapter caps the status at partially_reproduced.",
     "observedValueManually": 1.0,
+    "observedValue": 1.0,
     "expectedRuntimeSeconds": 30
   },
   "caveats": [

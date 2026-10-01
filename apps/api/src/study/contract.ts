@@ -7,6 +7,7 @@ import { findLiteral } from "@dejaml/research-runtime";
 
 import type { DependencyPort } from "./context.js";
 import type { PaperClaim, Plan } from "./roles.js";
+import { type ClaimTarget, targetViolations } from "./targets.js";
 
 /**
  * Deterministic reconciliation and policy review. The Planner proposes; this
@@ -42,6 +43,8 @@ export function reconcile(input: {
   platform: PlatformSpec;
   /** The paper's extracted pages; when given, the excerpt must be on the cited page and hold the reported value. */
   pages?: ReadonlyArray<{ pageNumber: number; text: string }>;
+  /** A reviewed target's tolerance replaces the default for its unit. */
+  tolerance?: number;
 }): Reconciled {
   const { claim, plan } = input;
   if (input.pages) {
@@ -70,7 +73,7 @@ export function reconcile(input: {
     environment: { platform, requirements: plan.requirements, compatibilityConstraints: plan.compatibilityConstraints },
     expectedRuntimeSeconds: plan.expectedRuntimeSeconds,
     metricParser: plan.metricParser,
-    tolerance: TOLERANCE[claim.metric.unit],
+    tolerance: input.tolerance ?? TOLERANCE[claim.metric.unit],
     stopConditions: plan.stopConditions,
   };
   const parsed = ClaimContractSchema.safeParse(candidate);
@@ -134,6 +137,8 @@ export function reviewPolicy(input: {
   commandTimeoutSeconds: number;
   /** The project-owned constraints file; a plan constraint outside it is refused. */
   trustedConstraints: ReadonlyArray<{ requirement: string; reason: string }>;
+  /** A reviewed claim target narrows what is accepted; it never relaxes a check. */
+  target?: ClaimTarget | null;
 }): PolicyReview {
   const { contract, adapter } = input;
   const blocked: string[] = [];
@@ -231,6 +236,8 @@ export function reviewPolicy(input: {
     const problem = checkMetricPattern(contract.metricParser.pattern);
     if (problem) unusable.push(problem);
   }
+
+  if (input.target) unusable.push(...targetViolations(input.target, { contract, adapter }));
 
   const outcome = blocked.length ? "policy_blocked" : unusable.length ? "inconclusive" : "approved";
   return { outcome, violations: [...blocked, ...unusable], warnings, planDigest: planDigest(contract, adapter) };

@@ -102,6 +102,17 @@ need a real provider key.
 | Negative case (CCS survey repository) | `acceptance/cases/ccs-reproducibility-survey.json` | live (pending key) |
 | Sanitized acceptance report | `apps/api/scripts/accept-real-paper.mjs` → `artifacts/acceptance/` | live (pending key) |
 
+## K2. Reviewed claim targets
+
+| Requirement | Source | Proof |
+|---|---|---|
+| Server-owned registry, id only from the upload | `config/reviewed-targets/`, `loadReviewedTargets`, `server.ts` (`reviewedCaseId`) | `api.test.ts` "refuses an unknown reviewed case, a different paper, and a different repository" |
+| Paper hash, repository and commit, excerpt on the page with the value | `checkTargetPaper`, `loadClaimTarget`, `targetViolations` | `targets.test.ts` |
+| No observed result to Engineers or Reviewers; analysts and Planner get only their view | `paperAnalystTarget`, `repositoryAnalystTarget`, `plannerTarget` | `targets.test.ts`; `api.test.ts` "studies a reviewed claim target …"; Docker proof check 3 |
+| Agents may reject the target; no silent claim switch | `TARGETED_INSTRUCTIONS`, `claimMismatch` | `api.test.ts` "stops before planning when the Paper Analyst returns a different claim"; `targets.test.ts` BOSSVS listing |
+| Cannot bypass policy, execution or review; never relaxes policy | `reviewPolicy({ target })` | `targets.test.ts` "never relaxes policy" and "refuses a plan that strays …" |
+| Maximum honest verdict | `decide` in `study.ts` | Docker proof (pyts → partially_reproduced) |
+
 ## M. AWS-ready boundaries
 
 | Requirement | Source | Proof |

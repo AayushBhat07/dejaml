@@ -1,7 +1,10 @@
 // Real-model acceptance run.
 //
 // Uploads a real paper to a running DéjàML API whose server environment holds a
-// real provider key (DEJAML_OPENAI_API_KEY or DEJAML_ANTHROPIC_API_KEY), follows
+// real provider key (DEJAML_OPENAI_API_KEY or DEJAML_ANTHROPIC_API_KEY). A case
+// with `reviewedCaseId` names the server's reviewed claim target by id only (the
+// claim itself lives in config/reviewed-targets on the server); other cases name
+// their repository and let the agents choose the claim. It follows
 // the study to the end, checks the evidence the native agents produced, and
 // writes a sanitized acceptance report. Nothing here is scripted: the agents are
 // driven by the configured model through DéjàML's own provider adapters. This
@@ -69,9 +72,14 @@ if (!provider) {
   );
   process.exit(3);
 }
-if (!["openai", "anthropic", "custom"].includes(provider.id)) {
+// Acceptance needs a vendor's own API: no custom endpoint, local bridge, or stand-in model.
+const health = await fetch(`${api}/health`)
+  .then((response) => (response.ok ? response.json() : null))
+  .catch(() => null);
+const route = health?.providers?.find((item) => item.id === provider.id) ?? null;
+if (!["openai", "anthropic"].includes(provider.id) || !route?.official) {
   console.error(
-    `Provider ${provider.id} is not a real model provider; acceptance needs openai, anthropic, or the configured custom endpoint.`,
+    `Provider ${provider.id} (${route?.endpointHost ?? "unknown endpoint"}) is not a direct OpenAI or Anthropic API; acceptance refuses custom endpoints, local bridges, and stand-in models.`,
   );
   process.exit(2);
 }
@@ -81,7 +89,9 @@ const form = new FormData();
 form.append("paper", new Blob([paper], { type: "application/pdf" }), basename(paperPath));
 form.append("providerId", provider.id);
 form.append("modelName", model);
-form.append("repositoryUrl", acceptanceCase.repository.url);
+// A reviewed case is chosen by id; the server resolves the claim. Nothing else about the claim is sent.
+if (acceptanceCase.reviewedCaseId) form.append("reviewedCaseId", acceptanceCase.reviewedCaseId);
+else form.append("repositoryUrl", acceptanceCase.repository.url);
 const created = await fetch(`${api}/runs`, { method: "POST", body: form });
 if (!created.ok) {
   console.error(`The API refused the study: ${created.status} ${await created.text()}`);
@@ -158,6 +168,8 @@ const acceptanceReport = {
   messages: study?.messages ?? [],
   toolReceipts: study?.receipts ?? [],
   paper: { file: basename(paperPath), sha256: paperSha256, pages: study?.paper?.pages ?? null },
+  providerRoute: route ? { id: route.id, endpointHost: route.endpointHost, official: route.official } : null,
+  reviewedTarget: study?.reviewedTarget ?? null,
   repository: study?.repository ?? null,
   platform: study?.platform ?? null,
   labImage: study?.labImage ?? null,
@@ -227,15 +239,24 @@ if (!study) {
 } else {
   const roles = new Set(study.agents.map((agent) => agent.role));
   check(
-    "real provider through DéjàML's own adapter",
-    ["openai", "anthropic", "custom"].includes(study.provider.id) && study.runtime === "native autonomous agent runtime",
-    `${study.provider.id}/${study.provider.model}; ${study.runtime}`,
+    "direct provider through DéjàML's own adapter",
+    ["openai", "anthropic"].includes(study.provider.id) && route?.official === true && study.runtime === "native autonomous agent runtime",
+    `${study.provider.id}/${study.provider.model} via ${route?.endpointHost}; ${study.runtime}`,
   );
   check(
     "independent native agents",
     ["paper_analyst", "repository_analyst", "reproduction_planner", "supervisor"].every((role) => roles.has(role)) &&
       new Set(study.agents.map((agent) => agent.agentId)).size === study.agents.length,
     study.agents.map((agent) => `${agent.role} ${agent.agentId} ${agent.status}`).join("; "),
+  );
+  const paperAgent = study.agents.find((agent) => agent.role === "paper_analyst");
+  const repoAgent = study.agents.find((agent) => agent.role === "repository_analyst");
+  check(
+    "Paper and Repository Analysts ran concurrently",
+    Boolean(paperAgent && repoAgent) &&
+      repoAgent.createdAt < (paperAgent.finishedAt ?? "9") &&
+      paperAgent.createdAt < (repoAgent.finishedAt ?? "9"),
+    `paper analyst ${paperAgent?.createdAt}–${paperAgent?.finishedAt}; repository analyst ${repoAgent?.createdAt}–${repoAgent?.finishedAt}`,
   );
   check(
     "real tool calls with receipts",
@@ -252,6 +273,50 @@ if (!study) {
     statusOk,
     `${acceptanceReport.status.final}: ${acceptanceReport.status.reasons.join(" | ")}`,
   );
+  if (acceptanceCase.reviewedCaseId) {
+    const target = study.reviewedTarget;
+    const contract = study.contract;
+    const claim = acceptanceCase.claim;
+    check(
+      "the reviewed claim was studied, not another one",
+      target?.caseId === acceptanceCase.reviewedCaseId &&
+        contract?.paperReference?.page === claim.page &&
+        contract?.reportedValue === claim.reportedValue &&
+        contract?.metric?.unit === claim.unit &&
+        contract?.entrypoint === acceptanceCase.repository.entrypoint,
+      contract
+        ? `${contract.method} | ${contract.dataset?.name} | ${contract.metric?.name} | p.${contract.paperReference?.page} ${contract.paperReference?.location} | ${contract.reportedValue}`
+        : "no claim contract",
+    );
+    check(
+      `repository pinned to ${acceptanceCase.repository.commitSha.slice(0, 12)}`,
+      study.repository?.commitSha === acceptanceCase.repository.commitSha &&
+        contract?.repository?.commitSha === acceptanceCase.repository.commitSha,
+      `${study.repository?.commitSha}`,
+    );
+    check("plan digest recorded", /^[a-f0-9]{64}$/u.test(String(study.planDigest ?? "")), String(study.planDigest));
+    check(
+      "platform and image identities recorded",
+      Boolean(study.platform?.containerPlatform) && /^sha256:[a-f0-9]{64}$/u.test(String(study.labImage?.imageId ?? "")),
+      `${study.platform?.containerPlatform} ${study.labImage?.name ?? ""} ${study.labImage?.imageId ?? ""}`,
+    );
+    check(
+      "verified wheel manifest",
+      /^[a-f0-9]{64}$/u.test(String(study.dependencies?.manifestSha256 ?? "")),
+      `manifest ${study.dependencies?.manifestSha256}`,
+    );
+    if (acceptanceCase.expected.observedValue !== undefined)
+      check(
+        `parsed observed value ${acceptanceCase.expected.observedValue}`,
+        acceptanceReport.metric.observedValue === acceptanceCase.expected.observedValue,
+        `observed ${acceptanceReport.metric.observedValue}, paper ${acceptanceReport.metric.paperValue}`,
+      );
+    check(
+      "independent Reviewer approved",
+      acceptanceReport.reviews.some((item) => item.verdict === "approve"),
+      acceptanceReport.reviews.map((item) => `${item.reviewerAgentId}: ${item.verdict}`).join("; "),
+    );
+  }
   if (acceptanceCase.kind === "positive") {
     check(
       "dependencies prepared as verified wheels",

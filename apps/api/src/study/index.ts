@@ -7,3 +7,4 @@ export * from "./roles.js";
 export * from "./study.js";
 export * from "./tools.js";
 export * from "./verdict.js";
+export * from "./targets.js";
