@@ -40,6 +40,8 @@ import {
   DockerPrepImageProvider,
   imageMatchesPin,
   parsePinnedReference,
+  platformDigestFor,
+  reportsOtherPlatformManifest,
   type PinnedReference,
   type PrepImage,
   type PrepImageProvider,
@@ -54,6 +56,7 @@ import {
   type ProxyLogEntry,
   type ResolvedPackage,
 } from "./report.js";
+import { pipInvocation } from "./pip-entry.js";
 import { parseRequirementLine, type ParsedRequirement } from "./requirements.js";
 import { assertFreeSpace, defaultFreeSpaceProbe, QuotaWatcher, spaceError, type FreeSpaceProbe } from "./space.js";
 import { assertWheelsMatchPlatform, pipCrossTargetArgs, sameContainerPlatform, wheelPlatformTags, type ResolverMode } from "./target.js";
@@ -64,6 +67,50 @@ export const PROXY_ALIAS = "egress";
 export const PROXY_PORT = 3128;
 /** The unprivileged uid:gid preparation containers run as when the host service runs as root (`nobody`). */
 export const PREP_USER = "65534:65534";
+const NOBODY_ID = 65534;
+const MAX_ID = 2 ** 31 - 2;
+
+/**
+ * The identity preparation containers run as. The policy (see README "Container identity"):
+ *
+ * - service runs as root (Linux servers, CI): `65534:65534` (`nobody`), and only the two writable
+ *   mounts are chowned to it; nothing else on the host becomes writable;
+ * - service runs as a non-root user (macOS Docker Desktop, rootless or desktop Linux): that
+ *   user's own `uid:gid` (for example `501:20` on macOS), so the writable mounts stay owner-only
+ *   (never world-writable) and the service can measure and remove every file the container wrote;
+ * - no POSIX ids (Windows): `65534:65534`, and the writable mounts are made 0777 because Docker
+ *   Desktop on Windows does not map host ownership.
+ *
+ * The container is never root: a non-root service whose uid or gid is 0 (the root group), or not
+ * a plain integer id, is refused with `invalid_policy` instead of being passed to `docker --user`.
+ */
+export type PrepContainerIdentity = {
+  /** The `--user` value, `uid:gid`. */
+  user: string;
+  uid: number;
+  gid: number;
+  source: "nobody_as_root" | "service_user" | "nobody_without_posix_ids";
+};
+
+/** Selects and validates the container identity for the given host process ids (defaults to this process). */
+export function selectPrepIdentity(
+  host: { uid: number | undefined; gid: number | undefined } = { uid: process.getuid?.(), gid: process.getgid?.() },
+): PrepContainerIdentity {
+  const { uid, gid } = host;
+  if (uid === undefined || gid === undefined) {
+    return { user: PREP_USER, uid: NOBODY_ID, gid: NOBODY_ID, source: "nobody_without_posix_ids" };
+  }
+  if (uid === 0) return { user: PREP_USER, uid: NOBODY_ID, gid: NOBODY_ID, source: "nobody_as_root" };
+  for (const [what, id] of [
+    ["uid", uid],
+    ["gid", gid],
+  ] as const) {
+    if (!Number.isSafeInteger(id) || id < 1 || id > MAX_ID) {
+      throw new PrepError("invalid_policy", `preparation containers must run as a non-root ${what}; the service ${what} is ${String(id)}`);
+    }
+  }
+  return { user: `${uid}:${gid}`, uid, gid, source: "service_user" };
+}
 const PROXY_SCRIPT_TARGET = "/opt/dejaml/egress_proxy.py";
 const CA_TARGET = "/etc/dejaml/ca-bundle.pem";
 const RUN_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$/u;
@@ -95,6 +142,8 @@ export type DependencyPreparerOptions = {
   proxyScriptPath?: string;
   freeSpace?: FreeSpaceProbe;
   now?: () => Date;
+  /** Host process ids the container identity is derived from (default: this process); see `selectPrepIdentity`. */
+  hostIdentity?: { uid: number | undefined; gid: number | undefined };
 };
 
 /** A validated requirement line, or a ParsedRequirement from discovery (re-validated; its `source` is kept). */
@@ -142,6 +191,11 @@ export type PrepImageIdentity = {
   /** `repository@sha256:…`: what the containers were created from. */
   digestReference: string;
   digest: string;
+  /**
+   * The immutable manifest digest of `digest` for `platform` when it is known (the official
+   * indexes in OFFICIAL_PYTHON_PLATFORM_MANIFESTS), else null. Never another platform's digest.
+   */
+  platformDigest: string | null;
   imageId: string;
   repoDigests: string[];
   /** The platform the preparation containers ran as. */
@@ -315,6 +369,40 @@ function mountArgument(source: string, target: string, readonly: boolean): strin
   return `type=bind,src=${source},dst=${target}${readonly ? ",readonly" : ""}`;
 }
 
+/** Fills an accelerator refusal's evidence with the platform, resolver and image it was decided for. */
+function withRefusalEvidence(
+  error: PrepError,
+  platform: PlatformSpec,
+  platformKey: string,
+  topology: Pick<Topology, "resolver" | "image"> | null,
+): PrepError {
+  if (!error.evidence) return error;
+  error.evidence = {
+    ...error.evidence,
+    platform: platform.containerPlatform,
+    platformKey,
+    resolverMode: topology?.resolver?.mode ?? null,
+    image: topology?.image
+      ? { digest: topology.image.digest, platformDigest: topology.image.platformDigest, platform: topology.image.platform }
+      : null,
+  };
+  return error;
+}
+
+/** A failed Docker command as a typed error: image and platform problems are not runtime faults. */
+export function dockerFailure(what: string, stderr: string): PrepError {
+  const detail = tail(stderr);
+  if (/does not (?:match|provide) the specified platform|image operating system .* cannot be used on this platform/iu.test(stderr)) {
+    return new PrepError("platform_mismatch", `${what} failed: the preparation image is not available for the requested platform`, {
+      detail,
+    });
+  }
+  if (/No such image|pull access denied|manifest unknown/iu.test(stderr)) {
+    return new PrepError("image_unavailable", `${what} failed: the preparation image is not available locally`, { detail });
+  }
+  return new PrepError("runtime_error", `${what} failed`, { detail });
+}
+
 function errorCode(error: unknown): string | null {
   const code = (error as { code?: unknown } | null)?.code;
   return typeof code === "string" ? code : null;
@@ -336,7 +424,7 @@ export class DependencyPreparer {
   readonly #proxyScriptPath: string;
   readonly #freeSpace: FreeSpaceProbe;
   readonly #now: () => Date;
-  readonly #user: string;
+  readonly #identity: PrepContainerIdentity;
   #enginePlatform: ContainerPlatform | null | undefined;
   readonly #emulation = new Map<ContainerPlatform, boolean>();
 
@@ -351,10 +439,12 @@ export class DependencyPreparer {
     this.#proxyScriptPath = options.proxyScriptPath ?? DEFAULT_PROXY_SCRIPT_PATH;
     this.#freeSpace = options.freeSpace ?? defaultFreeSpaceProbe;
     this.#now = options.now ?? (() => new Date());
-    const uid = process.getuid?.();
-    const gid = process.getgid?.();
-    // As root, run as nobody; otherwise as the service's own user so it can measure and remove every file.
-    this.#user = uid === undefined || uid === 0 || gid === undefined ? PREP_USER : `${uid}:${gid}`;
+    this.#identity = selectPrepIdentity(options.hostIdentity);
+  }
+
+  /** The validated, non-root identity every preparation container (proxy, resolver, downloader) runs as. */
+  get containerIdentity(): PrepContainerIdentity {
+    return { ...this.#identity };
   }
 
   // -------------------------------------------------------------------------
@@ -403,7 +493,8 @@ export class DependencyPreparer {
         "constraint",
       ),
     ];
-    if (refused.length > 0) throw acceleratorError(refused);
+    if (refused.length > 0)
+      throw withRefusalEvidence(acceleratorError(refused, { stage: "before_resolution" }), platform, platformKey, null);
     const lines = includeInstaller && !specs.some((spec) => /^pip(\[|[<>=!~;]|$)/u.test(spec)) ? [...specs, "pip"] : specs;
 
     return this.#withTopology(input.runId, platform, index, input.signal, 0, "dependency resolution", async (topology, signals) => {
@@ -422,8 +513,7 @@ export class DependencyPreparer {
         signals,
         "resolve",
         [
-          "-m",
-          "pip",
+          ...pipInvocation(resolver.mode, platform),
           "install",
           "--dry-run",
           "--ignore-installed",
@@ -440,7 +530,12 @@ export class DependencyPreparer {
       );
       const proxyLog = await this.#proxyLog(topology);
       if (run.result.exitCode !== 0) {
-        throw classifyPipFailure({ stderr: run.stderrTail, proxyLog, exitCode: run.result.exitCode, oomKilled: run.oomKilled });
+        throw withRefusalEvidence(
+          classifyPipFailure({ stderr: run.stderrTail, proxyLog, exitCode: run.result.exitCode, oomKilled: run.oomKilled }),
+          platform,
+          platformKey,
+          topology,
+        );
       }
       const reportPath = join(topology.tempDir, "out", "report.json");
       const stat = await lstat(reportPath).catch(() => null);
@@ -460,12 +555,18 @@ export class DependencyPreparer {
           `the preparation image runs Python ${report.pythonMinor}, but the platform requires ${platform.python.version}`,
         );
       }
-      if (resolver.mode !== "cross" && report.platform !== null && report.platform !== wheelMachine(platform.architecture)) {
-        throw new PrepError("platform_mismatch", `the resolver ran on ${report.platform}, not ${wheelMachine(platform.architecture)}`);
+      // In every mode pip must have evaluated environment markers for the target machine (cross mode: see pipInvocation).
+      if (report.platform !== null && report.platform !== wheelMachine(platform.architecture)) {
+        throw new PrepError(
+          "platform_mismatch",
+          `the resolver evaluated dependencies for ${report.platform}, not ${wheelMachine(platform.architecture)}`,
+        );
       }
       // CPU-only policy on the whole transitive set, before any wheel is downloaded.
       const transitive = findAcceleratorPackages(report.packages);
-      if (transitive.length > 0) throw acceleratorError(transitive);
+      if (transitive.length > 0) {
+        throw withRefusalEvidence(acceleratorError(transitive, { stage: "resolution_report" }), platform, platformKey, topology);
+      }
       // Never accept a wheel for another platform, Python or glibc.
       assertWheelsMatchPlatform(report.packages, platform);
       const installer = includeInstaller ? (report.packages.find((pkg) => pkg.name === "pip") ?? null) : null;
@@ -537,7 +638,9 @@ export class DependencyPreparer {
       throw new PrepError("invalid_requirement", "resolution lists a package twice");
     }
     const refused = findAcceleratorPackages(all);
-    if (refused.length > 0) throw acceleratorError(refused);
+    if (refused.length > 0) {
+      throw withRefusalEvidence(acceleratorError(refused, { stage: "before_download" }), platform, platformKey, null);
+    }
     assertWheelsMatchPlatform(all, platform);
 
     const wheelsDir = join(this.#cacheDir, "wheels", platformKey);
@@ -576,8 +679,7 @@ export class DependencyPreparer {
             signals,
             "download",
             [
-              "-m",
-              "pip",
+              ...pipInvocation(resolver.mode, platform),
               "download",
               "--no-deps",
               "--only-binary=:all:",
@@ -762,6 +864,8 @@ export class DependencyPreparer {
     platform: ContainerPlatform,
     signals: CallSignals,
   ): Promise<PrepImageIdentity> {
+    // Refuses a known manifest of another platform before any provider (or pull) is involved.
+    const platformDigest = platformDigestFor(pinned, platform);
     let found: PrepImage;
     try {
       found = await this.#images.ensure(
@@ -791,6 +895,13 @@ export class DependencyPreparer {
     if (!sameContainerPlatform(found.platform, platform)) {
       throw new PrepError("platform_mismatch", `preparation image ${pinned.reference} is ${found.platform}, not ${platform}`);
     }
+    const otherManifest = reportsOtherPlatformManifest(pinned, platform, found.imageId);
+    if (otherManifest) {
+      throw new PrepError(
+        "platform_mismatch",
+        `preparation image ${pinned.reference} resolved to the ${otherManifest} manifest, not ${platform}`,
+      );
+    }
     if (!imageMatchesPin(found, pinned)) {
       throw new PrepError("image_mismatch", `the local image for ${pinned.reference} does not carry the pinned digest ${pinned.digest}`);
     }
@@ -802,6 +913,7 @@ export class DependencyPreparer {
       reference: pinned.reference,
       digestReference: pinned.digestReference,
       digest: pinned.digest,
+      platformDigest,
       imageId: found.imageId,
       repoDigests: found.repoDigests,
       platform,
@@ -975,9 +1087,7 @@ export class DependencyPreparer {
   async #docker(args: string[], signals: CallSignals | null, what: string, maxOutputBytes = 256 * 1024): Promise<RuntimeCommandResult> {
     const result = await this.#runtime.docker(args, signals ? { signal: signals.signal, maxOutputBytes } : { maxOutputBytes });
     if (signals && (result.aborted || signals.signal.aborted)) throw this.#toPrepError(undefined, signals);
-    if (result.exitCode !== 0) {
-      throw new PrepError("runtime_error", `${what} failed`, { detail: tail(result.stderr.text) });
-    }
+    if (result.exitCode !== 0) throw dockerFailure(what, result.stderr.text);
     return result;
   }
 
@@ -989,11 +1099,11 @@ export class DependencyPreparer {
     await mkdir(outDir, { mode: 0o755 });
     await mkdir(tmpDir, { mode: 0o700 });
     await chmod(inDir, 0o755);
-    // The containers must be able to write the output and temp mounts.
-    if (this.#user === PREP_USER && process.getuid?.() === 0) {
-      await chown(outDir, 65534, 65534);
-      await chown(tmpDir, 65534, 65534);
-    } else if (this.#user === PREP_USER) {
+    // The containers must be able to write the output and temp mounts, and nothing broader.
+    if (this.#identity.source === "nobody_as_root") {
+      await chown(outDir, this.#identity.uid, this.#identity.gid);
+      await chown(tmpDir, this.#identity.uid, this.#identity.gid);
+    } else if (this.#identity.source === "nobody_without_posix_ids") {
       await chmod(outDir, 0o777);
       await chmod(tmpDir, 0o777);
     }
@@ -1013,7 +1123,7 @@ export class DependencyPreparer {
   }
 
   #hardening(): string[] {
-    return ["--user", this.#user, "--read-only", "--cap-drop", "ALL", "--security-opt", "no-new-privileges"];
+    return ["--user", this.#identity.user, "--read-only", "--cap-drop", "ALL", "--security-opt", "no-new-privileges"];
   }
 
   async #startNetworkAndProxy(topology: Topology, signals: CallSignals): Promise<void> {
@@ -1189,6 +1299,8 @@ export class DependencyPreparer {
     topology.disk.peakInodes = Math.max(topology.disk.peakInodes, watcher.peak.inodes);
     this.#checkAborted(signals);
     if (result.aborted) throw this.#toPrepError(undefined, signals);
+    // 125: docker itself could not create or start the container (image or platform), pip never ran.
+    if (result.exitCode === 125) throw dockerFailure(`the ${role} container`, result.stderr.text);
     let oomKilled = false;
     if (result.exitCode !== 0) {
       const inspect = await this.#runtime.docker(["inspect", "--format", "{{.State.OOMKilled}}", name], { maxOutputBytes: 1024 });

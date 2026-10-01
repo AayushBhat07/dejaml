@@ -105,6 +105,9 @@ at `partially_reproduced`. Final states: `reproduced`, `partially_reproduced`,
    `accelerator_package_refused`), disk-backed temp storage with byte/inode
    quotas and `insufficient_preparation_space`, `no_compatible_wheel` instead of
    a source build. Constraints come only from `config/compatibility-constraints.txt`.
+   Containers never run as root: `65534:65534` when the API runs as root (the two
+   writable mounts are chowned to it), otherwise the API user's own validated
+   `uid:gid` (`501:20` on a Mac), so no host directory is made world-writable.
 3. **Datasets** (`packages/net-guard`, `ports.ts#localDatasetPort`): HTTPS
    allowlist, SSRF defenses, redirect checks, size limits, timeouts, required
    checksum, safe extraction, identity in evidence, read-only mount. Data
@@ -114,7 +117,11 @@ at `partially_reproduced`. Final states: `reproduced`, `partially_reproduced`,
    credentials, CPU/RAM/PID limits, per-command and lab timeouts, read-only
    repository/wheelhouse/dataset mounts, one writable artifact directory,
    bounded output, telemetry, and guaranteed cleanup. The created container is
-   read back and audited before it starts. Agents use narrow lab tools
+   read back and audited before it starts. The Docker proof judges the network
+   by what can carry traffic, not by one `/sys/class/net` listing: Docker
+   Desktop's LinuxKit kernel puts inert fallback tunnel devices (`tunl0`,
+   `ip6tnl0`, …) in every namespace, so besides `lo` only those may exist and
+   each must be down, unaddressed and unrouted. Agents use narrow lab tools
    (`lab-tools.ts`); `lab_run_official` runs only the approved argv, after an
    integrity check of the code, the plan's data, the adapter and the venv.
 
@@ -212,8 +219,9 @@ download); the negative case `inconclusive` or `policy_blocked`.
 - Papers that need a GPU, a source build, or a non-allowlisted dataset host end
   `policy_blocked` or `inconclusive`.
 - The accelerator denylist is by package name and version; quotas are enforced
-  by polling; cross-platform resolution evaluates markers on the engine's
-  interpreter (wheel tags are still validated).
+  by polling; cross-platform resolution makes pip evaluate `platform_machine`
+  for the target, but `platform_release`/`platform_version` markers still see
+  the engine's kernel (wheel tags are still validated).
 - pyts 0.10.0's malformed metadata needs the trusted `pip<24.1` installer
   constraint; it is reported as a change.
 - The pyts claim is a ceiling value (1.000), which discriminates little.

@@ -91,6 +91,45 @@ present. Now only "No such image" (or an index without content for the
 platform) counts as missing, other Docker failures are `runtime_error`, and a
 wrong platform is `platform_mismatch`.
 
+**Per-platform digests.** An index digest names one immutable manifest per
+platform. `OFFICIAL_PYTHON_PLATFORM_MANIFESTS` (kept identical to
+`lab-images/python-base/bases.lock.json` by a test, so the lab base and the
+preparation image are the same per-platform builds) maps each default index to
+its `linux/amd64` and `linux/arm64` manifests, and `platformDigestFor` returns
+the one for the requested platform; it is recorded as
+`imageIdentity.platformDigest`. A pin that is itself one platform's manifest
+(for example the arm64 digest Docker Desktop shows on a Mac) is accepted only
+for that platform and refused for the other with `platform_mismatch` before
+Docker is asked or anything is pulled, and an inspection that reports another
+platform's manifest is refused too. Docker Desktop's classic image store keeps
+one platform per reference and answers a platform inspection of the other one
+with "was found but does not match the specified platform"; that is
+`platform_mismatch` (it used to be `runtime_error`), so an Apple Silicon engine
+targeting `linux/amd64` without the amd64 image falls back to cross resolution
+with its arm64 image. A container Docker cannot create for the platform (exit
+125, "does not provide the specified platform", "No such image") is
+`platform_mismatch` or `image_unavailable`, never `runtime_error`.
+
+## Container identity
+
+Preparation containers (proxy, resolver, downloader, the emulation probe) never
+run as root. `selectPrepIdentity` chooses and validates the `--user`:
+
+| host service runs as | container user | writable bind mounts (`out`, `tmp`) |
+| --- | --- | --- |
+| root (Linux servers, CI) | `65534:65534` (`nobody`) | chowned to `65534:65534`, mode 0755/0700 |
+| a non-root user (macOS Docker Desktop, rootless or desktop Linux) | that user's own `uid:gid`, e.g. `501:20` on a Mac | owned by that user already, mode 0755/0700 |
+| no POSIX ids (Windows) | `65534:65534` | 0777 (Docker Desktop on Windows does not map ownership) |
+
+The service's own ids are used for a non-root service because it cannot chown
+to `nobody`, and Docker Desktop's file sharing (virtiofs/gRPC FUSE) checks
+writes against the host owner: `65534` could only write if the directories
+were world-writable. With the service's ids nothing is made world-writable,
+and the service can measure and delete everything the container wrote. A
+non-root service whose uid or gid is 0 (the root group), or a malformed id, is
+refused with `invalid_policy`. The input mount is read-only either way.
+`DependencyPreparer.containerIdentity` reports the selected identity.
+
 ## Docker topology per call
 
 Everything carries the labels `dejaml.prep=<prepId>` and `dejaml.run=<runId>`.
@@ -102,7 +141,7 @@ docker network create --internal <labels> dejaml-prep-<id>
 
 # egress proxy: on the default bridge, then attached to the internal network
 docker create --name dejaml-prep-<id>-egress --pull never --platform <p> <labels> --network bridge \
-  --user 65534:65534 --read-only --cap-drop ALL --security-opt no-new-privileges \
+  --user <uid:gid> --read-only --cap-drop ALL --security-opt no-new-privileges \
   --pids-limit 64 --memory 128m --memory-swap 128m --cpus 0.5 \
   --mount type=bind,src=<pkg>/proxy/egress_proxy.py,dst=/opt/dejaml/egress_proxy.py,readonly \
   --entrypoint python <repo@sha256:digest> -I -u /opt/dejaml/egress_proxy.py --listen 0.0.0.0:3128 \
@@ -112,7 +151,7 @@ docker start dejaml-prep-<id>-egress
 
 # resolver / downloader: ONLY on the internal network
 docker run --name dejaml-prep-<id>-resolve --pull never --platform <p> <labels> --network dejaml-prep-<id> \
-  --user 65534:65534 --read-only --cap-drop ALL --security-opt no-new-privileges \
+  --user <uid:gid> --read-only --cap-drop ALL --security-opt no-new-privileges \
   --cpus <cpus> --memory <mb>m --memory-swap <mb>m --pids-limit <pids> \
   --env HOME=/tmp --env TMPDIR=/tmp --env HTTPS_PROXY=http://egress:3128 --env PIP_INDEX_URL=<indexUrl> \
   --env PIP_DISABLE_PIP_VERSION_CHECK=1 --env PIP_NO_INPUT=1 --env PIP_NO_CACHE_DIR=1 \
@@ -165,10 +204,10 @@ external DNS. The proxy is the only thing it can reach.
 
 | code | when |
 | --- | --- |
-| `no_compatible_wheel` | pip reports "No matching distribution found" / "Could not find a version that satisfies" (`requirement` holds the name), or the report points at a non-wheel. Source distributions are never built; getting past this needs explicit approval or a prebuilt lab image. |
-| `accelerator_package_refused` | CPU-only policy: a CUDA/ROCm/GPU/TPU package or build (`nvidia-*`, `cuda-*`, `cupy-cuda*`, `*-cu12`, `+cu*`/`+rocm*` local versions, `triton`, `tensorflow-gpu`, `onnxruntime-gpu`, `jax[cuda*]`, `rocm-*`, …) was requested, constrained, or resolved transitively. `refused` lists the names; nothing was downloaded. |
-| `platform_mismatch` | a wheel, the resolver's interpreter, or the image does not match the `PlatformSpec` (`refused` lists wheels) |
-| `image_unavailable` | no image is configured for the Python version, or it is not present for the platform (and pulling is off or failed) |
+| `no_compatible_wheel` | no CPU binary wheel for the platform: pip reports "No matching distribution found" / "Could not find a version that satisfies" for a non-accelerator package (`requirement` holds the name), or the report points at a non-wheel. Every platform is CPU-only, so this is also the "no compatible CPU wheel" outcome; a missing accelerator dependency is `accelerator_package_refused` instead. Source distributions are never built; getting past this needs explicit approval or a prebuilt lab image. |
+| `accelerator_package_refused` | CPU-only policy: a CUDA/ROCm/GPU/TPU package or build (`nvidia-*`, `cuda-*`, `cupy-cuda*`, `*-cu12`, `+cu*`/`+rocm*` local versions, `triton`, `tensorflow-gpu`, `onnxruntime-gpu`, `jax[cuda*]`, `rocm-*`, …) was requested, constrained, resolved transitively, or named by a failed resolution (for example no `nvidia-*` wheel for the platform). `refused` lists the names; nothing was downloaded. `evidence` is a typed `AcceleratorRefusalEvidence`: stage, findings, platform and cache key, resolver mode, image digest and platform digest, `wheelsDownloaded: 0`. |
+| `platform_mismatch` | a wheel, the resolver's interpreter or marker environment, or the image does not match the `PlatformSpec` (`refused` lists wheels); includes a platform-manifest pin used for another platform and Docker's "does not match the specified platform" |
+| `image_unavailable` | no image is configured for the Python version, or it is not present for the platform (and pulling is off or failed), including an index without the platform's content |
 | `insufficient_preparation_space` | not enough free space (plus `minFreeBytes`) before resolution, download, caching or the wheelhouse, or the per-run temp directory exceeded `maxTempBytes`/`maxTempInodes` |
 | `resolution_conflict` | `ResolutionImpossible` or conflicting dependencies (including a compatibility constraint that conflicts with the repository) |
 | `egress_denied` | the proxy log shows a denied CONNECT, or a resolved URL is on a host that is not allowlisted |
@@ -254,9 +293,11 @@ proves the following:
 2. they install offline in a `--network none --read-only --cap-drop ALL`
    container of the same platform from the read-only wheelhouse, import, and
    `installationReceipt` matches;
-3. PyPI `torch` on linux/amd64 is refused because of its `nvidia-*`
-   dependencies, and `nvidia-cublas-cu12` is refused before any container
-   starts; no accelerator wheel is downloaded;
+3. PyPI `torch` is refused for linux/amd64 and for linux/arm64 (one natively,
+   the other across platforms) because of its `nvidia-*` dependencies, each
+   with an `accelerator_refusal` evidence receipt for that platform and the
+   image's platform digest, and `nvidia-cublas-cu12` is refused before any
+   container starts; no accelerator wheel is anywhere in the cache;
 4. resolution for the other architecture (cross mode without emulation)
    yields only that architecture's wheels, in a separate cache;
 5. `numpy==1.19.5` fails with `no_compatible_wheel` and nothing is built;
@@ -295,10 +336,15 @@ proves the following:
   applied; only project-owned compatibility constraints are. Markers are
   passed to pip as-is and evaluated against the preparation image's
   interpreter.
-- In cross mode pip evaluates environment markers such as `platform_machine`
-  against the engine's interpreter, not the target. Wheels are still
-  validated with `wheelMatchesPlatform`, so the failure mode is a typed error,
-  never a wrong wheel; run on a native or emulating engine for exact markers.
+- In cross mode pip's `--platform` options select wheel tags, but pip evaluates
+  environment markers against the interpreter it runs on. The cross entry point
+  (`pipInvocation`) therefore makes `platform.machine()` report the target
+  machine, so `platform_machine == "x86_64"` dependencies (torch's `nvidia-*`)
+  are resolved, and refused, for an amd64 target on an arm64 engine; the
+  report's marker environment must name the target machine or the resolution
+  is `platform_mismatch`. `platform_release`/`platform_version` markers still
+  see the engine's kernel. Wheels are still validated with
+  `wheelMatchesPlatform`; run on a native or emulating engine for exact markers.
 - The accelerator denylist is name- and version-based. A package that ships
   GPU code under an innocuous name on PyPI would not be caught by name.
 - Quotas are enforced by measuring (every `diskPollMs` and at exit), so a

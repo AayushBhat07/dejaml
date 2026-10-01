@@ -4,23 +4,14 @@ import { access, readFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { parseEnvLocal } from "./env-local.mjs";
+
 const root = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const environmentPath = join(root, ".env.local");
 
-function parseEnvironment(text) {
-  const values = {};
-  for (const rawLine of text.split(/\r?\n/u)) {
-    const line = rawLine.trim();
-    if (!line || line.startsWith("#")) continue;
-    const separator = line.indexOf("=");
-    if (separator <= 0) throw new Error(`invalid line in .env.local: ${rawLine}`);
-    values[line.slice(0, separator)] = line.slice(separator + 1);
-  }
-  return values;
-}
-
 try {
-  const local = parseEnvironment(await readFile(environmentPath, "utf8"));
+  // A malformed line is reported by number only, so a key on it is never printed.
+  const local = parseEnvLocal(await readFile(environmentPath, "utf8"));
   const env = { ...local, ...process.env };
   // Provider keys live only in the server environment; the page never asks for one.
   const removed = ["DEJAML_MODEL", "DEJAML_MODEL_BASE_URL", "DEJAML_MODEL_API_KEY"].filter((name) => env[name]?.trim());

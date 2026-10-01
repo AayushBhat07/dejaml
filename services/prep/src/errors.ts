@@ -19,6 +19,37 @@ export type PrepErrorCode =
   | "insufficient_preparation_space"
   | "runtime_error";
 
+/** One package the CPU-only policy refused, and why. */
+export type AcceleratorFindingRecord = {
+  name: string;
+  spec: string;
+  reason: string;
+  origin: "requested" | "resolved" | "constraint";
+};
+
+/**
+ * Typed evidence attached to every `accelerator_package_refused` error: what was refused, at
+ * which stage, for which platform and preparation image, and that no wheel was downloaded.
+ */
+export type AcceleratorRefusalEvidence = {
+  kind: "accelerator_refusal";
+  /**
+   * `before_resolution`: requested or constrained by name, refused before any container existed;
+   * `resolution_report`: in the resolver's transitive set; `resolver_failure`: the resolver failed on an
+   * accelerator dependency (for example no wheel of `nvidia-…` for this platform); `download_guard`: the
+   * guard inside the preparation container stopped pip before it fetched an accelerator wheel; `before_download`:
+   * re-validation of a resolution handed to `downloadWheels`.
+   */
+  stage: "before_resolution" | "resolution_report" | "resolver_failure" | "download_guard" | "before_download";
+  findings: AcceleratorFindingRecord[];
+  platform: string | null;
+  platformKey: string | null;
+  resolverMode: string | null;
+  image: { digest: string; platformDigest: string | null; platform: string } | null;
+  /** Always 0: refusals happen before any wheel reaches the download directory or the cache. */
+  wheelsDownloaded: 0;
+};
+
 export type PrepCleanupReceipt = {
   prepId: string;
   containersRemoved: string[];
@@ -36,6 +67,7 @@ export type PrepErrorOptions = {
   cleanup?: PrepCleanupReceipt;
   /** Normalized names of the packages a policy refused (accelerator or platform checks). */
   refused?: string[];
+  evidence?: AcceleratorRefusalEvidence;
 };
 
 export class PrepError extends Error {
@@ -44,6 +76,7 @@ export class PrepError extends Error {
   readonly requirement: string | undefined;
   readonly refused: string[];
   cleanup: PrepCleanupReceipt | undefined;
+  evidence: AcceleratorRefusalEvidence | undefined;
 
   constructor(code: PrepErrorCode, message: string, options: PrepErrorOptions = {}) {
     super(message);
@@ -53,5 +86,6 @@ export class PrepError extends Error {
     this.requirement = options.requirement;
     this.refused = options.refused ?? [];
     this.cleanup = options.cleanup;
+    this.evidence = options.evidence;
   }
 }

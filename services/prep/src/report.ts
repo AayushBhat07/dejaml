@@ -1,6 +1,8 @@
 import { z } from "zod";
 
+import { acceleratorError, findAcceleratorPackagesInPipOutput } from "./accelerator.js";
 import { PrepError, type PrepErrorCode } from "./errors.js";
+import { parseAcceleratorGuard } from "./pip-entry.js";
 import type { PrepPolicy } from "./policy.js";
 import { normalizePackageName } from "./requirements.js";
 
@@ -187,6 +189,16 @@ export type PipFailureContext = {
 /** Map a failed pip run to a typed error (timeouts/cancellation are decided by the caller). */
 export function classifyPipFailure(context: PipFailureContext): PrepError {
   const detail = tail(context.stderr);
+  // The in-container guard stopped pip before it downloaded an accelerator wheel.
+  const guarded = parseAcceleratorGuard(context.stderr);
+  if (guarded !== null && guarded.length > 0) return acceleratorError(guarded, { stage: "download_guard", detail });
+  if (/^DEJAML_PIP_UNSUPPORTED /mu.test(context.stderr)) {
+    return new PrepError("runtime_error", "the preparation image's pip is not supported by the CPU-only download guard", { detail });
+  }
+  // CPU-only policy: a resolution that failed on an accelerator dependency (for example torch's nvidia-*
+  // wheels on a platform without them) is a policy refusal, not a missing CPU wheel or a runtime fault.
+  const accelerator = findAcceleratorPackagesInPipOutput(context.stderr);
+  if (accelerator.length > 0) return acceleratorError(accelerator, { stage: "resolver_failure", detail });
   if (context.proxyLog.some((entry) => entry.event === "budget_exceeded")) {
     return new PrepError("limit_exceeded", "the preparation byte budget was exceeded at the egress proxy", { detail });
   }
@@ -201,7 +213,7 @@ export function classifyPipFailure(context: PipFailureContext): PrepError {
     const name = normalizePackageName(/^[A-Za-z0-9._-]+/u.exec(requirement)?.[0] ?? requirement);
     return new PrepError(
       "no_compatible_wheel",
-      `no compatible binary wheel for ${requirement} on the preparation image; source distributions are never built, ` +
+      `no compatible CPU binary wheel for ${requirement} on the target platform; source distributions are never built, ` +
         "so this needs explicit approval or a prebuilt lab image",
       { detail, requirement: name },
     );

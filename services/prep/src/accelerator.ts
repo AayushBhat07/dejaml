@@ -1,4 +1,4 @@
-import { PrepError } from "./errors.js";
+import { PrepError, type AcceleratorRefusalEvidence } from "./errors.js";
 import { normalizePackageName, type ParsedRequirement } from "./requirements.js";
 
 /**
@@ -41,6 +41,15 @@ const LOCAL_VERSION = /\+(cu\d+|cuda\d*|rocm[\d.]*|xpu|gpu)/iu;
 /** Extras that select accelerator builds: jax[cuda12], tensorflow[and-cuda], intel-extension-for-tensorflow[xpu]. */
 const EXTRA = /^(and-)?(cuda|rocm|gpu|tpu|xpu)/u;
 
+/**
+ * The same denylist as regular-expression sources for the download guard that runs inside the
+ * preparation container (`pip-entry.ts`); the sources use only syntax Python's `re` shares.
+ */
+export const ACCELERATOR_PATTERN_SOURCES: { names: [string, string][]; localVersion: string } = {
+  names: NAME_RULES.map(([pattern, reason]) => [pattern.source, reason]),
+  localVersion: LOCAL_VERSION.source,
+};
+
 /** Why this package is refused under the CPU-only policy, or null when it is allowed. */
 export function acceleratorReason(name: string, version: string | null = null, extras: readonly string[] = []): string | null {
   const normalized = normalizePackageName(name);
@@ -80,7 +89,26 @@ export function findAcceleratorPackages(packages: readonly { name: string; versi
 
 export { isAcceleratorIndexUrl } from "./requirements.js";
 
-export function acceleratorError(findings: readonly AcceleratorFinding[]): PrepError {
+/** Accelerator packages named in a failed pip run (the package it could not find, or a dependency it reported). */
+export function findAcceleratorPackagesInPipOutput(stderr: string): AcceleratorFinding[] {
+  const findings = new Map<string, AcceleratorFinding>();
+  const pattern =
+    /(?:No matching distribution found for|Could not find a version that satisfies the requirement|depends on)\s+([A-Za-z0-9][A-Za-z0-9._-]*)([^\s;)]*)(?:\s+\(from ([A-Za-z0-9][A-Za-z0-9._-]*))?/gu;
+  for (const match of stderr.matchAll(pattern)) {
+    const raw = match[1] ?? "";
+    const name = normalizePackageName(raw);
+    const reason = acceleratorReason(name);
+    if (!reason || findings.has(name)) continue;
+    const parent = match[3] ? ` (dependency of ${normalizePackageName(match[3])})` : "";
+    findings.set(name, { name, spec: `${raw}${match[2] ?? ""}${parent}`.slice(0, 200), reason, origin: "resolved" });
+  }
+  return [...findings.values()];
+}
+
+export function acceleratorError(
+  findings: readonly AcceleratorFinding[],
+  options: { stage?: AcceleratorRefusalEvidence["stage"]; detail?: string } = {},
+): PrepError {
   const names = [...new Set(findings.map((finding) => finding.name))].sort();
   const listed = findings
     .slice(0, 20)
@@ -92,6 +120,20 @@ export function acceleratorError(findings: readonly AcceleratorFinding[]): PrepE
     `the CPU-only policy refuses accelerator packages${transitive ? " (including transitive dependencies)" : ""}: ${listed}` +
       (findings.length > 20 ? `; and ${findings.length - 20} more` : "") +
       ". Nothing was downloaded. Use a CPU build of the package or an approved prebuilt image.",
-    { refused: names, ...(names[0] ? { requirement: names[0] } : {}) },
+    {
+      refused: names,
+      ...(names[0] ? { requirement: names[0] } : {}),
+      ...(options.detail === undefined ? {} : { detail: options.detail }),
+      evidence: {
+        kind: "accelerator_refusal",
+        stage: options.stage ?? (transitive ? "resolution_report" : "before_resolution"),
+        findings: findings.map((finding) => ({ ...finding })),
+        platform: null,
+        platformKey: null,
+        resolverMode: null,
+        image: null,
+        wheelsDownloaded: 0,
+      },
+    },
   );
 }

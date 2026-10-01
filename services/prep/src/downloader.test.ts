@@ -8,8 +8,9 @@ import { buildPlatformSpec, platformCacheKey, type PlatformSpec } from "@dejaml/
 import type { ContainerRuntime, RuntimeCommandOptions, RuntimeCommandResult } from "@dejaml/lab-manager";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { DependencyPreparer, type PythonResolution } from "./downloader.js";
+import { DependencyPreparer, PREP_USER, selectPrepIdentity, type PythonResolution } from "./downloader.js";
 import { PrepError } from "./errors.js";
+import { pipEntryCode } from "./pip-entry.js";
 import { DEFAULT_PREP_IMAGES, parsePrepPolicy, type PrepPolicyInput } from "./policy.js";
 
 const DIGEST_313 = "sha256:7c61056e61ac89e852de05f3dc6fa51a6dd2181797bceed46aa725dd7cb2cd3b";
@@ -55,6 +56,8 @@ class FakeRuntime implements ContainerRuntime {
     [REF_311, new Set(["linux/amd64"])],
   ]);
   inspectFailure: string | null = null;
+  /** Docker Desktop's classic image store: one platform per reference, and an error for any other platform. */
+  classicStore = false;
   emulation = "";
   proxyLog = "";
   onRun: RunHandler = async () => ok();
@@ -72,6 +75,14 @@ class FakeRuntime implements ContainerRuntime {
       const present = this.images.get(reference);
       if (!present) return ok("", `Error response from daemon: No such image: ${reference}`, 1);
       const digest = reference.slice(reference.indexOf("@") + 1);
+      if (!present.has(platform) && this.classicStore) {
+        const actual = [...present][0] ?? "";
+        return ok(
+          "",
+          `Error response from daemon: image with reference ${reference} was found but does not match the specified platform: wanted ${platform}, actual: ${actual}`,
+          1,
+        );
+      }
       if (!present.has(platform)) return ok(`${MANIFEST_ID}|||["python@${digest}"]\n`);
       return ok(`${MANIFEST_ID}|linux|${platform.split("/")[1]}|["python@${digest}"]\n`);
     }
@@ -197,8 +208,15 @@ let runtime: FakeRuntime;
 let preparer: DependencyPreparer;
 let reportWheels: Wheel[];
 let reportEnv: Record<string, string> | undefined;
+/** Simulates a cross resolver whose marker shim did not take effect. */
+let ignoreMarkerShim: boolean;
 const SECRET_ENV = { ANTHROPIC_API_KEY: "sk-secret", GITHUB_TOKEN: "ghp-secret", DOCKER_AUTH_CONFIG: "{}" };
 const PLENTY = async () => ({ freeBytes: 1024 ** 4 });
+/**
+ * The identity this host's preparer selects: `65534:65534` when the tests run as root (Linux CI),
+ * the developer's own ids otherwise (for example `501:20` on macOS). Never root.
+ */
+const CONTAINER_USER = selectPrepIdentity().user;
 
 function make(policy: PrepPolicyInput = {}, extra: Partial<ConstructorParameters<typeof DependencyPreparer>[0]> = {}): DependencyPreparer {
   return new DependencyPreparer({
@@ -212,9 +230,12 @@ function make(policy: PrepPolicyInput = {}, extra: Partial<ConstructorParameters
 }
 
 /** The default worker: writes the pip report, or the wheels listed in pinned.txt. */
-const defaultRun: RunHandler = async (_args, mounts) => {
+const defaultRun: RunHandler = async (args, mounts) => {
   const out = mounts.get("/out");
-  if (out) await writeFile(join(out, "report.json"), JSON.stringify(pipReport(reportWheels, reportEnv)));
+  // Like real pip under the cross entry point: markers (and the report's environment) see the target machine.
+  const shimmed = /platform\.machine = lambda: "(\w+)"/u.exec(args.join("\n"))?.[1];
+  const env = shimmed && !ignoreMarkerShim ? { ...(reportEnv ?? pipReport([]).environment), platform_machine: shimmed } : reportEnv;
+  if (out) await writeFile(join(out, "report.json"), JSON.stringify(pipReport(reportWheels, env)));
   const wheels = mounts.get("/wheels");
   if (wheels) {
     const pinned = await readFile(join(mounts.get("/in") ?? "", "pinned.txt"), "utf8");
@@ -231,6 +252,7 @@ beforeEach(async () => {
   runtime = new FakeRuntime();
   reportWheels = [WHEELS.matplotlib!, WHEELS.six!, WHEELS.pip!];
   reportEnv = undefined;
+  ignoreMarkerShim = false;
   runtime.onRun = defaultRun;
   await writeFile(join(root, "ca.pem"), "-----BEGIN CERTIFICATE-----\n");
   preparer = make();
@@ -314,7 +336,7 @@ describe("DependencyPreparer.resolvePython", () => {
       "--network",
       "bridge",
       "--user",
-      "65534:65534",
+      CONTAINER_USER,
       "--read-only",
       "--cap-drop",
       "ALL",
@@ -363,8 +385,10 @@ describe("DependencyPreparer.resolvePython", () => {
     const imageIndex = resolver.indexOf(REF_313);
     expect(resolver.slice(imageIndex)).toEqual([
       REF_313,
-      "-m",
-      "pip",
+      // pip starts behind the CPU-only download guard (pip-entry.ts), isolated (-I).
+      "-I",
+      "-c",
+      pipEntryCode("native", AMD64_313),
       "install",
       "--dry-run",
       "--ignore-installed",
@@ -378,7 +402,9 @@ describe("DependencyPreparer.resolvePython", () => {
     const options = resolver.slice(0, imageIndex);
     expect(options.slice(0, 7)).toEqual(["run", "--name", `${network}-resolve`, "--pull", "never", "--platform", "linux/amd64"]);
     expect(flagValues(options, "--network")).toEqual([network]);
-    expect(flagValues(options, "--user")).toEqual(["65534:65534"]);
+    expect(flagValues(options, "--user")).toEqual([CONTAINER_USER]);
+    expect(preparer.containerIdentity.user).toBe(CONTAINER_USER);
+    expect(CONTAINER_USER).not.toMatch(/^0:|:0$/u);
     expect(options).toContain("--read-only");
     expect(flagValues(options, "--cap-drop")).toEqual(["ALL"]);
     expect(flagValues(options, "--security-opt")).toEqual(["no-new-privileges"]);
@@ -658,6 +684,84 @@ describe("platform-aware resolution", () => {
     expect(flagValues(probe, "--platform")).toEqual(["linux/arm64"]);
   });
 
+  it("in cross mode, makes pip evaluate dependency markers for the target machine", async () => {
+    reportWheels = [WHEELS.numpyArm64!];
+    reportEnv = { python_full_version: "3.11.16", python_version: "3.11", platform_machine: "x86_64" };
+    const resolution = await preparer.resolvePython({ runId: "run-arm", platform: ARM64_311, requirements: ["numpy"] });
+    expect(resolution.resolver.mode).toBe("cross");
+    expect(resolution.machine).toBe("aarch64");
+    const resolver = runtime.runs("resolve")[0] ?? [];
+    const command = resolver.slice(resolver.indexOf(REF_311) + 1);
+    expect(command.slice(0, 2)).toEqual(["-I", "-c"]);
+    expect(command[2]).toBe(pipEntryCode("cross", ARM64_311));
+    expect(command[2]).toContain('platform.machine = lambda: "aarch64"');
+    expect(command[3]).toBe("install");
+    await preparer.downloadWheels(resolution);
+    const downloader = runtime.runs("download")[0] ?? [];
+    expect(downloader[downloader.indexOf(REF_311) + 3]).toContain('platform.machine = lambda: "aarch64"');
+    // Native and emulated runs do not change the machine.
+    reportWheels = [WHEELS.numpyAmd64!];
+    await preparer.resolvePython({ runId: "run-x", platform: AMD64_311, requirements: ["numpy"] });
+    const native = runtime.runs("resolve")[1] ?? [];
+    expect(native[native.indexOf(REF_311) + 3]).toBe(pipEntryCode("native", AMD64_311));
+    expect(pipEntryCode("native", AMD64_311)).not.toContain("platform.machine =");
+
+    // A resolver whose markers still saw the engine's machine is refused: its dependency set is for another platform.
+    ignoreMarkerShim = true;
+    reportWheels = [WHEELS.numpyArm64!];
+    const error = await failure(preparer.resolvePython({ runId: "run-arm", platform: ARM64_311, requirements: ["numpy"] }));
+    expect(error.code).toBe("platform_mismatch");
+    expect(error.message).toContain("evaluated dependencies for x86_64, not aarch64");
+    await expectNothingLeft();
+  });
+
+  it("Apple Silicon, classic image store: resolves amd64 across platforms instead of failing with runtime_error", async () => {
+    runtime.engine = "linux/arm64";
+    runtime.classicStore = true;
+    runtime.images.set(REF_311, new Set(["linux/arm64"]));
+    const mac = make({}, { hostIdentity: { uid: 501, gid: 20 } });
+    reportEnv = { python_full_version: "3.11.16", python_version: "3.11", platform_machine: "aarch64" };
+    reportWheels = [WHEELS.numpyAmd64!];
+    const resolution = await mac.resolvePython({ runId: "run-mac", platform: AMD64_311, requirements: ["numpy"] });
+    expect(resolution.resolver).toMatchObject({ mode: "cross", enginePlatform: "linux/arm64", targetPlatform: "linux/amd64" });
+    // The containers run the arm64 manifest of the pinned index; the wheels are for amd64.
+    expect(resolution.imageIdentity).toMatchObject({
+      digest: DIGEST_311,
+      platform: "linux/arm64",
+      platformDigest: "sha256:8b29ec24b5f3c929a79b55772b95c93311b7133f1cf7fa0a6141ef621f8e3c57",
+    });
+    expect(flagValues(runtime.runs("resolve")[0] ?? [], "--platform")[0]).toBe("linux/arm64");
+    expect(resolution.packages.every((pkg) => pkg.filename.endsWith("x86_64.whl"))).toBe(true);
+    // Natively, the same index gives arm64 its own manifest.
+    reportWheels = [WHEELS.numpyArm64!];
+    const native = await mac.resolvePython({ runId: "run-mac", platform: ARM64_311, requirements: ["numpy"] });
+    expect(native.resolver.mode).toBe("native");
+    expect(native.imageIdentity.platformDigest).toBe("sha256:8b29ec24b5f3c929a79b55772b95c93311b7133f1cf7fa0a6141ef621f8e3c57");
+    await expectNothingLeft();
+  });
+
+  it("refuses a platform manifest pin for another platform with platform_mismatch, never runtime_error", async () => {
+    const ARM64_MANIFEST = "sha256:8b29ec24b5f3c929a79b55772b95c93311b7133f1cf7fa0a6141ef621f8e3c57";
+    const pinnedArm = make({ images: { "3.11": `python:3.11-slim-trixie@${ARM64_MANIFEST}` }, resolverMode: "native" });
+    const error = await failure(pinnedArm.resolvePython({ runId: "run-x", platform: AMD64_311, requirements: ["numpy"] }));
+    expect(error.code).toBe("platform_mismatch");
+    expect(error.message).toContain("pins the linux/arm64 manifest");
+    expect(runtime.calls.filter((args) => args[0] === "image" || args[0] === "pull" || args[0] === "run")).toEqual([]);
+  });
+
+  it("maps a container the engine cannot create for the platform to platform_mismatch", async () => {
+    runtime.onRun = async () =>
+      ok(
+        "",
+        `docker: Error response from daemon: image with reference ${REF_313} was found but does not provide the specified platform (linux/amd64)`,
+        125,
+      );
+    const error = await failure(preparer.resolvePython({ runId: "run-1", platform: AMD64_313, requirements: ["six"] }));
+    expect(error.code).toBe("platform_mismatch");
+    expect(error.cleanup).toMatchObject({ verifiedAbsent: true, tempRemoved: true });
+    await expectNothingLeft();
+  });
+
   it("with resolverMode native, refuses a platform the engine cannot execute", async () => {
     const strict = make({ resolverMode: "native" });
     const error = await failure(strict.resolvePython({ runId: "run-arm", platform: ARM64_311, requirements: ["numpy"] }));
@@ -692,9 +796,58 @@ describe("CPU-only policy", () => {
     expect(error.code).toBe("accelerator_package_refused");
     expect(error.refused).toEqual(["nvidia-cublas-cu12", "pytorch-triton-rocm", "triton"]);
     expect(error.message).toContain("transitive");
+    expect(error.evidence).toEqual({
+      kind: "accelerator_refusal",
+      stage: "resolution_report",
+      findings: [
+        expect.objectContaining({ name: "nvidia-cublas-cu12", origin: "resolved" }),
+        expect.objectContaining({ name: "triton", origin: "resolved" }),
+        expect.objectContaining({ name: "pytorch-triton-rocm", origin: "resolved" }),
+      ],
+      platform: "linux/amd64",
+      platformKey: platformCacheKey(AMD64_313),
+      resolverMode: "native",
+      image: {
+        digest: DIGEST_313,
+        platformDigest: "sha256:37134a49d21d2120e4c4d73bb76f8a4ab9aef31f096f7ec2ead48c2feead4332",
+        platform: "linux/amd64",
+      },
+      wheelsDownloaded: 0,
+    });
     expect(runtime.runs("download")).toEqual([]);
     expect(error.cleanup).toMatchObject({ tempRemoved: true, verifiedAbsent: true });
     await expectNothingLeft();
+  });
+
+  it("maps a resolver failure on an accelerator dependency to accelerator_package_refused, not runtime_error", async () => {
+    // torch on a platform where its nvidia-* dependencies have no wheel: pip fails while resolving them.
+    runtime.onRun = async () =>
+      ok(
+        "",
+        "ERROR: Could not find a version that satisfies the requirement nvidia-cudnn-cu13==9.24.0.43 (from torch) (from versions: none)\n" +
+          "ERROR: No matching distribution found for nvidia-cudnn-cu13==9.24.0.43\n",
+        1,
+      );
+    const error = await failure(preparer.resolvePython({ runId: "run-1", platform: ARM64_311, requirements: ["torch"] }));
+    expect(error.code).toBe("accelerator_package_refused");
+    expect(error.refused).toEqual(["nvidia-cudnn-cu13"]);
+    expect(error.evidence).toMatchObject({
+      stage: "resolver_failure",
+      platform: "linux/arm64",
+      resolverMode: "cross",
+      findings: [{ name: "nvidia-cudnn-cu13", origin: "resolved", spec: "nvidia-cudnn-cu13==9.24.0.43 (dependency of torch)" }],
+      wheelsDownloaded: 0,
+    });
+    expect(error.cleanup).toMatchObject({ verifiedAbsent: true, tempRemoved: true });
+    expect(runtime.runs("download")).toEqual([]);
+    expect(await readdir(join(root, "cache", "wheels")).catch(() => [])).toEqual([]);
+    await expectNothingLeft();
+  });
+
+  it("records evidence for a requested accelerator package refused before any container", async () => {
+    const error = await failure(preparer.resolvePython({ runId: "run-1", platform: AMD64_313, requirements: ["nvidia-cublas-cu12"] }));
+    expect(error.evidence).toMatchObject({ stage: "before_resolution", platform: "linux/amd64", resolverMode: null, image: null });
+    expect(runtime.calls).toEqual([]);
   });
 
   it("refuses an accelerator package smuggled into a resolution handed to downloadWheels", async () => {
@@ -834,8 +987,9 @@ describe("DependencyPreparer.downloadWheels", () => {
     const downloader = runtime.runs("download")[0] ?? [];
     expect(downloader.slice(downloader.indexOf(REF_313))).toEqual([
       REF_313,
-      "-m",
-      "pip",
+      "-I",
+      "-c",
+      pipEntryCode("native", AMD64_313),
       "download",
       "--no-deps",
       "--only-binary=:all:",
@@ -847,7 +1001,7 @@ describe("DependencyPreparer.downloadWheels", () => {
       "/in/pinned.txt",
     ]);
     expect(flagValues(downloader, "--network")).toEqual([expect.stringMatching(/^dejaml-prep-[a-f0-9]{32}$/u)]);
-    expect(flagValues(downloader, "--user")).toEqual(["65534:65534"]);
+    expect(flagValues(downloader, "--user")).toEqual([CONTAINER_USER]);
 
     expect(manifest.schemaVersion).toBe(2);
     expect(manifest.cache).toEqual({ hits: 0, downloaded: 3, evicted: 0, downloaderSkipped: false, key: platformCacheKey(AMD64_313) });
@@ -950,6 +1104,54 @@ describe("DependencyPreparer.downloadWheels", () => {
       packages: [{ ...resolution.packages[0]!, url: "https://evil.example/matplotlib-3.11.2-cp313-cp313-manylinux_2_27_x86_64.whl" }],
     };
     await expect(preparer.downloadWheels(tampered)).rejects.toMatchObject({ code: "egress_denied" });
+  });
+});
+
+describe("container identity", () => {
+  it("runs as nobody when the service is root and as the service's own non-root ids otherwise", () => {
+    expect(selectPrepIdentity({ uid: 0, gid: 0 })).toEqual({ user: PREP_USER, uid: 65534, gid: 65534, source: "nobody_as_root" });
+    // macOS Docker Desktop: the developer's account (staff group).
+    expect(selectPrepIdentity({ uid: 501, gid: 20 })).toEqual({ user: "501:20", uid: 501, gid: 20, source: "service_user" });
+    expect(selectPrepIdentity({ uid: 1000, gid: 1000 })).toEqual({ user: "1000:1000", uid: 1000, gid: 1000, source: "service_user" });
+    expect(selectPrepIdentity({ uid: undefined, gid: undefined })).toMatchObject({ user: PREP_USER, source: "nobody_without_posix_ids" });
+  });
+
+  it("refuses a root group or malformed ids instead of passing them to docker --user", () => {
+    for (const ids of [
+      { uid: 501, gid: 0 },
+      { uid: -1, gid: 20 },
+      { uid: 1.5, gid: 20 },
+      { uid: 501, gid: Number.NaN },
+      { uid: 2 ** 32, gid: 20 },
+    ]) {
+      expect(() => selectPrepIdentity(ids)).toThrow(expect.objectContaining({ code: "invalid_policy" }));
+    }
+    expect(() => make({}, { hostIdentity: { uid: 501, gid: 0 } })).toThrow(expect.objectContaining({ code: "invalid_policy" }));
+  });
+
+  it("gives every container the service's ids and never makes a host mount world-writable", async () => {
+    const mac = make({}, { hostIdentity: { uid: 501, gid: 20 } });
+    expect(mac.containerIdentity).toEqual({ user: "501:20", uid: 501, gid: 20, source: "service_user" });
+    const modes: number[] = [];
+    runtime.onRun = async (args, mounts, options) => {
+      for (const target of ["/in", "/out", "/tmp", "/wheels"]) {
+        const dir = mounts.get(target);
+        if (dir) modes.push((await lstat(dir)).mode & 0o7777);
+      }
+      return defaultRun(args, mounts, options);
+    };
+    const resolution = await mac.resolvePython({
+      runId: "run-1",
+      platform: AMD64_313,
+      requirements: ["matplotlib"],
+      includeInstaller: true,
+    });
+    await mac.downloadWheels(resolution);
+    const users = runtime.calls.filter((args) => args[0] === "run" || args[0] === "create").map((args) => flagValues(args, "--user"));
+    expect(users.length).toBeGreaterThanOrEqual(3);
+    for (const user of users) expect(user).toEqual(["501:20"]);
+    expect(modes.length).toBeGreaterThan(0);
+    for (const mode of modes) expect(mode & 0o002).toBe(0);
   });
 });
 

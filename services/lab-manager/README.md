@@ -31,7 +31,7 @@ Terminal control sequences are stripped, so output is safe to render as plain te
 
 Every lab is created for exactly the `platform` in its spec (`linux/amd64` or `linux/arm64`), from a local image whose ID, user, platform and environment were checked first; a lab never pulls. Before the container starts, its effective configuration is read back and refused (`lab_not_sealed`) unless it is sealed:
 
-- `--network none` (so no DNS, no internet, and no cloud metadata endpoint), only the loopback interface;
+- `--network none` (so no DNS, no internet, and no cloud metadata endpoint): no device but loopback can carry traffic (see "Network isolation check");
 - `--read-only` root, `--cap-drop ALL`, `no-new-privileges`, not privileged, a non-root user, `--init`;
 - CPU, memory (swap disabled) and PID limits; a `noexec` `/tmp` tmpfs sized by `limits.tmpfsMb` (default 64 MB);
 - inputs (repository, dataset, wheelhouse) mounted read-only; one fresh writable artifact directory (plus an optional scratch directory); the Docker socket, `/proc`, `/sys`, `/dev`, `/run`, `/etc` and credential directories (`~/.aws`, `~/.docker`, `~/.ssh`, …) can never be mounted, nor any directory containing them;
@@ -40,6 +40,10 @@ Every lab is created for exactly the `platform` in its spec (`linux/amd64` or `l
 - bounded stdout/stderr capture, and guaranteed cleanup with a verified receipt.
 
 Events use the `lab_engineer` role and can be passed straight to `RunStore.appendEvent`.
+
+### Network isolation check
+
+`verify:docker` proves isolation from inside the lab and from the engine, not by one exact `/sys/class/net` listing. Docker Desktop (macOS, Windows) runs containers in a LinuxKit VM whose kernel has the IP tunnel drivers built in, and such a kernel creates their fallback devices (`tunl0`, `ip6tnl0`, `sit0`, `gre0`, `gretap0`, `erspan0`, `ip6gre0`, `ip_vti0`, `ip6_vti0`) in every new network namespace, including a `--network none` one. They are down, have no address and no route, and cannot carry a packet; Docker Engine on most Linux hosts shows only `lo`. `evaluateNetworkIsolation` (with the in-lab observer `NETWORK_OBSERVER_PY`) therefore accepts, besides `lo` (loopback addresses only, no IPv4 main-table route), only those fallback devices, and only when each is down (no `IFF_UP`, `IFF_RUNNING` or `IFF_LOWER_UP`, operstate `down`), unaddressed and unrouted. Any other device, or any non-loopback device that is up, addressed or routed, fails. The proof also requires `NetworkMode none` with the `none` network as the only attachment (no address or gateway), no exposed or published port, no host PID/IPC/UTS namespace, a network namespace different from the engine's (read by a `--network host` helper), blocked IPv4 and IPv6 connections, failing DNS and an unreachable metadata endpoint, and it runs the same rule on a bridge-attached helper as a negative control.
 
 ## Image readiness
 

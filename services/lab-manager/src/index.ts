@@ -4,3 +4,4 @@ export * from "./spec.js";
 export * from "./observer.js";
 export * from "./images.js";
 export * from "./worker.js";
+export * from "./network-isolation.js";

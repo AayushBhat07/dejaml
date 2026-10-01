@@ -10,9 +10,14 @@
 //     wheelMatchesPlatform and hashed;
 //  2. they install offline in a --network none container of the same
 //     platform from the read-only wheelhouse, and import;
-//  3. a CPU run refuses PyPI torch on linux/amd64 because of its nvidia-*
-//     transitive dependencies (and a directly requested nvidia-cublas-cu12)
-//     without downloading them;
+//  3. a CPU run refuses PyPI torch on linux/amd64 and on linux/arm64 (one of
+//     them resolved across platforms, with markers evaluated for the target)
+//     because of its nvidia-* transitive dependencies (and a directly requested
+//     nvidia-cublas-cu12) with a typed evidence receipt; the in-container
+//     download guard stops pip before it fetches any wheel of the set, so no
+//     accelerator wheel is downloaded or left anywhere in the cache;
+// 3b. the guard against the image's own pip, offline, with local wheels: a
+//     CPU wheel passes, a transitive accelerator wheel is refused;
 //  4. cross-platform resolution for the other architecture yields only its
 //     wheels (download only, no execution);
 //  5. numpy==1.19.5 has no cp311 wheel: typed no_compatible_wheel, nothing built;
@@ -28,7 +33,7 @@
 // is set) it is passed as the operator setting DEJAML_PREP_CA_BUNDLE.
 import { spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
-import { chmod, chown, mkdir, mkdtemp, readdir, readFile, rm } from "node:fs/promises";
+import { chmod, chown, mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -44,7 +49,10 @@ import {
   installationReceipt,
   loadPrepPolicy,
   offlineInstallCommands,
+  parseAcceleratorGuard,
   parsePinnedReference,
+  pipInvocation,
+  platformDigestFor,
 } from "../dist/index.js";
 
 class DockerCliImageProviderCheck extends DockerPrepImageProvider {
@@ -113,18 +121,31 @@ await step("0. image readiness by digest", async () => {
     reference: pinned.reference,
     platform: host.containerPlatform,
   });
-  const foreignImage = await new DockerCliImageProviderCheck()
+  // The other platform is either present for exactly that platform, or a typed refusal; never a runtime error.
+  const foreignOutcome = await new DockerCliImageProviderCheck()
     .ensure({ key: "proof", reference: pinned.reference, platform: foreign.containerPlatform })
     .then(
-      (found) => `present (${found.platform})`,
-      (error) => `${error.code}`,
+      (found) => ({
+        ok: found.platform.startsWith(foreign.containerPlatform),
+        text: `present (${found.platform}) id ${found.imageId.slice(0, 19)}`,
+      }),
+      (error) => ({ ok: ["image_unavailable", "platform_mismatch"].includes(error.code), text: `${error.code}` }),
     );
+  const foreignImage = foreignOutcome.text;
+  const hostDigest = platformDigestFor(pinned, host.containerPlatform);
+  const foreignDigest = platformDigestFor(pinned, foreign.containerPlatform);
   record(
     "0. image readiness by digest",
-    image.platform === host.containerPlatform && image.repoDigests.some((entry) => entry.endsWith(pinned.digest)),
+    image.platform === host.containerPlatform &&
+      image.repoDigests.some((entry) => entry.endsWith(pinned.digest)) &&
+      foreignOutcome.ok &&
+      hostDigest !== null &&
+      foreignDigest !== null &&
+      hostDigest !== foreignDigest,
     `tag lookup ${pinned.repository}:${pinned.tag}: ${tag.code === 0 ? "present" : tag.stderr.split("\n")[0]}\n` +
       `digest lookup ${pinned.digestReference} --platform ${host.containerPlatform}: ${image.imageId.slice(0, 19)} ${image.platform}\n` +
-      `${foreign.containerPlatform}: ${foreignImage}`,
+      `${foreign.containerPlatform}: ${foreignImage}\n` +
+      `platform manifests: ${host.containerPlatform} ${hostDigest} / ${foreign.containerPlatform} ${foreignDigest}`,
   );
 });
 
@@ -258,22 +279,55 @@ await step("2. offline install + import (network none)", async () => {
   }
 });
 
-// (3) CPU-only: PyPI torch pulls nvidia-* on linux/amd64; refused before any wheel is downloaded.
-await step("3. CPU-only policy refuses CUDA", async () => {
-  const amd64 = buildPlatformSpec({ architecture: "amd64", python: PYTHON });
-  let transitive = "not refused";
-  let pass = false;
-  try {
-    const resolution = await preparer.resolvePython({ runId: "proof-torch", platform: amd64, requirements: ["torch"] });
-    receipts.push(resolution.cleanup);
-  } catch (error) {
-    if (!(error instanceof PrepError)) throw error;
-    if (error.cleanup) receipts.push(error.cleanup);
-    const nvidia = error.refused.filter((name) => name.startsWith("nvidia-"));
-    transitive = `code=${error.code} refused=${error.refused.length} (${error.refused.slice(0, 6).join(", ")}${error.refused.length > 6 ? ", …" : ""}) cleanup=${error.cleanup?.verifiedAbsent}`;
-    pass = error.code === "accelerator_package_refused" && nvidia.length > 0 && error.cleanup?.verifiedAbsent === true;
+// Every file name anywhere under a directory (missing directories are empty).
+async function allFiles(dir) {
+  const files = [];
+  for (const entry of await readdir(dir, { withFileTypes: true }).catch(() => [])) {
+    if (entry.isDirectory()) files.push(...(await allFiles(join(dir, entry.name))));
+    else files.push(entry.name);
   }
-  const cached = await readdir(join(root, "cache", "wheels", platformCacheKey(amd64))).catch(() => []);
+  return files;
+}
+
+// (3) CPU-only: PyPI torch pulls nvidia-* on Linux; refused for both platforms before any wheel is downloaded.
+await step("3. CPU-only policy refuses CUDA", async () => {
+  let pass = true;
+  const lines = [];
+  for (const architecture of ["amd64", "arm64"]) {
+    const target = buildPlatformSpec({ architecture, python: PYTHON });
+    let line = "not refused";
+    let ok = false;
+    try {
+      const resolution = await preparer.resolvePython({ runId: `proof-torch-${architecture}`, platform: target, requirements: ["torch"] });
+      receipts.push(resolution.cleanup);
+    } catch (error) {
+      if (!(error instanceof PrepError)) throw error;
+      if (error.cleanup) receipts.push(error.cleanup);
+      const nvidia = error.refused.filter((name) => name.startsWith("nvidia-"));
+      const evidence = error.evidence;
+      line =
+        `code=${error.code} refused=${error.refused.length} (${error.refused.slice(0, 6).join(", ")}${error.refused.length > 6 ? ", …" : ""}) ` +
+        `evidence=${evidence ? `${evidence.stage}/${evidence.resolverMode} for ${evidence.platform}, image ${evidence.image?.platform} ${evidence.image?.platformDigest?.slice(0, 19)}…, wheelsDownloaded=${evidence.wheelsDownloaded}` : "none"} ` +
+        `cleanup=${error.cleanup?.verifiedAbsent}` +
+        (error.code === "accelerator_package_refused"
+          ? ""
+          : `\n  ${error.message}\n  ${(error.detail ?? "").split("\n").slice(-4).join("\n  ")}`);
+      ok =
+        error.code === "accelerator_package_refused" &&
+        nvidia.length > 0 &&
+        error.cleanup?.verifiedAbsent === true &&
+        evidence?.kind === "accelerator_refusal" &&
+        // Refused by the guard before pip downloaded any wheel of the set.
+        evidence.stage === "download_guard" &&
+        evidence.platform === target.containerPlatform &&
+        evidence.platformKey === platformCacheKey(target) &&
+        evidence.wheelsDownloaded === 0 &&
+        evidence.image !== null &&
+        evidence.image.platformDigest === platformDigestFor(pinned, evidence.image.platform);
+    }
+    pass = pass && ok;
+    lines.push(`torch for ${target.containerPlatform} (transitive): ${line}`);
+  }
   let direct = "not refused";
   try {
     await preparer.resolvePython({ runId: "proof-cublas", platform: host, requirements: ["nvidia-cublas-cu12"] });
@@ -282,15 +336,102 @@ await step("3. CPU-only policy refuses CUDA", async () => {
     direct = `code=${error.code} refused=${error.refused.join(",")} containers started=${error.cleanup ? "yes" : "no"}`;
     pass = pass && error.code === "accelerator_package_refused" && error.cleanup === undefined;
   }
-  const cachedNvidia = [];
-  for (const dir of cached)
-    cachedNvidia.push(
-      ...(await readdir(join(root, "cache", "wheels", platformCacheKey(amd64), dir))).filter((f) => /^nvidia|^torch|^triton/u.test(f)),
-    );
+  const cachedAccelerator = (await allFiles(join(root, "cache"))).filter((file) =>
+    /^(nvidia|torch|triton|cuda|pytorch_triton)/iu.test(file),
+  );
   record(
     "3. CPU-only policy refuses CUDA",
-    pass && cachedNvidia.length === 0,
-    `torch (transitive): ${transitive}\nnvidia-cublas-cu12 (direct): ${direct}\naccelerator wheels in cache: ${cachedNvidia.length}`,
+    pass && cachedAccelerator.length === 0,
+    `${lines.join("\n")}\nnvidia-cublas-cu12 (direct): ${direct}\naccelerator wheels in cache: ${cachedAccelerator.length}`,
+  );
+});
+
+// (3b) the download guard against the image's real pip, offline, with two tiny local wheels.
+await step("3b. download guard (offline, local wheels)", async () => {
+  const wheelDir = join(root, "guard-wheels");
+  await mkdir(wheelDir);
+  // Minimal wheels written with the image's own zipfile module (no network, nothing executed from them).
+  const make = [
+    "import sys, zipfile",
+    "def wheel(name, version, requires=()):",
+    "    info = f'{name}-{version}.dist-info'",
+    "    with zipfile.ZipFile(f'/w/{name}-{version}-py3-none-any.whl', 'w') as z:",
+    "        z.writestr(f'{info}/METADATA', f'Metadata-Version: 2.1\\nName: {name}\\nVersion: {version}\\n' + ''.join(f'Requires-Dist: {r}\\n' for r in requires))",
+    "        z.writestr(f'{info}/WHEEL', 'Wheel-Version: 1.0\\nGenerator: proof\\nRoot-Is-Purelib: true\\nTag: py3-none-any\\n')",
+    "        z.writestr(f'{info}/RECORD', '')",
+    "wheel('cpuonly', '1.0')",
+    "wheel('gpuish', '1.0', ['nvidia-cublas-cu12'])",
+    "wheel('nvidia_cublas_cu12', '12.1.0')",
+  ].join("\n");
+  await writeFile(join(wheelDir, "make.py"), make);
+  if (process.getuid?.() === 0) await chown(wheelDir, 65534, 65534);
+  const base = [
+    "run",
+    "--rm",
+    "--label",
+    "dejaml.prep=proof-guard",
+    "--pull",
+    "never",
+    "--platform",
+    host.containerPlatform,
+    "--network",
+    "none",
+  ];
+  const hardening = [
+    "--user",
+    process.getuid?.() === 0 ? "65534:65534" : `${process.getuid()}:${process.getgid()}`,
+    "--read-only",
+    "--cap-drop",
+    "ALL",
+    "--security-opt",
+    "no-new-privileges",
+    "--tmpfs",
+    "/tmp:rw,nosuid,nodev,size=64m",
+  ];
+  const built = docker([
+    ...base,
+    ...hardening,
+    "--mount",
+    `type=bind,src=${wheelDir},dst=/w`,
+    "--entrypoint",
+    "python",
+    pinned.digestReference,
+    "/w/make.py",
+  ]);
+  if (built.code !== 0) throw new Error(built.stderr);
+  const pip = (requirement) =>
+    docker([
+      ...base,
+      ...hardening,
+      "--mount",
+      `type=bind,src=${wheelDir},dst=/w,readonly`,
+      "--workdir",
+      "/tmp",
+      "--entrypoint",
+      "python",
+      pinned.digestReference,
+      ...pipInvocation("native", host),
+      "install",
+      "--dry-run",
+      "--ignore-installed",
+      "--only-binary=:all:",
+      "--no-index",
+      "--find-links",
+      "/w",
+      "--report",
+      "/tmp/report.json",
+      requirement,
+    ]);
+  const cpu = pip("cpuonly");
+  const gpu = pip("gpuish");
+  const refused = parseAcceleratorGuard(gpu.stderr) ?? [];
+  record(
+    "3b. download guard (offline, local wheels)",
+    cpu.code === 0 &&
+      /Would install cpuonly-1\.0/u.test(cpu.stdout) &&
+      gpu.code === 3 &&
+      refused.map((item) => item.name).join(",") === "nvidia-cublas-cu12",
+    `cpuonly: exit ${cpu.code} (${cpu.stdout.split("\n").at(-1)})\ngpuish -> nvidia-cublas-cu12: exit ${gpu.code}, guard refused [${refused.map((item) => item.spec).join(", ")}]`,
   );
 });
 
@@ -309,7 +450,8 @@ await step(`4. cross-platform resolution for ${foreign.containerPlatform}`, asyn
     tags.every((tag) => tag === "any" || tag.endsWith(machine)) &&
     !tags.some((tag) => tag.includes(hostMachine)) &&
     foreignManifest.cache.key === platformCacheKey(foreign) &&
-    foreignManifest.cache.key !== platformCacheKey(host);
+    foreignManifest.cache.key !== platformCacheKey(host) &&
+    foreignManifest.imageIdentity.platformDigest === platformDigestFor(pinned, foreignManifest.imageIdentity.platform);
   record(
     `4. cross-platform resolution for ${foreign.containerPlatform}`,
     pass,

@@ -135,6 +135,53 @@ describe("classifyPipFailure", () => {
     expect(classifyPipFailure({ stderr, proxyLog: [], exitCode: 1 }).code).toBe("resolution_conflict");
   });
 
+  it("maps the in-container download guard's refusal to accelerator_package_refused with evidence", () => {
+    const stderr =
+      "Collecting torch\n" +
+      'DEJAML_ACCELERATOR_REFUSED {"packages": [{"name": "nvidia_cudnn_cu13", "version": "9.24.0.43", "filename": "nvidia_cudnn_cu13-9.24.0.43-py3-none-manylinux_2_27_aarch64.whl"}, {"name": "triton", "version": "3.8.0", "filename": "x.whl"}]}\n';
+    const error = classifyPipFailure({ stderr, proxyLog: [], exitCode: 3 });
+    expect(error.code).toBe("accelerator_package_refused");
+    expect(error.refused).toEqual(["nvidia-cudnn-cu13", "triton"]);
+    expect(error.evidence).toMatchObject({
+      stage: "download_guard",
+      wheelsDownloaded: 0,
+      findings: [
+        { name: "nvidia-cudnn-cu13", spec: "nvidia-cudnn-cu13==9.24.0.43", origin: "resolved" },
+        { name: "triton", spec: "triton==3.8.0", origin: "resolved" },
+      ],
+    });
+    expect(classifyPipFailure({ stderr: "DEJAML_PIP_UNSUPPORTED ImportError\n", proxyLog: [], exitCode: 4 })).toMatchObject({
+      code: "runtime_error",
+      message: expect.stringContaining("download guard"),
+    });
+  });
+
+  it("maps a resolver failure on an accelerator dependency to accelerator_package_refused", () => {
+    const missing = classifyPipFailure({
+      stderr:
+        "ERROR: Could not find a version that satisfies the requirement nvidia-nccl-cu13==2.30.7 (from torch) (from versions: none)\n" +
+        "ERROR: No matching distribution found for nvidia-nccl-cu13==2.30.7",
+      proxyLog: [],
+      exitCode: 1,
+    });
+    expect(missing.code).toBe("accelerator_package_refused");
+    expect(missing.refused).toEqual(["nvidia-nccl-cu13"]);
+    expect(missing.evidence).toMatchObject({ kind: "accelerator_refusal", stage: "resolver_failure", wheelsDownloaded: 0 });
+    expect(missing.detail).toContain("No matching distribution");
+    const conflict = classifyPipFailure({
+      stderr:
+        "The conflict is caused by:\n    torch 2.14.1 depends on nvidia-cudnn-cu13==9.24.0.43\n    torch 2.14.0 depends on triton~=3.8.0\nERROR: ResolutionImpossible",
+      proxyLog: [],
+      exitCode: 1,
+    });
+    expect(conflict.code).toBe("accelerator_package_refused");
+    expect(conflict.refused).toEqual(["nvidia-cudnn-cu13", "triton"]);
+    // A CPU package without a wheel stays no_compatible_wheel.
+    expect(classifyPipFailure({ stderr: "ERROR: No matching distribution found for scipy==0.1", proxyLog: [], exitCode: 1 }).code).toBe(
+      "no_compatible_wheel",
+    );
+  });
+
   it("maps a denied proxy connection to egress_denied", () => {
     const proxyLog = parseProxyLog(
       '{"event":"listening"}\n{"event":"connect","host":"evil.example","allowed":false,"reason":"host_not_allowed"}\nnoise\n',

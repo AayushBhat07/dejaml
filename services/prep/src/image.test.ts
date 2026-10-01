@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -8,13 +8,24 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { DependencyPreparer } from "./downloader.js";
 import { PrepError } from "./errors.js";
-import { DockerPrepImageProvider, imageMatchesPin, parsePinnedReference, type PrepImageProvider } from "./image.js";
+import {
+  classifyPinnedDigest,
+  DockerPrepImageProvider,
+  imageMatchesPin,
+  OFFICIAL_PYTHON_PLATFORM_MANIFESTS,
+  parsePinnedReference,
+  platformDigestFor,
+  type PrepImageProvider,
+} from "./image.js";
 import { DEFAULT_PREP_IMAGES, parsePrepPolicy } from "./policy.js";
 
 const DIGEST = "sha256:e41613d42d4891e4930f79523f93f81bbc7632584ec65e36ab055f41a800b41e";
 const PINNED = `python:3.11-slim-trixie@${DIGEST}`;
 const BY_DIGEST = `python@${DIGEST}`;
 const PLATFORM_ID = `sha256:${"1".repeat(64)}`;
+/** The python:3.11-slim-trixie platform manifests inside the index DIGEST (lab-images/python-base/bases.lock.json). */
+const AMD64_MANIFEST = "sha256:174bec68e0451bffabbb08c7d5d21c6b253f772d81d52b9558af97bb3159b761";
+const ARM64_MANIFEST = "sha256:8b29ec24b5f3c929a79b55772b95c93311b7133f1cf7fa0a6141ef621f8e3c57";
 
 function result(stdout = "", stderr = "", exitCode: number | null = 0): RuntimeCommandResult {
   return {
@@ -89,6 +100,32 @@ describe("parsePinnedReference", () => {
   });
 });
 
+describe("per-platform digests", () => {
+  it("mirrors lab-images/python-base/bases.lock.json, and every default pin is a multi-platform index", async () => {
+    const lock = JSON.parse(await readFile(new URL("../../../lab-images/python-base/bases.lock.json", import.meta.url), "utf8")) as {
+      bases: Record<string, { index: string; platforms: Record<string, string> }>;
+    };
+    const fromLock = Object.fromEntries(Object.values(lock.bases).map((base) => [base.index, base.platforms]));
+    expect(OFFICIAL_PYTHON_PLATFORM_MANIFESTS).toEqual(fromLock);
+    for (const [version, reference] of Object.entries(DEFAULT_PREP_IMAGES)) {
+      expect(lock.bases[version]?.index).toBe(parsePinnedReference(reference).digest);
+      expect(classifyPinnedDigest(parsePinnedReference(reference).digest).kind).toBe("index");
+    }
+  });
+
+  it("uses each platform's own manifest digest and never another platform's", () => {
+    const index = parsePinnedReference(PINNED);
+    expect(platformDigestFor(index, "linux/amd64")).toBe(AMD64_MANIFEST);
+    expect(platformDigestFor(index, "linux/arm64")).toBe(ARM64_MANIFEST);
+    const arm = parsePinnedReference(`python:3.11-slim-trixie@${ARM64_MANIFEST}`);
+    expect(platformDigestFor(arm, "linux/arm64")).toBe(ARM64_MANIFEST);
+    expect(() => platformDigestFor(arm, "linux/amd64")).toThrow(expect.objectContaining({ code: "platform_mismatch" }));
+    const amd = parsePinnedReference(`python@${AMD64_MANIFEST}`);
+    expect(() => platformDigestFor(amd, "linux/arm64")).toThrow(/pins the linux\/amd64 manifest/u);
+    expect(platformDigestFor(parsePinnedReference(`registry.example.org/python@sha256:${"c".repeat(64)}`), "linux/arm64")).toBeNull();
+  });
+});
+
 describe("DockerPrepImageProvider", () => {
   it("finds an image that was pulled by digest (no local tag) - the old 'missing' bug", async () => {
     // `docker pull python:3.11-slim-trixie@sha256:…` stores only python@sha256:…; the tag lookup the
@@ -118,6 +155,69 @@ describe("DockerPrepImageProvider", () => {
       message: expect.stringContaining("no content for this platform"),
     });
     expect(store.calls.some((args) => args[0] === "pull")).toBe(false);
+  });
+
+  it.each([
+    ["linux/amd64", "linux/arm64/v8"],
+    ["linux/arm64", "linux/amd64"],
+  ] as const)(
+    "classic image store: an image present only for another platform is a typed platform_mismatch for %s",
+    async (requested, actual) => {
+      // Docker Desktop's classic store answers a platform inspection of another platform's image with an error.
+      store.failure = `Error response from daemon: image with reference ${BY_DIGEST} was found but does not match the specified platform: wanted ${requested}, actual: ${actual}`;
+      const error = (await new DockerPrepImageProvider(store)
+        .ensure({ key: "k", reference: PINNED, platform: requested, pull: true })
+        .catch((e: unknown) => e)) as PrepError;
+      expect(error.code).toBe("platform_mismatch");
+      expect(error.message).toContain(`is ${actual}, not ${requested}`);
+      // Never "fixed" by pulling over the other platform's image.
+      expect(store.calls.some((args) => args[0] === "pull")).toBe(false);
+    },
+  );
+
+  it("containerd image store: an index without the platform's content is image_unavailable", async () => {
+    store.failure = `Error response from daemon: image with reference ${BY_DIGEST} was found but does not provide the specified platform (linux/arm64)`;
+    await expect(new DockerPrepImageProvider(store).ensure({ key: "k", reference: PINNED, platform: "linux/arm64" })).rejects.toMatchObject(
+      {
+        code: "image_unavailable",
+      },
+    );
+  });
+
+  it("refuses an arm64 manifest pin for linux/amd64 before asking Docker, and accepts it for linux/arm64", async () => {
+    const armPin = `python:3.11-slim-trixie@${ARM64_MANIFEST}`;
+    store.refs.set(`python@${ARM64_MANIFEST}`, new Set(["linux/arm64"]));
+    const provider = new DockerPrepImageProvider(store);
+    await expect(provider.ensure({ key: "k", reference: armPin, platform: "linux/amd64", pull: true })).rejects.toMatchObject({
+      code: "platform_mismatch",
+    });
+    expect(store.calls).toEqual([]);
+    await expect(provider.ensure({ key: "k", reference: armPin, platform: "linux/arm64" })).resolves.toMatchObject({
+      platform: "linux/arm64",
+    });
+  });
+
+  it("refuses an index whose platform inspection reports another platform's manifest", async () => {
+    const lying: ContainerRuntime = {
+      async docker() {
+        return result(`${ARM64_MANIFEST}|linux|amd64|["python@${DIGEST}"]\n`);
+      },
+    };
+    await expect(new DockerPrepImageProvider(lying).ensure({ key: "k", reference: PINNED, platform: "linux/amd64" })).rejects.toMatchObject(
+      {
+        code: "platform_mismatch",
+      },
+    );
+    const honest: ContainerRuntime = {
+      async docker() {
+        return result(`${AMD64_MANIFEST}|linux|amd64|["python@${DIGEST}"]\n`);
+      },
+    };
+    await expect(
+      new DockerPrepImageProvider(honest).ensure({ key: "k", reference: PINNED, platform: "linux/amd64" }),
+    ).resolves.toMatchObject({
+      imageId: AMD64_MANIFEST,
+    });
   });
 
   it("with an older CLI, compares the image's own platform", async () => {

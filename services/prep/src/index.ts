@@ -9,4 +9,5 @@ export * from "./constraints.js";
 export * from "./image.js";
 export * from "./space.js";
 export * from "./target.js";
+export * from "./pip-entry.js";
 export * from "./downloader.js";

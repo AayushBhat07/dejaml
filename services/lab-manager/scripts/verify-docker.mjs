@@ -14,7 +14,7 @@ import { join } from "node:path";
 import { platformFromEnv } from "@dejaml/contracts";
 import { RunStore } from "@dejaml/run-store";
 
-import { DEFAULT_LAB_LIMITS, LAB_ENV_ALLOWLIST, LabManager } from "../dist/index.js";
+import { DEFAULT_LAB_LIMITS, evaluateNetworkIsolation, LAB_ENV_ALLOWLIST, LabManager, NETWORK_OBSERVER_PY } from "../dist/index.js";
 
 const BASE_IMAGE = "python:3.13.15-slim-trixie@sha256:7c61056e61ac89e852de05f3dc6fa51a6dd2181797bceed46aa725dd7cb2cd3b";
 const PROOF_IMAGE = "dejaml/lab-manager-proof:local";
@@ -38,12 +38,20 @@ function docker(args, input) {
   return result.stdout.trim();
 }
 
+/** Short-lived helper containers (never labs); removed with --rm and checked by this label at the end. */
+const HELPER_LABEL = "dejaml.proof=lab-network";
+
+function helper(network, args) {
+  return docker(["run", "--rm", "--label", HELPER_LABEL, "--pull", "never", "--platform", PLATFORM, "--network", network, ...args]);
+}
+
 function assert(condition, message) {
   if (!condition) throw new Error(`assertion failed: ${message}`);
 }
 
 const PROBE = String.raw`
 import json, os, socket, subprocess, sys, time
+${NETWORK_OBSERVER_PY}
 mode = sys.argv[1]
 def connect(host, port):
     try:
@@ -67,6 +75,7 @@ if mode == "probe":
     status = dict(line.split(":\t", 1) for line in open("/proc/self/status").read().splitlines() if ":\t" in line)
     checks = {"uid": os.getuid(), "gid": os.getgid()}
     checks["network"] = connect("1.1.1.1", 53)
+    checks["networkV6"] = connect("2606:4700:4700::1111", 53)
     checks["metadata"] = connect("169.254.169.254", 80)
     try:
         socket.getaddrinfo("pypi.org", 443)
@@ -74,6 +83,8 @@ if mode == "probe":
     except OSError as error:
         checks["dns"] = f"blocked ({type(error).__name__})"
     checks["interfaces"] = sorted(os.listdir("/sys/class/net"))
+    checks["networkObservation"] = observe_network()
+    checks["netns"] = os.readlink("/proc/self/ns/net")
     checks["rootWritable"] = writable("/usr/escape.txt")
     checks["inputWritable"] = writable("data/input.txt")
     checks["wheelhouseWritable"] = writable("wheels/new.whl")
@@ -209,7 +220,32 @@ try {
   assert(checks.network.startsWith("blocked"), "network is blocked");
   assert(checks.metadata.startsWith("blocked"), "cloud metadata endpoint is unreachable");
   assert(checks.dns.startsWith("blocked"), "DNS does not resolve");
-  assert(JSON.stringify(checks.interfaces) === JSON.stringify(["lo"]), "only the loopback interface exists");
+  assert(checks.networkV6.startsWith("blocked"), "IPv6 network is blocked");
+  // Docker Desktop's LinuxKit kernel creates inert fallback tunnel devices (tunl0, ip6tnl0, ...) in every
+  // network namespace; isolation means no device but loopback can carry traffic, not one exact listing.
+  const isolation = evaluateNetworkIsolation(checks.networkObservation);
+  assert(isolation.isolated, `no usable interface or route besides loopback: ${isolation.violations.join("; ")}`);
+  assert(
+    JSON.stringify(Object.keys(inspected.NetworkSettings?.Networks ?? {})) === JSON.stringify(["none"]),
+    `attached only to the none network: ${Object.keys(inspected.NetworkSettings?.Networks ?? {}).join(",")}`,
+  );
+  const attachment = inspected.NetworkSettings.Networks.none;
+  assert(!attachment.IPAddress && !attachment.GlobalIPv6Address && !attachment.Gateway, "the none attachment has no address or gateway");
+  const empty = (value) => value === null || value === undefined || Object.keys(value).length === 0;
+  assert(
+    empty(host.PortBindings) &&
+      host.PublishAllPorts !== true &&
+      empty(inspected.NetworkSettings.Ports) &&
+      empty(inspected.Config.ExposedPorts),
+    "no exposed or published port",
+  );
+  assert(!["host"].includes(host.PidMode) && !["host"].includes(host.IpcMode) && !["host"].includes(host.UTSMode), "no host namespaces");
+  // The engine's own network namespace (the Docker Desktop VM's on macOS), seen by a host-network helper.
+  const engineNetns = helper("host", ["--entrypoint", "readlink", PROOF_IMAGE, "/proc/self/ns/net"]);
+  assert(
+    /^net:\[\d+\]$/u.test(checks.netns) && checks.netns !== engineNetns,
+    `own network namespace (${checks.netns}, engine ${engineNetns})`,
+  );
   // Identity and privileges.
   assert(checks.uid === 10001 && checks.gid === 10001, "runs as 10001:10001");
   assert(host.ReadonlyRootfs === true && checks.rootWritable === false, "root filesystem is read-only");
@@ -254,7 +290,28 @@ try {
   assert(success.receipt.verifiedAbsent && success.receipt.artifactDirectoryRemoved, "success cleanup verified");
   assert(success.receipt.platform === PLATFORM && success.receipt.imageId === imageId, "receipt records platform and image");
   const { envValues: _values, ...publicChecks } = checks;
-  report.sealed = { checks: publicChecks, imageDigest: sealedLab.imageDigest, receipt: success.receipt };
+  report.sealed = {
+    checks: publicChecks,
+    networkIsolation: { ...isolation, engineNetns },
+    imageDigest: sealedLab.imageDigest,
+    receipt: success.receipt,
+  };
+
+  // 1b. The same rule refuses a namespace that has a route out (the default bridge), so it is not vacuous.
+  const bridged = JSON.parse(
+    helper("bridge", [
+      "--user",
+      "10001:10001",
+      "--entrypoint",
+      "python",
+      PROOF_IMAGE,
+      "-c",
+      `import json\n${NETWORK_OBSERVER_PY}\nprint(json.dumps(observe_network()))`,
+    ]),
+  );
+  const bridgedVerdict = evaluateNetworkIsolation(bridged);
+  assert(!bridgedVerdict.isolated, "a bridge-attached namespace fails the isolation rule");
+  report.bridgeNegativeControl = bridgedVerdict.violations;
 
   // 2. The wrong platform is refused before anything is created.
   const mismatch = await manager.createLab(spec(60, 512, {}, OTHER_PLATFORM)).then(
@@ -381,6 +438,7 @@ try {
 
   const leftovers = docker(["ps", "--all", "--quiet", "--filter", "label=dejaml.lab"]);
   assert(leftovers === "", "no lab containers remain");
+  assert(docker(["ps", "--all", "--quiet", "--filter", `label=${HELPER_LABEL}`]) === "", "no helper containers remain");
   assert((await readdir(labRoot)).length === 0, "no lab directories remain");
   const events = store.listEvents(run.id);
   report.events = events.map((event) => `${event.sequence} ${event.type} ${event.status}: ${event.summary}`);

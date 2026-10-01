@@ -1,7 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
-import { mkdir, mkdtemp, readdir, readFile, rm, stat } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import https from "node:https";
 import { createServer as createTcpServer, type Server as TcpServer, type Socket } from "node:net";
@@ -11,7 +11,7 @@ import { join } from "node:path";
 
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
-import { acquireLabDataset, cleanupDataset, type LabDatasetOptions } from "./dataset.js";
+import { acquireLabDataset, cleanupDataset, type LabDataset, type LabDatasetOptions } from "./dataset.js";
 import { DatasetError, datasetFailurePolicy, type DatasetFailurePolicy } from "./dataset-errors.js";
 import type { ResolvedAddress, Resolver } from "./dns.js";
 import type { HttpsTransport } from "./fetch.js";
@@ -58,6 +58,15 @@ describe.skipIf(!hasOpenssl())("acquireLabDataset against a local TLS server", (
   let hits: string[];
   let workDir: string;
   let parentDir: string;
+  /** Every sealed dataset a test acquires; afterEach proves each one is cleaned up. */
+  let acquired: string[];
+
+  /** Acquires a dataset and records its sealed root so it can never be leaked. */
+  async function acquire(resolved: LabDatasetOptions): Promise<LabDataset> {
+    const dataset = await acquireLabDataset(resolved);
+    acquired.push(dataset.root);
+    return dataset;
+  }
 
   const loopbackAllowed = (ip: string): boolean => ip === "127.0.0.1" || isPublicAddress(ip);
   const trustTestCa: HttpsTransport = (options, callback) => https.request({ ...options, ca: cert }, callback);
@@ -172,6 +181,7 @@ describe.skipIf(!hasOpenssl())("acquireLabDataset against a local TLS server", (
 
   beforeEach(async () => {
     hits = [];
+    acquired = [];
     handler = (_request, response) => {
       response.writeHead(404).end();
     };
@@ -182,7 +192,16 @@ describe.skipIf(!hasOpenssl())("acquireLabDataset against a local TLS server", (
 
   afterEach(async () => {
     server.closeAllConnections();
-    await rm(workDir, { recursive: true, force: true });
+    // Sealed trees are 0555/0444, so a plain recursive rm fails for a non-root
+    // user (EACCES on macOS and unprivileged Linux). Each acquired dataset must
+    // be removable through cleanupDataset, which unseals before removing.
+    const receipts = await Promise.all(acquired.map((root) => cleanupDataset(root)));
+    for (const receipt of receipts) {
+      expect(receipt).toMatchObject({ verifiedAbsent: true, errors: [] });
+    }
+    // Only unsealed test scaffolding remains; a plain rm must succeed.
+    await rm(workDir, { recursive: true });
+    expect(existsSync(workDir)).toBe(false);
   });
 
   it("downloads, verifies, extracts and seals a zip; records an immutable identity; cleans up", async () => {
@@ -193,7 +212,7 @@ describe.skipIf(!hasOpenssl())("acquireLabDataset against a local TLS server", (
       }
       response.writeHead(200, { "Content-Type": "application/zip", "Content-Length": ZIP.length }).end(ZIP);
     };
-    const dataset = await acquireLabDataset(options({ url: url("/latest"), expectedSha256: sha(ZIP), extract: true }));
+    const dataset = await acquire(options({ url: url("/latest"), expectedSha256: sha(ZIP), extract: true }));
     const listing = "dejaml-dataset-listing-v1\n" + `${sha("CC-BY")} 5 iris/LICENSE\n` + `${sha(CSV)} ${CSV.length} iris/train.csv\n`;
     expect(dataset.identity).toEqual({
       name: "iris",
@@ -248,12 +267,17 @@ describe.skipIf(!hasOpenssl())("acquireLabDataset against a local TLS server", (
 
   it("marks a dataset without an expected checksum as not verified and never invents one", async () => {
     handler = (_request, response) => response.writeHead(200, { "Content-Type": "text/csv" }).end(CSV);
-    const dataset = await acquireLabDataset(options({ url: url("/iris.csv") }));
+    const dataset = await acquire(options({ url: url("/iris.csv") }));
     expect(dataset.identity.checksumVerified).toBe(false);
     expect(dataset.identity.expectedSha256).toBeNull();
     expect(dataset.identity.sha256).toBe(sha(CSV));
     expect(dataset.identity.extracted).toBeNull();
     expect(dataset.extractedPath).toBeNull();
+    // Still sealed read-only, and still removable by its owner.
+    expect((await stat(dataset.root)).mode & 0o7777).toBe(0o555);
+    expect((await stat(dataset.filePath)).mode & 0o7777).toBe(0o444);
+    expect(await cleanupDataset(dataset)).toEqual({ path: dataset.root, removed: true, verifiedAbsent: true, errors: [] });
+    expect(existsSync(dataset.root)).toBe(false);
   });
 
   it("refuses when a checksum is required but missing, before any request", async () => {
@@ -454,6 +478,27 @@ describe.skipIf(!hasOpenssl())("acquireLabDataset against a local TLS server", (
 });
 
 describe("cleanupDataset", () => {
+  it("unseals and removes a nested read-only tree, leaving nothing behind", async () => {
+    const workDir = await mkdtemp(join(tmpdir(), "net-guard-cleanup-"));
+    try {
+      const root = join(workDir, "sealed");
+      await mkdir(join(root, "extracted", "deep"), { recursive: true });
+      await writeFile(join(root, "extracted", "deep", "a.csv"), "x");
+      await writeFile(join(root, "b.csv"), "y");
+      // Same modes as the production seal: files 0444, directories 0555, bottom-up.
+      await chmod(join(root, "extracted", "deep", "a.csv"), 0o444);
+      await chmod(join(root, "b.csv"), 0o444);
+      for (const dir of [join(root, "extracted", "deep"), join(root, "extracted"), root]) {
+        await chmod(dir, 0o555);
+      }
+      expect(await cleanupDataset(root)).toEqual({ path: root, removed: true, verifiedAbsent: true, errors: [] });
+      expect(existsSync(root)).toBe(false);
+    } finally {
+      await rm(workDir, { recursive: true, force: true });
+    }
+    expect(existsSync(workDir)).toBe(false);
+  });
+
   it("refuses relative, non-normalized and root paths", async () => {
     for (const path of ["", "relative", "/tmp/../tmp/x", "/"]) {
       const receipt = await cleanupDataset(path);
