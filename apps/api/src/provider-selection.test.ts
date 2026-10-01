@@ -88,6 +88,7 @@ describe("GET /api/config", () => {
         { id: "openai", label: "OpenAI", models: ["gpt-fixture-1", "gpt-fixture-2"] },
         { id: "custom", label: "Custom endpoint", models: ["lab-model"] },
       ],
+      reviewedCases: [],
     });
     for (const secret of [SERVER_OPENAI_KEY, "custom-FIXTURE-key-3333", "llm.lab.example.test", "keySource", "baseUrl", "apiKey"]) {
       expect(text).not.toContain(secret);
@@ -96,7 +97,7 @@ describe("GET /api/config", () => {
 
   it("is empty when no provider key is configured", async () => {
     await start({ DEJAML_ANTHROPIC_MODELS: "claude-opus-5-5", DEJAML_OPENAI_MODELS: "gpt-fixture-1" });
-    expect(await (await fetch(`${base}/api/config`)).json()).toEqual({ providers: [] });
+    expect(await (await fetch(`${base}/api/config`)).json()).toEqual({ providers: [], reviewedCases: [] });
     const refused = await upload({ providerId: "anthropic", modelName: "claude-opus-5-5" });
     expect(refused.status).toBe(400);
     expect(refused.error).toBe("Choose one of the configured model providers.");

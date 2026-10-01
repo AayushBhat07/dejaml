@@ -477,6 +477,80 @@ describe("Run API", () => {
     expect(store.listActiveRuns()).toHaveLength(0);
   });
 
+  it("lists reviewed cases in /api/config with the claim under test and nothing about how a case is run or judged", async () => {
+    const paper = await paperPdf(false);
+    const first = [...(await fixtureTarget(paper)).values()][0]!;
+    const second = [
+      ...(
+        await fixtureTarget(await paperPdf(true), {
+          caseId: "fixture-second-case",
+          paper: { title: "Second fixture paper", sha256: "a".repeat(64) },
+          adapter: null,
+          tolerance: 0.5,
+          maximumVerdict: "partially_reproduced",
+        })
+      ).values(),
+    ][0]!;
+    await startServer({ autonomous: true, reviewedTargets: new Map([first, second].map((target) => [target.caseId, target])) });
+    const config = (await (await fetch(`${base}/api/config`)).json()) as { reviewedCases: Array<Record<string, unknown>> };
+    expect(config.reviewedCases).toEqual([
+      {
+        caseId: "fixture-rf-accuracy",
+        title: "Fixture paper",
+        paperTitle: "Fixture paper",
+        paperSha256: first.paper.sha256,
+        claim: {
+          page: 1,
+          location: "Section 4",
+          method: "Random Forest",
+          dataset: "UCI Urban Land Cover",
+          split: "official test set",
+          metric: { name: "accuracy", unit: "percent" },
+          reportedValue: 81.66,
+        },
+        repository: { url: "https://github.com/example/new-paper", commitSha: "7f8b1c4cbe5b4caf2f6cc8bc0d6fc31ce2f6bd71" },
+        available: true,
+      },
+      expect.objectContaining({
+        caseId: "fixture-second-case",
+        title: "Second fixture paper",
+        paperSha256: "a".repeat(64),
+        available: true,
+      }),
+    ]);
+    // Nothing that says how a case is run or judged, no observed value, no host path, no key.
+    const text = JSON.stringify(config);
+    for (const forbidden of [
+      "excerpt",
+      "identify",
+      "adapter",
+      "requirements",
+      "metricParser",
+      "tolerance",
+      "maximumVerdict",
+      "entrypoint",
+      "preprocessing",
+      "seedPolicy",
+      "expectedRuntime",
+      "environment",
+      "observed",
+      "accuracyPercent",
+      "artifacts/result.json",
+      first.claim.excerpt,
+      repoRoot,
+      work,
+      "sk-server-test-key-0001",
+    ]) {
+      expect(text).not.toContain(forbidden);
+    }
+    // A server without reviewed cases lists none.
+    await api.close();
+    store.close();
+    serverStarted = false;
+    await startServer();
+    expect(((await (await fetch(`${base}/api/config`)).json()) as { reviewedCases: unknown[] }).reviewedCases).toEqual([]);
+  });
+
   it("recovers from a failed official run with a separate Debugger agent", async () => {
     await startServer({ autonomous: true, repositoryUrl: "https://github.com/example/new-paper" });
     runtime.failFirstRun = true;

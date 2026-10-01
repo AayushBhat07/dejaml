@@ -174,6 +174,55 @@ function parseSelection(upload: Upload, config: LoadedProviderConfig, request: I
   return { providerId, model };
 }
 
+/** A reviewed case as the browser may see it: which paper and claim, never how the case is run or judged. */
+export type PublicReviewedCase = {
+  caseId: string;
+  title: string;
+  paperTitle: string;
+  paperSha256: string;
+  claim: {
+    page: number;
+    location: string;
+    method: string;
+    dataset: string;
+    split: string;
+    metric: { name: string; unit: "fraction" | "percent" | "score" };
+    reportedValue: number;
+  };
+  repository: { url: string; commitSha: string };
+  available: boolean;
+};
+
+/**
+ * The reviewed cases a person can start, for the New Study page. Each field is
+ * copied explicitly, so nothing else in a target (its excerpt, adapter,
+ * requirements, metric parser, tolerance, or most favourable verdict) can reach
+ * the browser. A case holds no observed value; the reported value is the
+ * paper's own number, the claim under test.
+ */
+export function publicReviewedCases(targets: ReadonlyMap<string, ClaimTarget> | undefined): PublicReviewedCase[] {
+  return [...(targets?.values() ?? [])]
+    .map((target) => ({
+      caseId: target.caseId,
+      title: target.paper.title,
+      paperTitle: target.paper.title,
+      paperSha256: target.paper.sha256,
+      claim: {
+        page: target.claim.page,
+        location: target.claim.location,
+        method: target.claim.method,
+        dataset: target.claim.dataset,
+        split: target.claim.split,
+        metric: { name: target.claim.metric.name, unit: target.claim.metric.unit },
+        reportedValue: target.claim.reportedValue,
+      },
+      repository: { url: target.repository.url, commitSha: target.repository.commitSha },
+      // Every loaded target passed validation (and its adapter's hash check) when the registry loaded.
+      available: true,
+    }))
+    .sort((a, b) => a.caseId.localeCompare(b.caseId));
+}
+
 export function createApiServer(options: ApiOptions): ApiServer {
   const { store } = options;
   const providerFactory =
@@ -321,7 +370,10 @@ export function createApiServer(options: ApiOptions): ApiServer {
     }
     if (url.pathname === "/api/config" && method === "GET") {
       // Only providers with a server-held key (or the keyless custom endpoint) are listed: ids, labels, models.
-      return sendJson(response, 200, { providers: publicProviders(options.providers) });
+      return sendJson(response, 200, {
+        providers: publicProviders(options.providers),
+        reviewedCases: publicReviewedCases(options.reviewedTargets),
+      });
     }
 
     const match = /^\/api\/runs\/([^/]+)(?:\/(events|cancel|report))?$/u.exec(url.pathname);

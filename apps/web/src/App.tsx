@@ -1,34 +1,76 @@
 import type { RunEvent } from "@dejaml/contracts";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { Shell } from "./components/Shell";
-import { defaultRunClient, type RunClient, type ServerConfig, type StudyOptions } from "./lib/run-client";
-import { stageForEvents, type StageId } from "./lib/stages";
+import { appendEvents, EMPTY_LOG, type EventLog } from "./lib/event-log";
 import { buildReport } from "./lib/lab";
-import { Findings } from "./screens/Findings";
+import {
+  defaultRunClient,
+  type ConnectionState,
+  type ReportSummary,
+  type RunClient,
+  type RunInfo,
+  type ServerConfig,
+  type StudyOptions,
+} from "./lib/run-client";
+import { LiveRun } from "./screens/LiveRun";
 import { NewStudy } from "./screens/NewStudy";
-import { ResearchTeam } from "./screens/ResearchTeam";
-import { VirtualLab } from "./screens/VirtualLab";
+
+/** Events that arrive together are applied together, so a burst of output renders once. */
+const FLUSH_MS = 40;
 
 export function App({ client: provided }: { client?: RunClient }) {
   const client = useMemo(() => provided ?? defaultRunClient(), [provided]);
-  // Live runs keep their ID in the URL so a refresh resumes the same study.
+  // Live runs keep their ID in the URL so a refresh resumes the same study from its first event.
   const [runId, setRunId] = useState<string | null>(() =>
     client.mode === "live" ? new URLSearchParams(window.location.search).get("run") : null,
   );
-  const [events, setEvents] = useState<RunEvent[]>([]);
-  const [pinned, setPinned] = useState<StageId | null>(null);
+  const [log, setLog] = useState<EventLog>(EMPTY_LOG);
+  const [connection, setConnection] = useState<ConnectionState>("connecting");
   const [connectionError, setConnectionError] = useState<string | null>(null);
+  const [finished, setFinished] = useState(false);
+  const pending = useRef<RunEvent[]>([]);
+  const flushTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     if (!runId) return;
-    return client.subscribe(runId, 0, {
+    setLog(EMPTY_LOG);
+    setFinished(false);
+    pending.current = [];
+    let unsubscribe: (() => void) | null = null;
+    let ended = false;
+    const flush = () => {
+      flushTimer.current = null;
+      const batch = pending.current;
+      pending.current = [];
+      if (batch.length) setLog((current) => appendEvents(current, batch));
+    };
+    unsubscribe = client.subscribe(runId, 0, {
       onEvent: (event) => {
         setConnectionError(null);
-        setEvents((current) => (current.some((existing) => existing.sequence >= event.sequence) ? current : [...current, event]));
+        pending.current.push(event);
+        if (!flushTimer.current) flushTimer.current = setTimeout(flush, FLUSH_MS);
+        if (event.type === "run_finished" && !ended) {
+          // The run is over: nothing more will stream, so the page stops listening (and never reconnects).
+          ended = true;
+          setFinished(true);
+          setTimeout(() => {
+            flush();
+            unsubscribe?.();
+          }, 0);
+        }
       },
       onError: setConnectionError,
+      onStatus: (state) => {
+        setConnection(state);
+        if (state === "live") setConnectionError(null);
+      },
     });
+    return () => {
+      if (flushTimer.current) clearTimeout(flushTimer.current);
+      flushTimer.current = null;
+      unsubscribe?.();
+    };
   }, [client, runId]);
 
   const [config, setConfig] = useState<ServerConfig | null>(null);
@@ -42,30 +84,50 @@ export function App({ client: provided }: { client?: RunClient }) {
     };
   }, [client]);
 
+  const [info, setInfo] = useState<RunInfo | null>(null);
+  useEffect(() => {
+    setInfo(null);
+    if (!runId || !client.runInfo) return;
+    let current = true;
+    void client.runInfo(runId).then((value) => {
+      if (current) setInfo(value);
+    });
+    return () => {
+      current = false;
+    };
+  }, [client, runId]);
+
+  const [report, setReport] = useState<ReportSummary | null>(null);
+  useEffect(() => {
+    setReport(null);
+    if (!runId || !finished || !client.reportSummary) return;
+    let current = true;
+    void client.reportSummary(runId).then((value) => {
+      if (current) setReport(value);
+    });
+    return () => {
+      current = false;
+    };
+  }, [client, runId, finished]);
+
   const start = async (paper: File, options: StudyOptions) => {
     const run = await client.createRun(paper, options);
-    setEvents([]);
-    setPinned(null);
+    setLog(EMPTY_LOG);
     setRunId(run.runId);
     if (client.mode === "live") window.history.replaceState(null, "", `?run=${encodeURIComponent(run.runId)}`);
   };
 
-  const stage: StageId = runId ? stageForEvents(events) : "new_study";
-  // Follow the run unless the viewer chose an earlier screen; clicking the live stage resumes following.
-  const viewing = pinned ?? stage;
-  const select = (next: StageId) => setPinned(next === stage ? null : next);
-
   const reset = () => {
     setRunId(null);
-    setEvents([]);
-    setPinned(null);
+    setLog(EMPTY_LOG);
     if (window.location.search) window.history.replaceState(null, "", window.location.pathname);
   };
 
+  const replay = client.mode === "replay" ? (client.replaySource ?? { kind: "prepared" as const }) : null;
   const download = () => {
     if (!runId) return;
-    const report = buildReport(runId, events, client.mode === "replay" ? (client.replaySource ?? { kind: "prepared" }) : null);
-    const url = URL.createObjectURL(new Blob([JSON.stringify(report, null, 2)], { type: "application/json" }));
+    const built = buildReport(runId, log.events, replay);
+    const url = URL.createObjectURL(new Blob([JSON.stringify(built, null, 2)], { type: "application/json" }));
     const link = document.createElement("a");
     link.href = url;
     link.download = `dejaml-report-${runId}.json`;
@@ -73,26 +135,31 @@ export function App({ client: provided }: { client?: RunClient }) {
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   };
 
+  // Older recordings end with their lab's cleanup; agent studies end with their result.
+  const native = log.events.some((event) => event.type === "agent_started" || event.type === "study_team");
+  const ended = finished || log.events.some((event) => event.type === "study_result" || (!native && event.type === "lab_cleanup"));
   return (
-    <Shell
-      stage={stage}
-      viewing={viewing}
-      onSelectStage={select}
-      replay={client.mode === "replay" ? (client.replaySource ?? { kind: "prepared" }) : null}
-    >
-      {connectionError ? <p className="error">{connectionError}</p> : null}
+    <Shell replay={replay} wide={Boolean(runId)}>
+      {connectionError && !finished ? (
+        <p className="error" role="alert">
+          {connectionError}
+        </p>
+      ) : null}
       {!runId ? (
         <NewStudy key={config ? "configured" : "default"} onStart={start} config={client.mode === "live" ? config : null} />
-      ) : viewing === "research_team" ? (
-        <ResearchTeam events={events} />
-      ) : viewing === "virtual_lab" ? (
-        <VirtualLab events={events} onCancel={() => void client.cancel(runId)} />
       ) : (
-        <Findings
-          events={events}
-          onDownload={download}
+        <LiveRun
+          runId={runId}
+          log={log}
+          connection={connection}
+          info={info}
+          reviewedCases={config?.reviewedCases ?? []}
+          report={report}
+          replay={client.mode === "replay"}
           reportHref={client.reportUrl(runId)}
-          onNewStudy={events.some((event) => event.type === "run_finished" || event.type === "lab_cleanup") ? reset : undefined}
+          onDownload={download}
+          onCancel={() => void client.cancel(runId)}
+          onNewStudy={ended ? reset : undefined}
         />
       )}
     </Shell>
