@@ -42,6 +42,7 @@ import {
   loadReviewedTargets,
   localDatasetPort,
   preparerPort,
+  proveBlinding,
   readinessLabImagePort,
   runMultiAgentStudy,
 } from "../dist/study/index.js";
@@ -194,7 +195,7 @@ class ScriptedProofProvider {
         });
       case "Independent Reviewer":
         if (turn === 0) return [{ name: "board_read", input: { key: String(inputs.submissionKey ?? "") } }];
-        return finish({ verdict: "approve", ...SCRIPT.review });
+        return finish({ ...SCRIPT.review });
       default:
         return [{ name: "give_up", input: { reason: `unscripted role ${role}` } }];
     }
@@ -350,6 +351,7 @@ check(
   engineer?.review?.verdict === "approve",
   `${engineer?.reviewerAgentId}: ${engineer?.review?.verdict} (${engineer?.review?.equivalence})`,
 );
+for (const item of proveBlinding({ store, runId: run.id, report: study })) check(`blinding: ${item.name}`, item.pass, item.info);
 check(
   `status computed from evidence (${acceptance.expected.statuses.join(" / ")}), capped by the adapter`,
   acceptance.expected.statuses.includes(study.result.status) &&

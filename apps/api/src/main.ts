@@ -75,6 +75,7 @@ const number = (name: string, fallback: number): number => {
 const recovery = await recoverAfterRestart({ store, labs, workRoot: dataDir, resumeStudies: process.env.DEJAML_AUTONOMOUS !== "0" });
 const api = createApiServer({
   store,
+  adminToken: process.env.DEJAML_ADMIN_TOKEN?.trim() || null,
   labs,
   providers,
   cases: await loadCases(projectRoot),

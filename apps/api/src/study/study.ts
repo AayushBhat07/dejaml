@@ -21,10 +21,36 @@ import type {
 import { WORK_STAGES } from "@dejaml/contracts";
 import { type CleanupReceipt, DEFAULT_LAB_LIMITS, type LabWorker, LabSpecSchema } from "@dejaml/lab-manager";
 import { acquireGithubRepository, cleanupAcquiredRepository } from "@dejaml/repository-intake";
-import type { RunStore, StageRecord } from "@dejaml/run-store";
+import {
+  BlindingIntegrityError,
+  type BlindingPhase,
+  type BlindingRecord,
+  type RunStore,
+  sha256Hex,
+  type StageRecord,
+} from "@dejaml/run-store";
 import type { z } from "zod";
 
 import { type ArtifactStore, LocalArtifactStore } from "../boundaries.js";
+import {
+  compareRevealed,
+  type Comparison,
+  environmentDigest,
+  type ExecutionContract,
+  executionClaim,
+  executionContract,
+  findValue,
+  forwardableMapping,
+  implausibleValue,
+  lockObservation,
+  type Observation,
+  revealTarget,
+  riggedAdapter,
+  type SealedTarget,
+  sealTarget,
+  statesExpectation,
+  withholdInJson,
+} from "./blinding.js";
 import {
   type AcquiredDataset,
   type DatasetPort,
@@ -39,13 +65,14 @@ import {
   type StudyConfig,
   type StudyContext,
 } from "./context.js";
-import { reconcile, reviewPolicy } from "./contract.js";
+import { canonicalJson, reconcile, reviewPolicy, TOLERANCE } from "./contract.js";
 import { measureIntegrity, orchestratorActor, runInLab } from "./lab-tools.js";
 import { convertUnit, parseMetric } from "./metric.js";
 import {
   DiagnosisSchema,
   INSTRUCTIONS,
   TARGETED_INSTRUCTIONS,
+  type PaperClaim,
   type PaperClaimResult,
   PaperClaimResultSchema,
   type Plan,
@@ -63,6 +90,7 @@ import {
   SupervisorCheckpointSchema,
   type SupervisorVerdict,
   SupervisorVerdictSchema,
+  withVerdict,
 } from "./roles.js";
 import {
   adapterSha256,
@@ -70,15 +98,16 @@ import {
   claimMismatch,
   paperAnalystTarget,
   plannerTarget,
+  publicTargetSummary,
   repositoryAnalystTarget,
-  targetSummary,
 } from "./targets.js";
-import { acquireRepository, buildStudyTools } from "./tools.js";
+import { acquireRepository, buildStudyTools, refreshProjection } from "./tools.js";
 import {
   applySupervisor,
   decideStatus,
   type EngineerOutcome,
   type OfficialRun,
+  type RevealedComparison,
   type StatusDecision,
   runStatusFor,
   terminalStageFor,
@@ -192,10 +221,13 @@ export type MultiAgentReport = {
   }>;
   messages: Array<{ from: string | null; to: string; at: string }>;
   paper: { name: string; sha256: string; pages: number };
-  /** The reviewed claim target the study investigated, or null when the agents chose the claim. */
+  /** The reviewed claim target the study investigated (public view), or null when the agents chose the claim. */
   reviewedTarget: Record<string, unknown> | null;
   repository: Record<string, unknown> | null;
-  contract: ClaimContract | null;
+  /** The full contract once the target is revealed (or in the audit report); the execution view before. */
+  contract: ClaimContract | ExecutionContract | null;
+  /** The commitments, their order, and the reveal proof. */
+  blinding: BlindingReport;
   planDigest: string | null;
   adapter: { path: string; sha256: string; why: string; source: string; differences: string[] } | null;
   policy: { outcome: string; violations: string[]; warnings: string[] } | null;
@@ -232,8 +264,35 @@ export type MultiAgentReport = {
   };
 };
 
+export type BlindingReport = {
+  /** True when no paper value appears in this report (the target was never revealed). */
+  sealed: boolean;
+  revealed: boolean;
+  commitment: string | null;
+  sealedAt: string | null;
+  /** Every recorded phase in order, with its commitment and public facts. */
+  records: Array<Pick<BlindingRecord, "sequence" | "phase" | "round" | "commitment" | "record" | "at">>;
+  /** The execution projection the agents and labs saw. */
+  projection: {
+    sha256: string;
+    originalManifestSha256: string | null;
+    notebooksStripped: Array<{ path: string; outputsRemoved: number }>;
+    documentsWithheld: number;
+    staticFindings: number;
+  } | null;
+  /** After the reveal only: the sealed payload (with its nonce) and the verification. */
+  reveal: { canonical: string; recomputedCommitment: string; verified: boolean; observationVerified: boolean } | null;
+  comparison: (Comparison & { blindVerdicts: string[] }) | null;
+  /** In an audit report of a study that never revealed: the sealed payload, for an administrator. */
+  sealedPayload: string | null;
+  errors: string[];
+};
+
 export type MultiAgentResult = {
+  /** Public report: no paper value, tolerance, or nonce unless the target was revealed. */
   report: MultiAgentReport;
+  /** Administrator audit report: everything, including a sealed payload that was never revealed. */
+  auditReport: MultiAgentReport;
   repository: { url: string; commitSha: string } | null;
   metric: Metric | null;
   assessment: Assessment | null;
@@ -285,7 +344,11 @@ type ExecuteStageOutput = {
   engineers: EngineerRecord[];
   failure: { code: string; outcome: PreparationFailure["outcome"]; message: string } | null;
 };
-type ReviewStageOutput = { reviews: Array<{ engineerAgentId: string; reviewerAgentId: string; status: string; review: Review | null }> };
+type ReviewStageOutput = {
+  reviews: Array<{ engineerAgentId: string; reviewerAgentId: string; status: string; review: Review | null }>;
+  /** The round this blind review belongs to (the executing stage's attempt). */
+  round?: number;
+};
 type DecideStageOutput = {
   status: ResultStatus;
   computedStatus: ResultStatus;
@@ -404,6 +467,8 @@ export async function runMultiAgentStudy(
     repository: null,
     // A reviewed target pins the repository to its reviewed commit from the first acquisition.
     pinnedCommit: target?.repository.commitSha ?? null,
+    projection: null,
+    sealedForScan: null,
     contract: null,
     planDigest: null,
     prepared: null,
@@ -413,14 +478,137 @@ export async function runMultiAgentStudy(
     finishLab: (agentId, reason) => finishLab(agentId, reason),
     event,
   };
+  // The revealed, verified target; null until both locks are recorded.
+  let revealed = null as SealedTarget | null;
   const runtime = new BoundedAgentRuntime({
     store,
     provider: () => deps.chatProvider,
     tools: (agent) => buildStudyTools(ctx, agent),
     resultSchema: resultSchemaFor,
+    // Before the reveal, no request of any agent but the Paper Analyst may carry the sealed value.
+    requestGuard: (agent, text) => {
+      if (agent.role === "paper_analyst" || revealed || !ctx.sealedForScan) return null;
+      return findValue(ctx.sealedForScan.value, ctx.sealedForScan.unit, text) ? "it carries the sealed paper value" : null;
+    },
   });
   ctx.runtime = runtime;
   const board = runtime.board(runId);
+
+  // ---------------------------------------------------------------------------
+  // Blinding: the sealed target, the locks, and the reveal (see ./blinding.ts).
+
+  const blinding = store.blinding;
+  const blindingErrors: string[] = [];
+
+  /** Records a phase once; on resume the recorded phase is returned, and a different commitment is an integrity failure. */
+  function ensurePhase(
+    phase: BlindingPhase,
+    round: number,
+    input: { commitment?: string | null; record?: Record<string, unknown> } = {},
+  ): BlindingRecord {
+    const existing = blinding.find(runId, phase, round);
+    if (existing) {
+      if (input.commitment && existing.commitment !== input.commitment)
+        throw new BlindingIntegrityError(`the ${phase.replaceAll("_", " ")} commitment changed after it was locked`);
+      return existing;
+    }
+    return blinding.record(runId, phase, { round, commitment: input.commitment ?? null, record: input.record ?? {} });
+  }
+
+  /** Loads the sealed value for trusted scanning (projection, request guard); never handed to an agent. */
+  function loadSealed(): void {
+    const row = blinding.sealedTarget(runId);
+    if (!row) return;
+    const sealed = JSON.parse(row.canonical) as SealedTarget;
+    ctx.sealedForScan = { value: sealed.reportedValue, unit: sealed.metric.unit };
+  }
+
+  function seal(input: Omit<SealedTarget, "schemaVersion" | "comparisonRule" | "nonce">): void {
+    if (blinding.sealedTarget(runId)) return loadSealed();
+    const sealed = sealTarget(input);
+    const record = blinding.seal(runId, {
+      canonical: sealed.canonical,
+      commitment: sealed.commitment,
+      record: { caseId: input.caseId, metric: input.metric.name, unit: input.metric.unit, comparisonRule: sealed.target.comparisonRule },
+    });
+    event("target_sealed", "completed", "Paper target sealed: the reported value stays hidden until the experiment and review are locked", {
+      caseId: input.caseId,
+      commitment: sealed.commitment,
+      metric: input.metric.name,
+      sealedAt: record.at,
+    });
+    loadSealed();
+  }
+
+  function sealFromClaim(claim: PaperClaim): void {
+    seal({
+      caseId: null,
+      caseVersion: null,
+      paperSha256: input.paper.file.sha256,
+      claimLocator: { page: claim.page, location: claim.location },
+      metric: claim.metric,
+      reportedValue: claim.reportedValue,
+      tolerance: TOLERANCE[claim.metric.unit],
+    });
+  }
+
+  function agentsStarted(): void {
+    if (blinding.find(runId, "agents_started")) return;
+    ensurePhase("agents_started", 0, {
+      record: {
+        blindRoles: ["repository_analyst", "reproduction_planner", "lab_engineer", "debugger", "independent_reviewer", "supervisor"],
+      },
+    });
+    event("agents_started", "started", "Blind agents start: none of them is told the paper's value", {});
+  }
+
+  /** The sealed value for withholding, when one is sealed. */
+  const sealedView = (): { value: number; unit: SealedTarget["metric"]["unit"] } | null => ctx.sealedForScan;
+  const isSealed = (): boolean => blinding.sealedTarget(runId) !== null;
+
+  /** The observation of one execution round: everything the measurement depends on, and nothing about the target. */
+  function buildObservation(round: number, engineers: EngineerRecord[]): Observation {
+    const contract = ctx.contract!;
+    const environment = {
+      labImageId: prepOut?.labImage?.imageId ?? null,
+      labImageDigest: prepOut?.labImage?.digest ?? null,
+      dependencyManifestSha256: prepOut?.dependencies?.manifestSha256 ?? null,
+      platform: contract.environment.platform.containerPlatform,
+    };
+    return {
+      schemaVersion: 1,
+      runId,
+      round,
+      metric: { name: contract.metric.name, unit: contract.metric.unit, parser: contract.metricParser },
+      planDigest: ctx.planDigest ?? "",
+      repository: {
+        url: contract.repository.url,
+        commitSha: contract.repository.commitSha,
+        manifestSha256: ctx.repository?.receipt.manifestSha256 ?? repoOut?.repository?.manifestSha256 ?? null,
+        projectionSha256: ctx.projection?.sha256 ?? null,
+      },
+      environment: { ...environment, digest: environmentDigest(environment) },
+      datasets: (prepOut?.datasets ?? []).map((item) => ({ name: item.name, sha256: item.sha256 })),
+      engineers: engineers.map((item) => ({
+        engineerAgentId: item.engineerAgentId,
+        label: item.label,
+        receiptId: item.official?.receiptId ?? null,
+        exitCode: item.official?.exitCode ?? null,
+        timedOut: item.official?.timedOut ?? false,
+        stdoutSha256: item.official?.stdoutSha256 ?? null,
+        stderrSha256: item.commands.find((command) => command.receiptId === item.official?.receiptId)?.stderrSha256 ?? null,
+        artifacts: item.artifacts.map((artifact) => ({ path: artifact.path, sha256: artifact.sha256 })),
+        metricOk: item.metric?.ok === true,
+        metricSource: item.metric?.ok ? item.metric.source : null,
+        rawValue: item.metric?.ok ? item.metric.value : null,
+        observedValue: item.value,
+        problem: item.metric && !item.metric.ok ? item.metric.reason : null,
+      })),
+    };
+  }
+
+  /** Any JSON with every form of the sealed value withheld (unchanged when nothing is sealed). */
+  const withhold = <T>(json: T): T => (ctx.sealedForScan ? withholdInJson(ctx.sealedForScan.value, ctx.sealedForScan.unit, json) : json);
 
   // ---------------------------------------------------------------------------
   // Stage and agent helpers.
@@ -650,7 +838,7 @@ export async function runMultiAgentStudy(
       kind: "note",
       authorAgentId: null,
       authorRole: "system",
-      payload: { replan: reason, guidance: guidance.slice(0, 2_000), evidence },
+      payload: withhold({ replan: reason, guidance: guidance.slice(0, 2_000), evidence }),
     });
     await releasePrepared();
     stages.invalidate(runId, "reconciling", reason);
@@ -671,7 +859,7 @@ export async function runMultiAgentStudy(
       label: `supervisor-${name}`,
       idSalt: `${checkpointCount}:${stages.stage(runId, name === "after_review" ? "reviewing" : "executing").attempt}`,
       objective: `Checkpoint ${name.replaceAll("_", " ")}: decide whether the study continues, re-plans once with a typed reason, or stops.`,
-      inputs: { resultKind: "checkpoint", checkpoint: name, evidence, replanReasonsAvailable: available },
+      inputs: { resultKind: "checkpoint", checkpoint: name, evidence: withhold(evidence), replanReasonsAvailable: available },
       schema: SupervisorCheckpointSchema,
     });
     const outcome = await handle.done;
@@ -720,13 +908,21 @@ export async function runMultiAgentStudy(
         });
         const outcome = await handle.done;
         const result = outcome.status === "completed" ? (outcome.result ?? null) : null;
-        if (result)
+        // Without a reviewed target, the Paper Analyst's own claim is sealed before any blind agent reads it.
+        if (!target && result?.status === "ready" && result.claim) sealFromClaim(result.claim);
+        if (result) {
+          // Code reduces the handoff to the execution claim: never the value, tolerance, excerpt, page, or the analyst's prose.
           board.post({
             kind: "paper_claim",
             authorAgentId: handle.agentId,
             authorRole: "paper_analyst",
-            payload: { claim: result.claim, analysis: result },
+            payload: {
+              status: result.status,
+              claim: result.claim ? executionClaim(result.claim, sealedView()) : null,
+              missingFields: withhold(result.claim?.missingFields ?? []),
+            },
           });
+        }
         return { agentId: handle.agentId, status: outcome.status, reason: outcome.reason, result };
       }),
       runStage<RepositoryStageOutput>("analyzing_repository", async () => {
@@ -748,8 +944,6 @@ export async function runMultiAgentStudy(
         });
         const outcome = await handle.done;
         const result = outcome.status === "completed" ? (outcome.result ?? null) : null;
-        if (result)
-          board.post({ kind: "repository_mapping", authorAgentId: handle.agentId, authorRole: "repository_analyst", payload: result });
         const receipt = ctx.repository?.receipt ?? null;
         return {
           agentId: handle.agentId,
@@ -768,6 +962,20 @@ export async function runMultiAgentStudy(
         };
       }),
     ]);
+    if (ctx.sealedForScan && ctx.repository && !ctx.projection?.documentsWithheld.length && !target) {
+      // The projection was built before the claim was sealed: rebuild it so documentation withholds the value too.
+      await refreshProjection(ctx);
+    }
+    // The map is forwarded only after the target is sealed, with every form of the value withheld.
+    if (repoOut?.result && !board.list().some((entry) => entry.kind === "repository_mapping")) {
+      board.post({
+        kind: "repository_mapping",
+        authorAgentId: repoOut.agentId,
+        authorRole: "repository_analyst",
+        payload: forwardableMapping(repoOut.result, sealedView()),
+      });
+    }
+    if (ctx.sealedForScan) agentsStarted();
   }
 
   async function plan(): Promise<boolean> {
@@ -786,9 +994,10 @@ export async function runMultiAgentStudy(
       const handle = await launch("reproduction_planner", {
         stage: "reconciling",
         label: "planner",
-        objective: "Plan the reproduction of the selected claim with the repository's official code.",
+        objective: "Plan how to measure the selected claim's metric with the repository's official code.",
         inputs: {
-          claim,
+          // The execution claim only: what to measure, never what the paper measured.
+          claim: claim ? executionClaim(claim, sealedView()) : null,
           repository,
           lab: {
             platform: config.platform.containerPlatform,
@@ -802,16 +1011,23 @@ export async function runMultiAgentStudy(
           datasetHostsAllowed: config.datasetPolicy.allowedHosts,
           trustedCompatibilityConstraints: config.trustedConstraints,
           dependencyPreparation: deps.dependencies ? "available" : "disabled on this server",
-          previousRounds: replanGuidance,
+          previousRounds: withhold(replanGuidance),
           ...(target ? { reviewedTarget: plannerTarget(target) } : {}),
         },
         schema: PlanSchema,
       });
       const outcome = await handle.done;
       const proposed = outcome.status === "completed" ? (outcome.result ?? null) : null;
-      if (proposed) board.post({ kind: "plan", authorAgentId: handle.agentId, authorRole: "reproduction_planner", payload: proposed });
       let contract: ClaimContract | null = null;
       let reconcileErrors: string[] = [];
+      if (proposed) {
+        // A plan measures; it never states what the result should be. Refused with a neutral reason.
+        const sealed = sealedView();
+        const free = [proposed.summary, proposed.blockedReason ?? "", ...proposed.risks, ...proposed.stopConditions].join("\n");
+        if ((sealed && findValue(sealed.value, sealed.unit, JSON.stringify(proposed))) || statesExpectation(free))
+          reconcileErrors.push("the plan states an expected result, which a blinded plan must not do");
+        board.post({ kind: "plan", authorAgentId: handle.agentId, authorRole: "reproduction_planner", payload: withhold(proposed) });
+      }
       let plan: Plan | null = null;
       if (proposed) {
         // A reference to a reviewed adapter becomes the reviewed, hash-checked file; any other id is refused.
@@ -834,6 +1050,11 @@ export async function runMultiAgentStudy(
         }
         plan = { ...proposed, adapter };
       }
+      if (plan?.adapter && reconcileErrors.length === 0) {
+        const sealed = sealedView();
+        if ((sealed && findValue(sealed.value, sealed.unit, plan.adapter.content)) || riggedAdapter(plan.adapter.content))
+          reconcileErrors.push("the adapter contains a value or a comparison it must not contain");
+      }
       if (plan?.status === "ready" && claim && repository && reconcileErrors.length === 0) {
         const reconciled = reconcile({
           claim,
@@ -854,14 +1075,14 @@ export async function runMultiAgentStudy(
       return false;
     }
     if (result.plan.status === "blocked") {
-      policyViolations.push(result.plan.blockedReason ?? result.plan.summary);
+      policyViolations.push(withhold(result.plan.blockedReason ?? result.plan.summary));
       return false;
     }
     if (result.plan.status === "inconclusive" || !result.contract) {
       stopReasons.push(
         result.reconcileErrors.length
           ? `the plan is incomplete: ${result.reconcileErrors.join("; ")}`
-          : `the plan is inconclusive: ${result.plan.summary}`,
+          : `the plan is inconclusive: ${withhold(result.plan.summary)}`,
       );
       return false;
     }
@@ -884,7 +1105,13 @@ export async function runMultiAgentStudy(
           kind: "claim_contract",
           authorAgentId: null,
           authorRole: "system",
-          payload: { planDigest: review.planDigest, contract: result.contract!, adapter: result.plan!.adapter, warnings: review.warnings },
+          // The execution view: never the reported value, tolerance, or paper excerpt.
+          payload: {
+            planDigest: review.planDigest,
+            contract: executionContract(result.contract!),
+            adapter: result.plan!.adapter,
+            warnings: review.warnings,
+          },
         });
         event("plan_approved", "completed", `Policy review approved the plan (digest ${review.planDigest.slice(0, 12)})`, {
           planDigest: review.planDigest,
@@ -1083,6 +1310,23 @@ export async function runMultiAgentStudy(
       }
     });
     restoreLabs(execOut.engineers);
+    const round = stages.stage(runId, "executing").attempt;
+    if (isSealed()) {
+      const measuredCount = execOut.engineers.filter((item) => item.official?.exitCode === 0 && item.metric?.ok).length;
+      if (!blinding.find(runId, "execution_completed", round)) {
+        ensurePhase("execution_completed", round, { record: { engineers: execOut.engineers.length, measured: measuredCount } });
+        event(
+          "execution_completed",
+          "completed",
+          `Execution round ${round} finished: ${measuredCount} of ${execOut.engineers.length} engineers measured`,
+          {
+            round,
+            engineers: execOut.engineers.length,
+            measured: measuredCount,
+          },
+        );
+      }
+    }
     if (execOut.failure) {
       if (execOut.failure.outcome === "replan" && canReplan("dependency_failure_replan")) {
         await replan("dependency_failure_replan", `Lab setup failed with ${execOut.failure.code}: ${execOut.failure.message}`, {
@@ -1124,16 +1368,34 @@ export async function runMultiAgentStudy(
       return "stop";
     }
 
+    // Lock the observation before any Reviewer starts: from here it cannot change.
+    const observation = buildObservation(round, execOut.engineers);
+    const locked = lockObservation(observation);
+    if (isSealed() && !blinding.find(runId, "observation_locked", round)) {
+      ensurePhase("observation_locked", round, { commitment: locked.commitment, record: { observation } });
+      event("observation_locked", "completed", "Observation locked: the measured value can no longer change", {
+        round,
+        commitment: locked.commitment,
+        metric: { name: observation.metric.name, unit: observation.metric.unit },
+        observed: observation.engineers.map((item) => ({ engineer: item.label, value: item.observedValue, metricOk: item.metricOk })),
+      });
+    } else if (isSealed()) {
+      // Resumed: the recomputed observation must be the one that was locked.
+      ensurePhase("observation_locked", round, { commitment: locked.commitment });
+    }
+
     reviewOut = await runStage<ReviewStageOutput>("reviewing", async () => {
       const reviews = await Promise.all(
         measured.map(async (engineer) => {
           const handle = await launch("independent_reviewer", {
             stage: "reviewing",
             label: `reviewer-${engineer.label}`,
-            objective: `Review ${engineer.label}'s measurement independently.`,
+            objective: `Review ${engineer.label}'s measurement independently and blind.`,
             inputs: {
               submissionKey: engineer.engineerAgentId,
-              contract,
+              // The execution view: the Reviewer never sees the paper's value, tolerance, or a difference.
+              contract: executionContract(contract),
+              observationCommitment: locked.commitment,
               planDigest: ctx.planDigest,
               adapter,
               adapterSha256: adapter ? adapterSha256(adapter.content) : null,
@@ -1141,12 +1403,12 @@ export async function runMultiAgentStudy(
                 adapter && target?.adapter && adapterSha256(adapter.content) === target.adapter.sha256 ? target.adapter.id : null,
               // What the Repository Analyst found in the pinned repository (the official entry point and metric sources).
               repositoryEvidence: repoOut?.result
-                ? {
+                ? withhold({
                     summary: repoOut.result.summary,
                     entrypoints: repoOut.result.entrypoints,
                     metricSources: repoOut.result.metricSources,
                     runInstructions: repoOut.result.runInstructions,
-                  }
+                  })
                 : null,
               repository: repoOut?.repository ?? null,
               dependencyManifest: prepOut?.dependencies
@@ -1167,12 +1429,13 @@ export async function runMultiAgentStudy(
                 sha256: item.sha256,
                 bytes: item.bytes,
               })),
-              hint: "Read board entries with key = submissionKey (command_receipt, artifact, metric, submission); use logs_read and artifact_read with engineerAgentId = submissionKey.",
+              hint: "Read board entries with key = submissionKey (command_receipt, artifact, metric, submission); use logs_read and artifact_read with engineerAgentId = submissionKey. repo_read shows the repository as the lab saw it (saved notebook outputs removed).",
             },
             schema: ReviewSchema,
           });
           const outcome = await handle.done;
-          const review = outcome.status === "completed" ? (outcome.result ?? null) : null;
+          // Code derives approve/reject from the blind equivalence verdict.
+          const review = outcome.status === "completed" && outcome.result ? withVerdict(outcome.result) : null;
           if (review)
             board.post({
               kind: "review",
@@ -1184,8 +1447,32 @@ export async function runMultiAgentStudy(
           return { engineerAgentId: engineer.engineerAgentId, reviewerAgentId: handle.agentId, status: outcome.status, review };
         }),
       );
-      return { reviews };
+      return { reviews, round };
     });
+    if (isSealed()) {
+      // Lock the blind review before anything is revealed: a commitment over the observation and every review.
+      const commitment = sha256Hex(canonicalJson({ observationCommitment: locked.commitment, reviews: reviewOut.reviews }));
+      const verdicts = reviewOut.reviews.map((item) => ({
+        engineerAgentId: item.engineerAgentId,
+        reviewerAgentId: item.reviewerAgentId,
+        status: item.status,
+        equivalence: item.review?.equivalence ?? null,
+        verdict: item.review?.verdict ?? null,
+      }));
+      if (!blinding.find(runId, "blind_review_locked", round)) {
+        ensurePhase("blind_review_locked", round, { commitment, record: { observationCommitment: locked.commitment, reviews: verdicts } });
+        event("blind_review_locked", "completed", "Blind review locked: the Reviewers judged the run without the paper's value", {
+          round,
+          commitment,
+          verdicts: verdicts.map((item) => ({
+            engineer: execOut!.engineers.find((entry) => entry.engineerAgentId === item.engineerAgentId)?.label ?? null,
+            equivalence: item.equivalence,
+          })),
+        });
+      } else {
+        ensurePhase("blind_review_locked", round, { commitment });
+      }
+    }
     for (const item of reviewOut.reviews) {
       const engineer = execOut.engineers.find((entry) => entry.engineerAgentId === item.engineerAgentId);
       if (engineer) {
@@ -1193,7 +1480,7 @@ export async function runMultiAgentStudy(
         engineer.reviewerAgentId = item.reviewerAgentId;
       }
     }
-    const approved = reviewOut.reviews.filter((item) => item.review?.verdict === "approve" && item.review.equivalence !== "not_equivalent");
+    const approved = reviewOut.reviews.filter((item) => item.review?.verdict === "approve");
     if (approved.length === 0) {
       const decision = await checkpoint(
         "after_review",
@@ -1245,8 +1532,9 @@ export async function runMultiAgentStudy(
     labImage: LabImage,
   ): Promise<EngineerRecord> {
     const agentId = stableAgentId(runId, "executing", generation("executing"), label, round);
+    // The lab mounts the execution projection: code and data unchanged, saved notebook outputs removed.
     const inputs: Array<{ hostPath: string; containerPath: string }> = [
-      { hostPath: ctx.repository!.dir, containerPath: LAB_LAYOUT.repoDir },
+      { hostPath: ctx.projection?.dir ?? ctx.repository!.dir, containerPath: LAB_LAYOUT.repoDir },
     ];
     if (ctx.prepared) inputs.push({ hostPath: ctx.prepared.wheelhouseDir, containerPath: LAB_LAYOUT.wheelsDir });
     if (ctx.datasets[0]) inputs.push({ hostPath: ctx.datasets[0].root, containerPath: LAB_LAYOUT.dataDir });
@@ -1292,7 +1580,7 @@ export async function runMultiAgentStudy(
         idSalt: round,
         objective: "Run the approved command for the claim in your lab and report the result.",
         inputs: {
-          contract,
+          contract: executionContract(contract),
           planDigest: ctx.planDigest,
           adapter: adapter ? { path: adapter.path, why: adapter.why, differences: adapter.differences } : null,
           layout: LAB_LAYOUT,
@@ -1329,6 +1617,12 @@ export async function runMultiAgentStudy(
       const artifacts = new Map(exported.filter((item) => producedBy.get(item.path) === item.sha256).map((item) => [item.path, item.text]));
       metric = await parseMetric(contract.metricParser, { stdout: lab.official.stdoutFull ?? "", artifacts });
       if (metric.ok) value = convertUnit(metric.value, metric.unit, contract.metric.unit);
+      // A number that cannot be this metric (an accuracy of 7, NaN) is not a measurement.
+      const implausible = metric.ok ? (value === null ? null : implausibleValue(value, contract.metric.unit)) : null;
+      if (implausible) {
+        metric = { ok: false as const, reason: implausible };
+        value = null;
+      }
       board.post({
         kind: "metric",
         authorAgentId: null,
@@ -1363,8 +1657,9 @@ export async function runMultiAgentStudy(
     event(
       "engineer_finished",
       metric?.ok ? "completed" : "warning",
+      // The value itself is published only with the observation lock.
       metric?.ok
-        ? `${label} measured ${String(value)} ${contract.metric.unit} with the approved command`
+        ? `${label} measured ${contract.metric.name} with the approved command`
         : `${label} produced no measurement (${official ? `exit ${String(official.exitCode)}` : (outcome?.status ?? "failed")})`,
       { engineer: label, agentId },
     );
@@ -1421,6 +1716,10 @@ export async function runMultiAgentStudy(
       );
     }
     if (adapter) {
+      // Scanned again at the moment it enters the lab.
+      const sealed = sealedView();
+      if ((sealed && findValue(sealed.value, sealed.unit, adapter.content)) || riggedAdapter(adapter.content))
+        throw new PreparationFailure("adapter_refused", "the adapter contains a value or a comparison it must not contain", "inconclusive");
       await deps.labs.writeScratchFile(lab.labId, adapter.path, adapter.content, lab.commands.length + 1);
     }
     if (ctx.prepared?.installerWheel) {
@@ -1490,6 +1789,21 @@ export async function runMultiAgentStudy(
         resumed,
       },
     );
+    if (target) {
+      // A reviewed target is sealed before any agent starts; only its commitment is public.
+      seal({
+        caseId: target.caseId,
+        caseVersion: target.version,
+        paperSha256: input.paper.file.sha256,
+        claimLocator: { page: target.claim.page, location: target.claim.location },
+        metric: target.claim.metric,
+        reportedValue: target.claim.reportedValue,
+        tolerance: target.tolerance,
+      });
+      agentsStarted();
+    } else {
+      loadSealed();
+    }
     await analysis();
     if (repoOut?.repository && !ctx.repository) await ensureRepository(repoOut.repository.url, repoOut.repository.commitSha);
     if (!paperOut?.result?.claim || paperOut.result.status !== "ready") {
@@ -1518,7 +1832,9 @@ export async function runMultiAgentStudy(
     if (!infrastructureFailure) {
       await skipThrough("deciding", stopReasons[0] ?? policyViolations[0] ?? "not needed");
       const out = await runStage<DecideStageOutput>("deciding", async () => {
+        reveal();
         const computed = decide(false);
+        recordComparison(computed);
         let proposal: SupervisorVerdict | null = null;
         const handle = await launch("supervisor", {
           stage: "deciding",
@@ -1547,6 +1863,7 @@ export async function runMultiAgentStudy(
             : null,
         };
       });
+      if (!revealed) reveal();
       decision = decide(false);
       decision.reasons = out.reasons;
       finalStatus = out.status;
@@ -1564,15 +1881,112 @@ export async function runMultiAgentStudy(
     decision = decide(input.signal.aborted);
     finalStatus = decision.status;
   }
+  recordFinalStatus();
+
+  /**
+   * The reveal: only after both locks, never on a cancelled or stopped study.
+   * Code recomputes the commitment of the sealed payload and of the locked
+   * observation; a mismatch is a typed integrity failure. Repeating it is a
+   * no-op that verifies again.
+   */
+  function reveal(): void {
+    if (!isSealed() || study.signal.aborted || input.signal.aborted) return;
+    const already = blinding.find(runId, "target_revealed");
+    const last = blinding.last(runId);
+    if (!already && last?.phase !== "blind_review_locked") return;
+    const row = blinding.sealedTarget(runId)!;
+    const opened = revealTarget({ canonical: row.canonical, commitment: row.commitment });
+    const observationRecord = blinding.find(runId, "observation_locked", last?.round);
+    const observation = (observationRecord?.record as { observation?: Observation } | undefined)?.observation ?? null;
+    const observationVerified =
+      observation !== null && observationRecord !== null && lockObservation(observation).commitment === observationRecord.commitment;
+    if (!observationVerified) throw new BlindingIntegrityError("the locked observation does not match its commitment");
+    if (!already) {
+      blinding.record(runId, "target_revealed", {
+        round: last!.round,
+        commitment: row.commitment,
+        record: { canonical: row.canonical, recomputedCommitment: sha256Hex(row.canonical), verified: true, observationVerified },
+      });
+      event(
+        "target_revealed",
+        "completed",
+        "Paper target revealed: its commitment was verified after the observation and blind review were locked",
+        {
+          commitment: row.commitment,
+          verified: true,
+          reportedValue: opened.reportedValue,
+          tolerance: opened.tolerance,
+          metric: opened.metric,
+          claimLocator: opened.claimLocator,
+        },
+      );
+    }
+    revealed = opened;
+  }
+
+  function recordComparison(computed: StatusDecision): void {
+    if (!revealed || blinding.find(runId, "deterministic_comparison")) return;
+    const representative = computed.representative;
+    const comparison =
+      representative?.value !== null && representative?.value !== undefined ? compareRevealed(revealed, representative.value) : null;
+    const record = {
+      comparison,
+      computedStatus: computed.status,
+      blindVerdicts: (reviewOut?.reviews ?? []).map((item) => item.review?.equivalence ?? item.status),
+    };
+    ensurePhase("deterministic_comparison", blinding.last(runId)?.round ?? 0, { record });
+    event(
+      "deterministic_comparison",
+      "completed",
+      comparison
+        ? `Code compared the locked observation with the revealed target: |${comparison.observed} − ${comparison.reported}| = ${comparison.absoluteDelta} (tolerance ${comparison.tolerance})`
+        : "Code compared the evidence with the revealed target: no approved measurement to compare",
+      record,
+    );
+  }
+
+  function recordFinalStatus(): void {
+    if (!isSealed() || blinding.find(runId, "final_status")) return;
+    try {
+      ensurePhase("final_status", blinding.last(runId)?.round ?? 0, {
+        record: { status: finalStatus, sealed: !revealed, computedStatus: decision?.status ?? null },
+      });
+      event(
+        "final_status",
+        "completed",
+        revealed ? `Final status: ${finalStatus.replaceAll("_", " ")}` : "Final status recorded; the paper target stays sealed",
+        {
+          status: finalStatus,
+          sealed: !revealed,
+        },
+      );
+    } catch (error) {
+      blindingErrors.push(errorText(error));
+    }
+  }
 
   function decide(isCancelled: boolean): StatusDecision {
     const engineers = execOut?.engineers ?? [];
+    let comparisonTarget: RevealedComparison | null = revealed
+      ? { reportedValue: revealed.reportedValue, tolerance: revealed.tolerance }
+      : null;
+    const extra: string[] = [];
+    if (
+      revealed &&
+      ctx.contract &&
+      (ctx.contract.reportedValue !== revealed.reportedValue || ctx.contract.metric.unit !== revealed.metric.unit)
+    ) {
+      // The approved claim must be the sealed one; otherwise nothing is compared.
+      extra.push("the approved claim is not the sealed target");
+      comparisonTarget = null;
+    }
     const decision = decideStatus({
       cancelled: isCancelled,
       failure: infrastructureFailure,
       policyViolations,
-      stopReasons,
+      stopReasons: [...stopReasons, ...extra],
       contract: ctx.contract,
+      revealed: comparisonTarget,
       adapter: Boolean(planOut?.plan?.adapter),
       outcomes: engineers,
       engineersLaunched: engineers.length,
@@ -1662,11 +2076,13 @@ export async function runMultiAgentStudy(
     reasons: decision.reasons,
   });
 
-  const report = buildReport();
+  const report = buildReport("public");
+  const auditReport = buildReport("audit");
   const representative = decision.representative;
   const contract = ctx.contract;
   return {
     report,
+    auditReport,
     repository: repoOut?.repository ? { url: repoOut.repository.url, commitSha: repoOut.repository.commitSha } : null,
     metric:
       representative && contract && representative.value !== null && representative.official && representative.metric?.ok
@@ -1683,7 +2099,7 @@ export async function runMultiAgentStudy(
             },
           }
         : null,
-    assessment: contract ? assessmentFor(decision, contract) : null,
+    assessment: contract ? assessmentFor(decision, contract, revealed) : null,
     attempt: representative?.official ? attemptFor(representative) : null,
     stdout: execOut?.engineers.find((item) => item.engineerAgentId === representative?.engineerAgentId)?.officialStdoutTail ?? "",
     imageId: prepOut?.labImage?.imageId ?? null,
@@ -1714,7 +2130,50 @@ export async function runMultiAgentStudy(
     };
   }
 
-  function buildReport(): MultiAgentReport {
+  function blindingReport(mode: "public" | "audit"): BlindingReport {
+    const records = blinding.records(runId);
+    const sealedRow = blinding.sealedTarget(runId);
+    const revealRecord = records.find((item) => item.phase === "target_revealed") ?? null;
+    const comparisonRecord = records.find((item) => item.phase === "deterministic_comparison") ?? null;
+    const projection = ctx.projection;
+    return {
+      sealed: !revealRecord,
+      revealed: revealRecord !== null,
+      commitment: sealedRow?.commitment ?? null,
+      sealedAt: sealedRow?.sealedAt ?? null,
+      records: records.map(({ sequence, phase, round, commitment, record, at }) => ({ sequence, phase, round, commitment, record, at })),
+      projection: projection
+        ? {
+            sha256: projection.sha256,
+            originalManifestSha256: ctx.repository?.receipt.manifestSha256 ?? null,
+            notebooksStripped: projection.notebooksStripped,
+            documentsWithheld: projection.documentsWithheld.length,
+            staticFindings: projection.staticFindings.length,
+          }
+        : null,
+      reveal: revealRecord
+        ? {
+            canonical: String(revealRecord.record.canonical),
+            recomputedCommitment: String(revealRecord.record.recomputedCommitment),
+            verified: revealRecord.record.verified === true,
+            observationVerified: revealRecord.record.observationVerified === true,
+          }
+        : null,
+      comparison: comparisonRecord?.record.comparison
+        ? {
+            ...(comparisonRecord.record.comparison as Comparison),
+            blindVerdicts: (comparisonRecord.record.blindVerdicts as string[] | undefined) ?? [],
+          }
+        : null,
+      // Only an administrator's audit report carries a payload that was never revealed.
+      sealedPayload: mode === "audit" && !revealRecord ? (sealedRow?.canonical ?? null) : null,
+      errors: blindingErrors,
+    };
+  }
+
+  function buildReport(mode: "public" | "audit"): MultiAgentReport {
+    // Before the reveal, the public report carries no paper value, tolerance, excerpt, or nonce.
+    const open = mode === "audit" || revealed !== null;
     const agents = store.ledger.listAgents(runId);
     const usage = agents.reduce(
       (total, agent) => ({
@@ -1778,9 +2237,10 @@ export async function runMultiAgentStudy(
       })),
       messages: store.ledger.listMessages({ runId }).map((item) => ({ from: item.fromAgentId, to: item.toAgentId, at: item.createdAt })),
       paper: { name: input.paper.file.originalName, sha256: input.paper.file.sha256, pages: input.paper.pageCount },
-      reviewedTarget: target ? targetSummary(target) : null,
+      reviewedTarget: target ? publicTargetSummary(target) : null,
       repository: ctx.repository || repoOut?.repository ? (repoOut?.repository ?? null) : null,
-      contract: ctx.contract,
+      contract: ctx.contract ? (open ? ctx.contract : executionContract(ctx.contract)) : null,
+      blinding: blindingReport(mode),
       planDigest: ctx.planDigest,
       adapter: adapter
         ? {
@@ -1811,10 +2271,10 @@ export async function runMultiAgentStudy(
           ? { proposedStatus: supervisorProposal.proposedStatus, rationale: supervisorProposal.rationale, applied: supervisorApplied }
           : null,
         reasons: decision!.reasons,
-        paperValue: ctx.contract?.reportedValue ?? null,
+        paperValue: revealed ? revealed.reportedValue : open ? (ctx.contract?.reportedValue ?? null) : null,
         observedValue: representative?.value ?? null,
-        absoluteDifference: decision!.absoluteDifference,
-        tolerance: ctx.contract?.tolerance ?? null,
+        absoluteDifference: revealed ? decision!.absoluteDifference : null,
+        tolerance: revealed ? revealed.tolerance : open ? (ctx.contract?.tolerance ?? null) : null,
       },
       usage,
       cleanup,
@@ -1829,9 +2289,11 @@ class StudyCancelled extends Error {
   }
 }
 
-function assessmentFor(decision: StatusDecision, contract: ClaimContract): Assessment {
+/** The assessment; before the reveal it carries no paper value, tolerance, or excerpt. */
+function assessmentFor(decision: StatusDecision, contract: ClaimContract, revealed: SealedTarget | null): Assessment {
   const observed = decision.representative?.value ?? null;
-  const comparable = observed !== null && ["reproduced", "partially_reproduced", "not_reproduced"].includes(decision.status);
+  const comparable =
+    revealed !== null && observed !== null && ["reproduced", "partially_reproduced", "not_reproduced"].includes(decision.status);
   return {
     comparable,
     checks: [
@@ -1851,20 +2313,22 @@ function assessmentFor(decision: StatusDecision, contract: ClaimContract): Asses
         explanation: decision.representative?.review?.summary ?? "No approved review.",
       },
     ],
-    paperValue: contract.reportedValue,
+    paperValue: revealed?.reportedValue ?? null,
     observedValue: observed,
-    signedDifference: observed === null ? null : observed - contract.reportedValue,
-    absoluteDifference: decision.absoluteDifference,
-    tolerance: contract.tolerance,
+    signedDifference: observed === null || !revealed ? null : Math.round((observed - revealed.reportedValue) * 1e9) / 1e9,
+    absoluteDifference: revealed ? decision.absoluteDifference : null,
+    tolerance: revealed?.tolerance ?? null,
     verdict: !comparable ? "inconclusive" : decision.status === "not_reproduced" ? "different_result" : "reproduced_within_tolerance",
     discrepancyHypotheses: decision.status === "not_reproduced" ? decision.reasons : [],
-    evidence: [
-      {
-        kind: "paper_page",
-        reference: `page ${contract.paperReference.page}, ${contract.paperReference.location}`,
-        excerpt: contract.paperReference.excerpt,
-      },
-    ],
+    evidence: revealed
+      ? [
+          {
+            kind: "paper_page",
+            reference: `page ${contract.paperReference.page}, ${contract.paperReference.location}`,
+            excerpt: contract.paperReference.excerpt,
+          },
+        ]
+      : [],
     limitations: decision.status === "partially_reproduced" ? decision.reasons : [],
   };
 }

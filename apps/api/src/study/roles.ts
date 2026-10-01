@@ -141,9 +141,19 @@ export const DiagnosisSchema = z.object({
   changesMethodology: z.boolean(),
 });
 
+/**
+ * The blind review (phase 1). The Reviewer never sees the paper's value, the
+ * tolerance, a difference, or a pass/fail: it judges whether the run measured
+ * the claim faithfully. Code derives approve/reject from `equivalence` and
+ * locks the review before the target is revealed.
+ */
+export const BLIND_VERDICTS = ["equivalent", "partially_equivalent", "not_equivalent", "insufficient_evidence"] as const;
 export const ReviewSchema = z.object({
-  verdict: z.enum(["approve", "reject"]),
-  equivalence: z.enum(["equivalent", "minor_deviations", "not_equivalent"]),
+  equivalence: z
+    .enum(BLIND_VERDICTS)
+    .describe(
+      "equivalent: nothing methodological changed; partially_equivalent: deviations that should not change the number; not_equivalent: the method, data, split, or metric changed; insufficient_evidence: the evidence cannot show it.",
+    ),
   summary: z.string().min(1).max(2_000),
   checks: z
     .array(z.object({ name: z.string().min(1).max(200), passed: z.boolean(), explanation: z.string().min(1).max(1_000) }))
@@ -175,7 +185,16 @@ export type ProposedPlan = z.infer<typeof PlanSchema>;
 export type Plan = Omit<ProposedPlan, "adapter"> & { adapter: Adapter | null };
 export type Submission = z.infer<typeof SubmissionSchema>;
 export type Diagnosis = z.infer<typeof DiagnosisSchema>;
-export type Review = z.infer<typeof ReviewSchema>;
+export type BlindReview = z.infer<typeof ReviewSchema>;
+/** A blind review with the verdict code derived from it. */
+export type Review = BlindReview & { verdict: "approve" | "reject" };
+
+export function withVerdict(review: BlindReview): Review {
+  return {
+    ...review,
+    verdict: review.equivalence === "equivalent" || review.equivalence === "partially_equivalent" ? "approve" : "reject",
+  };
+}
 export type SupervisorCheckpoint = z.infer<typeof SupervisorCheckpointSchema>;
 export type SupervisorVerdict = z.infer<typeof SupervisorVerdictSchema>;
 
@@ -193,15 +212,7 @@ export const ROLE_LIMITS: Record<AgentRole, Partial<AgentLimits>> = {
 export const ROLE_GRANTS: Record<AgentRole, readonly string[]> = {
   paper_analyst: ["paper_list_pages", "paper_read_page", "paper_search"],
   repository_analyst: ["repo_acquire", "repo_list", "repo_read", "repo_search", "dependency_discover"],
-  reproduction_planner: [
-    "board_read",
-    "paper_read_page",
-    "repo_list",
-    "repo_read",
-    "repo_search",
-    "dependency_discover",
-    "dependency_check",
-  ],
+  reproduction_planner: ["board_read", "repo_list", "repo_read", "repo_search", "dependency_discover", "dependency_check"],
   lab_engineer: [
     "board_read",
     "lab_list",
@@ -218,9 +229,15 @@ export const ROLE_GRANTS: Record<AgentRole, readonly string[]> = {
     "lab_destroy",
   ],
   debugger: ["board_read", "lab_list", "lab_read", "lab_search", "lab_logs"],
-  independent_reviewer: ["board_read", "repo_list", "repo_read", "paper_read_page", "artifact_read", "logs_read"],
+  independent_reviewer: ["board_read", "repo_list", "repo_read", "artifact_read", "logs_read"],
   supervisor: ["board_read"],
 };
+
+/** Every role after the Paper Analyst works blind to the paper's number. */
+const BLIND_PLANNING =
+  "The study is blinded: you are not told the value the paper reports, and must not try to find it. Plan to measure the metric faithfully, never to match a number: state no expected, target, or reported value, no tolerance, and no comparison with the paper anywhere in the plan. A plan that does is refused.";
+const BLIND_EXECUTION =
+  "The study is blinded: you are not told the value the paper reports or any tolerance, and must not look for them (saved notebook outputs were removed). Never compare your measurement with a paper value; the lab parses the metric and code compares it only after the result and its review are locked.";
 
 export const INSTRUCTIONS: Record<AgentRole, string> = {
   paper_analyst: [
@@ -232,7 +249,7 @@ export const INSTRUCTIONS: Record<AgentRole, string> = {
   repository_analyst: [
     "Acquire the paper's repository with repo_acquire (only the listed candidate URLs are allowed), then map it: the official entry points, where the data lives, the dependency files, and where the code computes or prints metrics.",
     "Use dependency_discover to report which dependency files exist. Read README instructions. You only read files: nothing in the repository is executed by you.",
-    "You do not know which claim the Paper Analyst chose; describe what the repository can produce.",
+    "You do not know which claim the Paper Analyst chose; describe what the repository can produce. Saved notebook outputs were removed from the checkout you read; do not report any result value in your map.",
   ].join("\n"),
   reproduction_planner: [
     "Reconcile the Paper Analyst's claim with the Repository Analyst's map (both on the board) into one exact plan to reproduce that claim with the repository's official code in an offline, CPU-only Linux lab.",
@@ -240,27 +257,31 @@ export const INSTRUCTIONS: Record<AgentRole, string> = {
     "Use dependency_check to see whether binary wheels exist for your requirements on the lab platform; nothing is built from source, and GPU packages (CUDA, ROCm) are refused.",
     "Data: prefer files in the repository. A download is allowed only from an administrator-allowed host and needs its SHA-256; otherwise set status blocked.",
     "metricParser must read the number the official code prints (stdout pattern with one capture group) or writes (a JSON file under artifacts/). An adapter is a small wrapper that only calls the official code and captures its metric; it must list every difference. Never plan a rewritten approximation, a changed dataset, a subset, altered filtering, or a replacement metric.",
+    BLIND_PLANNING,
   ].join("\n"),
   lab_engineer: [
     "You work alone inside a sealed, offline Linux lab prepared for the approved plan: /workspace/case/repo is the repository (read-only), work/repo is a writable copy when the plan asked for one, data/ holds verified datasets (read-only), and the Python environment is already installed.",
     "Run the approved command with lab_run_official. It runs exactly the plan's argv from the plan's cwd, after the lab checks the checkout and environment are unchanged. When it fails, read its logs, inspect files, and fix what the plan allows (for example create an output directory with lab_run). Use request_debugging when you are stuck.",
     "If the code needs a different or extra package, use dependency_request with the reason and then finish as not_measured: the plan is re-approved and a fresh lab is prepared. Never change the code, the data, the split, or the metric.",
     "When the official run succeeded, finish as measured with its receipt id. The metric is parsed by the lab from that run, not by you. Declare every deviation you know of.",
+    BLIND_EXECUTION,
   ].join("\n"),
   debugger: [
     "A Lab Engineer's command failed. Read its receipts and logs, the approved plan, and the files in the lab (read-only) and find the root cause.",
     "Propose the smallest fix that keeps the paper's method, data, and metric unchanged. Say whether it needs a change to the approved plan (a different package, command, or Python version) and whether it would change the methodology.",
+    BLIND_EXECUTION,
   ].join("\n"),
   independent_reviewer: [
-    "Review one measured result independently. You see the approved plan (claim contract), the paper, the repository, dependency and dataset receipts, command receipts and logs, the exported artifacts, the declared adapter and deviations, and the metric the lab parsed. You do not see the Engineer's reasoning and must not assume it.",
-    "Check: the approved official command ran and exited 0; the metric came from that run; the dataset, split, preprocessing, and metric match the paper's claim; declared deviations and compatibility changes are acceptable.",
-    "equivalence is `equivalent` only if nothing methodological changed, `minor_deviations` for library-version or path-only differences that should not change the number, and `not_equivalent` for any toy example, approximation, changed dataset, subset, altered filtering, altered algorithm, changed split, or replacement metric. Reject anything not_equivalent or unsupported by the evidence, including a number read from saved notebook output or any value that did not come from the official run's own output.",
-    "Judge the protocol, not the number: a value that differs from the paper is a finding to report, never by itself a reason to reject. Evaluate every listed adapter difference against the paper's stated protocol and the pinned repository's code, and name in concerns each one that could move the number. An adapter is project-owned code, not the authors' (reviewedAdapterId and adapterSha256 identify a reviewed one); say so in your summary.",
+    "Review one measured result independently and blind. You see the approved execution plan (method, dataset, split, preprocessing, metric and its direction, repository commit, entry point, command, environment, parser), the repository as the lab saw it, dependency and dataset receipts, command receipts and logs, the exported artifacts, the declared adapter and deviations, and the metric the lab parsed. You do not see the paper's value, any tolerance, any difference, or the Engineer's reasoning, and must not look for them or assume them.",
+    "Check: the approved official command ran and exited 0; the metric came from that run's own new output (never from saved notebook output or a hard-coded number); the dataset, split, preprocessing, and metric match the plan; declared deviations and compatibility changes are acceptable.",
+    "equivalence is `equivalent` only if nothing methodological changed; `partially_equivalent` for library-version, path, or wrapper differences that should not change the number; `not_equivalent` for any toy example, approximation, changed dataset, subset, altered filtering, altered algorithm, changed split, or replacement metric; `insufficient_evidence` when the receipts and logs cannot show how the number was produced.",
+    "Judge the protocol, not the number: you cannot know whether it matches the paper, and must not guess. Evaluate every listed adapter difference against the plan and the pinned repository's code, and name in concerns each one that could move the number. An adapter is project-owned code, not the authors' (reviewedAdapterId and adapterSha256 identify a reviewed one); say so in your summary. Your review is locked before code reveals the paper's value.",
   ].join("\n"),
   supervisor: [
     "You oversee a reproduction study that code runs stage by stage. You read the evidence board and answer at checkpoints.",
     "At a checkpoint after execution or review, choose continue, replan (with the typed reason and concrete guidance for the Planner), or stop. A re-plan is allowed once per reason; do not ask for the same thing twice.",
-    "At the end, propose the status the evidence supports with your rationale. The final status is computed from evidence: you can make it more cautious, never more favourable, and you cannot create evidence.",
+    "At the end, propose the status the evidence supports with your rationale. The final status is computed from evidence: you can make it more cautious, never more favourable, and you cannot create evidence, change the metric, or change the blind review.",
+    "The study is blinded: before the reveal you are not told the paper's value or tolerance. The comparison is computed by code after the observation and the blind review are locked.",
   ].join("\n"),
 };
 
@@ -279,12 +300,14 @@ export const TARGETED_INSTRUCTIONS: Partial<Record<AgentRole, string>> = {
   repository_analyst: [
     "This study investigates one reviewed claim (`reviewedTarget`). Acquire the repository with repo_acquire (it is pinned to the reviewed commit), then inspect it independently: does the claim map to official code here? Identify the official notebook or script for it, where its data comes from, the dependency files and the environment it needs, and where the code computes or prints the metric.",
     "Do not assume the target is valid: if the repository has no official code for this method, dataset, and metric, finish inconclusive and say why. Use dependency_discover to report which dependency files exist. You only read files: nothing in the repository is executed by you. You do not see the Paper Analyst's work.",
+    "The study is blinded: you are not told the value the paper reports, saved notebook outputs were removed from the checkout you read, and you must not report any result value in your map.",
   ].join("\n"),
   reproduction_planner: [
-    "This study investigates one reviewed claim (`reviewedTarget`). Reconcile it with the Paper Analyst's verified claim and the Repository Analyst's map (both on the board) into one exact plan that reproduces that claim with the reviewed entry point of the pinned repository in an offline, CPU-only Linux lab.",
+    "This study investigates one reviewed claim (`reviewedTarget`). Reconcile it with the Paper Analyst's verified claim contract and the Repository Analyst's map (both on the board) into one exact plan that measures that claim with the reviewed entry point of the pinned repository in an offline, CPU-only Linux lab.",
     "Plan only for the reviewed claim: never switch to another method, a variant with a similar name, another library version, another dataset, split, or metric. If the analysts' evidence does not support the reviewed claim, or the repository's code does not produce it, finish blocked or inconclusive with the reason.",
     "Your plan must fit the reviewed limits, which policy enforces: the entry point, a Python version from `environment.python`, requirements only from `environment.requirements`, compatibility constraints only from `environment.allowedCompatibilityConstraints` (copied exactly, and only if also listed in trustedCompatibilityConstraints), the reviewed dataset source, the reviewed `metricParser` exactly, and an expected runtime within the ceiling.",
     "The command runs `python <entrypoint or adapter> [args]` from `repo` (read-only) or `work/repo`. When a reviewed adapter is given, read it; if it is needed, set adapter to {reviewedAdapterId: <its id>} and run it at its path (for example `../work/adapter/<file>.py` from `repo`) with the arguments it expects. Do not write your own adapter for a reviewed claim. Use dependency_check to confirm binary wheels exist for the lab platform.",
+    BLIND_PLANNING,
   ].join("\n"),
 };
 

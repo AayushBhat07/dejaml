@@ -1,4 +1,4 @@
-import { createHash, randomUUID } from "node:crypto";
+import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
 import { readdir, readFile, rm, stat } from "node:fs/promises";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { extname, join, normalize, resolve, sep } from "node:path";
@@ -52,6 +52,12 @@ export type ApiOptions = Omit<PipelineDependencies, "model"> & {
   health?: () => Record<string, unknown>;
   /** The server-owned registry of reviewed claim targets; an upload may name one by id and nothing else. */
   reviewedTargets?: ReadonlyMap<string, ClaimTarget>;
+  /**
+   * Enables `GET /api/runs/:id/audit` for an administrator who sends it as
+   * `x-dejaml-admin-token`. The audit report holds a sealed target even when
+   * the study never revealed it. Unset: the endpoint does not exist.
+   */
+  adminToken?: string | null;
 };
 
 export type ApiServer = {
@@ -181,13 +187,10 @@ export type PublicReviewedCase = {
   paperTitle: string;
   paperSha256: string;
   claim: {
-    page: number;
-    location: string;
     method: string;
     dataset: string;
     split: string;
     metric: { name: string; unit: "fraction" | "percent" | "score" };
-    reportedValue: number;
   };
   repository: { url: string; commitSha: string };
   available: boolean;
@@ -195,10 +198,11 @@ export type PublicReviewedCase = {
 
 /**
  * The reviewed cases a person can start, for the New Study page. Each field is
- * copied explicitly, so nothing else in a target (its excerpt, adapter,
- * requirements, metric parser, tolerance, or most favourable verdict) can reach
- * the browser. A case holds no observed value; the reported value is the
- * paper's own number, the claim under test.
+ * copied explicitly, so nothing else in a target (its reported value, page and
+ * table reference, excerpt,
+ * adapter, requirements, metric parser, tolerance, or most favourable verdict)
+ * can reach the browser: the paper's value stays sealed until a study's
+ * observation and blind review are locked.
  */
 export function publicReviewedCases(targets: ReadonlyMap<string, ClaimTarget> | undefined): PublicReviewedCase[] {
   return [...(targets?.values() ?? [])]
@@ -208,13 +212,10 @@ export function publicReviewedCases(targets: ReadonlyMap<string, ClaimTarget> | 
       paperTitle: target.paper.title,
       paperSha256: target.paper.sha256,
       claim: {
-        page: target.claim.page,
-        location: target.claim.location,
         method: target.claim.method,
         dataset: target.claim.dataset,
         split: target.claim.split,
         metric: { name: target.claim.metric.name, unit: target.claim.metric.unit },
-        reportedValue: target.claim.reportedValue,
       },
       repository: { url: target.repository.url, commitSha: target.repository.commitSha },
       // Every loaded target passed validation (and its adapter's hash check) when the registry loaded.
@@ -376,7 +377,7 @@ export function createApiServer(options: ApiOptions): ApiServer {
       });
     }
 
-    const match = /^\/api\/runs\/([^/]+)(?:\/(events|cancel|report))?$/u.exec(url.pathname);
+    const match = /^\/api\/runs\/([^/]+)(?:\/(events|cancel|report|audit))?$/u.exec(url.pathname);
     if (match) {
       const runId = match[1] ?? "";
       if (!RUN_ID_PATTERN.test(runId)) throw new HttpError(404, "Run not found.");
@@ -405,6 +406,32 @@ export function createApiServer(options: ApiOptions): ApiServer {
           "content-type": "application/json; charset=utf-8",
           "content-disposition": `attachment; filename="dejaml-report-${runId}.json"`,
           "content-length": Buffer.byteLength(text),
+        });
+        response.end(text);
+        return;
+      }
+      if (action === "audit" && method === "GET") {
+        // An administrator's explicit download: the only way a never-revealed target leaves the server.
+        const token = options.adminToken ?? "";
+        const given = String(request.headers["x-dejaml-admin-token"] ?? "");
+        const digest = (text: string): Buffer => createHash("sha256").update(text).digest();
+        if (!token || !given || !timingSafeEqual(digest(token), digest(given))) throw new HttpError(404, "Not found.");
+        const text = await readFile(join(options.workRoot, "reports", `${runId}.audit.json`), "utf8").catch(() => null);
+        if (!text) throw new HttpError(409, "The audit report is written when the study finishes.");
+        store.appendEvent({
+          runId,
+          actor: "system",
+          type: "audit_report_downloaded",
+          status: "warning",
+          summary: "An administrator downloaded the audit report",
+          evidence: [],
+          publicPayload: {},
+        });
+        response.writeHead(200, {
+          "content-type": "application/json; charset=utf-8",
+          "content-disposition": `attachment; filename="dejaml-audit-${runId}.json"`,
+          "content-length": Buffer.byteLength(text),
+          "cache-control": "no-store",
         });
         response.end(text);
         return;

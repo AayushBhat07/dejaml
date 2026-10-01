@@ -5,6 +5,7 @@ import { buildPlatformSpec, type ClaimContract, ClaimContractSchema, type Platfo
 import type { FetchPolicy } from "@dejaml/net-guard";
 import { findLiteral } from "@dejaml/research-runtime";
 
+import { executionContract, findValue, riggedAdapter } from "./blinding.js";
 import type { DependencyPort } from "./context.js";
 import type { PaperClaim, Plan } from "./roles.js";
 import { type ClaimTarget, targetViolations } from "./targets.js";
@@ -29,8 +30,16 @@ export function canonicalJson(value: unknown): string {
   });
 }
 
+/**
+ * The plan digest every later stage checks against. It covers the execution
+ * view of the contract (never the reported value, tolerance, or paper
+ * excerpt, so the digest itself carries nothing about the target) and the
+ * adapter.
+ */
 export function planDigest(contract: ClaimContract, adapter: Plan["adapter"]): string {
-  return createHash("sha256").update(canonicalJson({ contract, adapter })).digest("hex");
+  return createHash("sha256")
+    .update(canonicalJson({ contract: executionContract(contract), adapter }))
+    .digest("hex");
 }
 
 export type Reconciled = { ok: true; contract: ClaimContract; adapter: Plan["adapter"] } | { ok: false; reasons: string[] };
@@ -98,8 +107,7 @@ export function checkExcerpt(
   const excerpt = normalizeText(claim.excerpt);
   if (!normalizeText(page.text).includes(excerpt)) return `the claim's excerpt is not on page ${claim.page} verbatim`;
   const numbers = excerpt.match(/-?\d+(?:\.\d+)?/gu) ?? [];
-  if (!numbers.some((item) => Number(item) === claim.reportedValue))
-    return `the claim's excerpt does not contain the reported value ${claim.reportedValue}`;
+  if (!numbers.some((item) => Number(item) === claim.reportedValue)) return "the claim's excerpt does not contain the reported value";
   return null;
 }
 
@@ -168,11 +176,15 @@ export function reviewPolicy(input: {
   }
   if (adapter) {
     warnings.push(`an adapter (${adapter.path}) wraps the official code; the result can be at most partially reproduced`);
-    const literal = findLiteral(contract.reportedValue, [adapter.content]);
-    if (literal) unusable.push(`the adapter contains the paper's reported value ${literal}`);
+    // Neutral messages: these reach events and the Supervisor before the reveal.
+    if (findLiteral(contract.reportedValue, [adapter.content]) || findValue(contract.reportedValue, contract.metric.unit, adapter.content))
+      unusable.push("the adapter contains a value it must not know");
+    const rigged = riggedAdapter(adapter.content);
+    if (rigged) unusable.push(rigged);
   }
-  if (findLiteral(contract.reportedValue, [contract.command.argv.join(" ")])) {
-    unusable.push("the command contains the paper's reported value");
+  const argv = contract.command.argv.join(" ");
+  if (findLiteral(contract.reportedValue, [argv]) || findValue(contract.reportedValue, contract.metric.unit, argv)) {
+    unusable.push("the command contains a value it must not know");
   }
 
   // Data: repository files, or an allowlisted, checksummed download.

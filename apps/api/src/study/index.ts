@@ -8,3 +8,6 @@ export * from "./study.js";
 export * from "./tools.js";
 export * from "./verdict.js";
 export * from "./targets.js";
+export * from "./blinding.js";
+export * from "./projection.js";
+export * from "./blinding-proof.js";

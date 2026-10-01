@@ -113,6 +113,15 @@ beforeEach(async () => {
       throw new Error("not called");
     },
     repository: { receipt: {} as never, dir: join(dir, "repo"), root: dir },
+    projection: {
+      dir: join(dir, "repo"),
+      sha256: "p".repeat(64),
+      notebooksStripped: [],
+      documentsWithheld: [],
+      staticFindings: [],
+      fileCount: 0,
+    },
+    sealedForScan: null,
     pinnedCommit: null,
     contract: {
       schemaVersion: 1,

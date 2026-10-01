@@ -47,6 +47,8 @@ async function startServer(
     providerEnv?: Record<string, string>;
     /** The server's reviewed claim targets. */
     reviewedTargets?: Map<string, ClaimTarget>;
+    /** Enables the administrator's audit download. */
+    adminToken?: string;
   } = {},
 ): Promise<void> {
   // A private project root holding the reviewed adapter and placeholder data files.
@@ -86,6 +88,7 @@ async function startServer(
     acquire: standInAcquire(cases[0]!, checkoutsCreated, options.commitSha),
     ...(options.labAgentEnabled ? { labAgentEnabled: true } : {}),
     ...(options.reviewedTargets ? { reviewedTargets: options.reviewedTargets } : {}),
+    ...(options.adminToken ? { adminToken: options.adminToken } : {}),
     ...(options.autonomous
       ? {
           multiAgent: {
@@ -420,9 +423,23 @@ describe("Run API", () => {
     const study = report.study!;
     expect(report.status).toBe("completed");
     expect(report.caseId).toBe("fixture-rf-accuracy");
-    expect(study.reviewedTarget).toMatchObject({ caseId: "fixture-rf-accuracy", claim: { page: 1, reportedValue: 81.66 } });
+    expect(study.reviewedTarget).toMatchObject({ caseId: "fixture-rf-accuracy", claim: { method: "Random Forest" } });
+    expect(JSON.stringify(study.reviewedTarget)).not.toMatch(/reportedValue|81\.66/u);
     expect(study.repository).toMatchObject({ commitSha: "7f8b1c4cbe5b4caf2f6cc8bc0d6fc31ce2f6bd71" });
     expect(study.result.status).toBe("reproduced");
+    // Sealed before any agent, revealed only after both locks, and the reveal verified its commitment.
+    expect(study.blinding.records.map((item) => item.phase)).toEqual([
+      "target_sealed",
+      "agents_started",
+      "execution_completed",
+      "observation_locked",
+      "blind_review_locked",
+      "target_revealed",
+      "deterministic_comparison",
+      "final_status",
+    ]);
+    expect(study.blinding.reveal).toMatchObject({ verified: true, observationVerified: true });
+    expect(study.result).toMatchObject({ paperValue: 81.66, tolerance: 2 });
 
     // The target reaches the analysts and the Planner, with targeted instructions; never the Engineers or Reviewers.
     const firstTurn = (role: string): string => {
@@ -437,6 +454,41 @@ describe("Run API", () => {
       expect.arrayContaining(["policy_review", "preparing", "executing", "reviewing", "deciding"]),
     );
     expect(study.engineers[0]).toMatchObject({ official: { exitCode: 0 }, review: { verdict: "approve" } });
+  });
+
+  it("keeps a policy-blocked study sealed: no paper value in events or the report, and only an administrator's audit download holds it", async () => {
+    const paper = await paperPdf(false);
+    await startServer({
+      autonomous: true,
+      repositoryUrl: "https://github.com/example/new-paper",
+      commitSha: "7f8b1c4cbe5b4caf2f6cc8bc0d6fc31ce2f6bd71",
+      reviewedTargets: await fixtureTarget(paper),
+      adminToken: "admin-test-token-0001",
+    });
+    studyProvider.plan = { status: "blocked", blockedReason: "the official code needs a GPU" };
+    const { runId } = (await (await upload(paper, "paper.pdf", { reviewedCaseId: "fixture-rf-accuracy" })).json()) as { runId: string };
+    const events = await collectEvents(runId);
+    await api.idle();
+    const response = await fetch(`${base}/api/runs/${runId}/report`);
+    const text = await response.text();
+    const report = JSON.parse(text) as StudyReport;
+    expect(report.study?.result.status).toBe("policy_blocked");
+    expect(report.study?.blinding).toMatchObject({ sealed: true, revealed: false, reveal: null, sealedPayload: null });
+    expect(report.study?.blinding.commitment).toMatch(/^[a-f0-9]{64}$/u);
+    expect(report.study?.blinding.records.map((item) => item.phase)).toEqual(["target_sealed", "agents_started", "final_status"]);
+    // Nothing the browser receives carries the paper's value, tolerance, or the nonce.
+    for (const body of [text, JSON.stringify(events), await (await fetch(`${base}/api/config`)).text()]) {
+      expect(body).not.toMatch(/81\.66|0\.8166|"nonce"|reportedValue/u);
+    }
+    // The audit report exists only for an administrator with the token.
+    expect((await fetch(`${base}/api/runs/${runId}/audit`)).status).toBe(404);
+    expect((await fetch(`${base}/api/runs/${runId}/audit`, { headers: { "x-dejaml-admin-token": "wrong" } })).status).toBe(404);
+    const audit = await fetch(`${base}/api/runs/${runId}/audit`, { headers: { "x-dejaml-admin-token": "admin-test-token-0001" } });
+    expect(audit.status).toBe(200);
+    const auditReport = (await audit.json()) as StudyReport;
+    expect(auditReport.study?.blinding.sealedPayload).toMatch(/"reportedValue":81\.66/u);
+    expect(auditReport.study?.blinding.sealedPayload).toMatch(/"nonce":"[a-f0-9]{64}"/u);
+    expect(store.listEvents(runId).some((event) => event.type === "audit_report_downloaded")).toBe(true);
   });
 
   it("stops before planning when the Paper Analyst returns a different claim than the reviewed target", async () => {
@@ -499,14 +551,12 @@ describe("Run API", () => {
         title: "Fixture paper",
         paperTitle: "Fixture paper",
         paperSha256: first.paper.sha256,
+        // The claim under test, without its sealed value, tolerance, or paper reference.
         claim: {
-          page: 1,
-          location: "Section 4",
           method: "Random Forest",
           dataset: "UCI Urban Land Cover",
           split: "official test set",
           metric: { name: "accuracy", unit: "percent" },
-          reportedValue: 81.66,
         },
         repository: { url: "https://github.com/example/new-paper", commitSha: "7f8b1c4cbe5b4caf2f6cc8bc0d6fc31ce2f6bd71" },
         available: true,
@@ -599,7 +649,7 @@ describe("Run API", () => {
 
   it("ends inconclusive when the Independent Reviewers reject the measurement, and the Supervisor cannot raise it", async () => {
     await startServer({ autonomous: true, repositoryUrl: "https://github.com/example/new-paper" });
-    studyProvider.review = { verdict: "reject", equivalence: "not_equivalent" };
+    studyProvider.review = { equivalence: "not_equivalent" };
     studyProvider.supervisorProposal = "reproduced";
     const { runId } = (await (await upload(await paperPdf(true, "https://github.com/example/new-paper"))).json()) as {
       runId: string;
@@ -609,7 +659,7 @@ describe("Run API", () => {
     expect(report.status).toBe("inconclusive");
     expect(report.study?.result.status).toBe("inconclusive");
     expect(report.study?.result.supervisor).toMatchObject({ proposedStatus: "reproduced", applied: false });
-    expect(report.study?.result.reasons.join(" ")).toMatch(/rejected by the Independent Reviewer/u);
+    expect(report.study?.result.reasons.join(" ")).toMatch(/blind Reviewer judged it not equivalent/u);
     expect(report.metric).toBeNull();
     expect(runtime.containers.size).toBe(0);
   });

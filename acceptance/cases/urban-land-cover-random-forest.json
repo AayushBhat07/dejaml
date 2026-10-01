@@ -104,7 +104,7 @@
       "risks": ["the authors' seeds are unknown"]
     },
     "review": {
-      "equivalence": "minor_deviations",
+      "equivalence": "partially_equivalent",
       "summary": "The reviewed project-owned adapter ran the notebook's Random Forest protocol on the official CSVs; the accuracy came from the run's own JSON artifact.",
       "checks": [
         { "name": "approved command ran", "passed": true, "explanation": "the receipt exited 0" },

@@ -5,7 +5,7 @@ import { isAbsolute, join, normalize, relative } from "node:path";
 import { type MetricParser, MetricParserSchema, PythonVersionSchema } from "@dejaml/contracts";
 import { z } from "zod";
 
-import { checkExcerpt } from "./contract.js";
+import { canonicalJson, checkExcerpt } from "./contract.js";
 import type { Adapter, PaperClaim } from "./roles.js";
 
 /**
@@ -102,8 +102,15 @@ const ClaimTargetFileSchema = z.strictObject({
 
 type ClaimTargetFile = z.infer<typeof ClaimTargetFileSchema>;
 
-/** A loaded target: the reviewed file with its adapter's content read and verified. */
-export type ClaimTarget = Omit<ClaimTargetFile, "adapter"> & { adapter: (Adapter & { id: string; sha256: string }) | null };
+/**
+ * A loaded target: the reviewed file with its adapter's content read and
+ * verified, and its version (the SHA-256 of the file's canonical JSON), which
+ * the sealed-target commitment binds.
+ */
+export type ClaimTarget = Omit<ClaimTargetFile, "adapter"> & {
+  adapter: (Adapter & { id: string; sha256: string }) | null;
+  version: string;
+};
 
 export class ReviewedTargetError extends Error {
   constructor(message: string) {
@@ -128,7 +135,7 @@ export async function loadClaimTarget(raw: unknown, root: string): Promise<Claim
   const value = file.claim.reportedValue;
   const numbers = file.claim.excerpt.normalize("NFKC").match(/-?\d+(?:\.\d+)?/gu) ?? [];
   if (!numbers.some((item) => Number(item) === value))
-    throw new ReviewedTargetError(`${file.caseId}: the excerpt does not contain the reported value ${value}`);
+    throw new ReviewedTargetError(`${file.caseId}: the excerpt does not contain the reported value`);
   let adapter: ClaimTarget["adapter"] = null;
   if (file.adapter) {
     const path = normalize(join(root, file.adapter.file));
@@ -150,7 +157,7 @@ export async function loadClaimTarget(raw: unknown, root: string): Promise<Claim
       differences: file.adapter.differences,
     };
   }
-  return Object.freeze({ ...file, adapter });
+  return Object.freeze({ ...file, adapter, version: sha256(canonicalJson(file)) });
 }
 
 /** Loads every `*.json` target in `dir` (missing directory: none). Duplicate ids are refused. */
@@ -183,8 +190,8 @@ export function claimMismatch(target: ClaimTarget, claim: PaperClaim): string | 
   const reasons: string[] = [];
   const has = (text: string, part: string): boolean => text.toLowerCase().includes(part.toLowerCase());
   if (claim.page !== target.claim.page) reasons.push(`page ${claim.page} instead of ${target.claim.page}`);
-  if (claim.reportedValue !== target.claim.reportedValue)
-    reasons.push(`reported value ${claim.reportedValue} instead of ${target.claim.reportedValue}`);
+  // Never the values themselves: this message reaches events and the Supervisor before the reveal.
+  if (claim.reportedValue !== target.claim.reportedValue) reasons.push("a different reported value");
   if (claim.metric.unit !== target.claim.metric.unit) reasons.push(`unit ${claim.metric.unit} instead of ${target.claim.metric.unit}`);
   const { identify } = target.claim;
   if (!identify.methodIncludes.every((part) => has(claim.method, part)) || identify.methodExcludes.some((part) => has(claim.method, part)))
@@ -194,7 +201,11 @@ export function claimMismatch(target: ClaimTarget, claim: PaperClaim): string | 
   return reasons.length ? `the Paper Analyst returned a different claim than the reviewed target: ${reasons.join("; ")}` : null;
 }
 
-/** What the Paper Analyst is told: the claim to find and check. Not the reviewed excerpt, and never a result. */
+/**
+ * What the Paper Analyst is told: the claim to find and check, with the value
+ * the paper reports (it reads the paper anyway). Its history is never shared;
+ * code reduces its result to the execution claim before anyone else sees it.
+ */
 export function paperAnalystTarget(target: ClaimTarget): Record<string, unknown> {
   const { claim } = target;
   return {
@@ -219,18 +230,15 @@ export function repositoryAnalystTarget(target: ClaimTarget): Record<string, unk
   };
 }
 
-/** What the Planner is told: the reviewed limits its plan must fit. */
+/** What the Planner is told: the reviewed limits its plan must fit. Never the value, tolerance, or paper reference. */
 export function plannerTarget(target: ClaimTarget): Record<string, unknown> {
   return {
     caseId: target.caseId,
     claim: {
-      page: target.claim.page,
-      location: target.claim.location,
       method: target.claim.method,
       dataset: target.claim.dataset,
       split: target.claim.split,
       metric: target.claim.metric,
-      reportedValue: target.claim.reportedValue,
     },
     repository: target.repository,
     environment: target.environment,
@@ -250,19 +258,20 @@ export function plannerTarget(target: ClaimTarget): Record<string, unknown> {
   };
 }
 
-/** Public, sanitized view for reports and events (no adapter content). */
-export function targetSummary(target: ClaimTarget): Record<string, unknown> {
+/**
+ * Public view for events, reports, and the browser before the reveal: which
+ * claim is under study, never its value, tolerance, excerpt, or adapter text.
+ */
+export function publicTargetSummary(target: ClaimTarget): Record<string, unknown> {
   return {
     caseId: target.caseId,
+    caseVersion: target.version,
     paperSha256: target.paper.sha256,
     claim: {
-      page: target.claim.page,
-      location: target.claim.location,
       method: target.claim.method,
       dataset: target.claim.dataset,
       split: target.claim.split,
       metric: target.claim.metric,
-      reportedValue: target.claim.reportedValue,
     },
     repository: target.repository,
     adapter: target.adapter ? { id: target.adapter.id, path: target.adapter.path, sha256: target.adapter.sha256 } : null,

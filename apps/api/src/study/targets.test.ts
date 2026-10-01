@@ -18,7 +18,7 @@ import {
   plannerTarget,
   repositoryAnalystTarget,
   ReviewedTargetError,
-  targetSummary,
+  publicTargetSummary,
 } from "./targets.js";
 
 const root = fileURLToPath(new URL("../../../../", import.meta.url));
@@ -167,7 +167,9 @@ describe("reviewed claim targets", () => {
       location: "Listing 1",
       excerpt: "0.98",
     };
-    expect(claimMismatch(target, listing)).toMatch(/page 3 instead of 4.*reported value 0.98 instead of 1.*method "BOSSVS"/u);
+    expect(claimMismatch(target, listing)).toMatch(/page 3 instead of 4.*a different reported value.*method "BOSSVS"/u);
+    // Never the values themselves: the message reaches events before the reveal.
+    expect(claimMismatch(target, listing)).not.toMatch(/0\.98|instead of 1\b/u);
     expect(claimMismatch(target, { ...verified, dataset: "ECG200" })).toMatch(/dataset "ECG200"/u);
   });
 
@@ -181,10 +183,14 @@ describe("reviewed claim targets", () => {
     expect(repository).not.toContain("reportedValue");
     const planner = plannerTarget(target);
     expect(planner).toMatchObject({ reviewedAdapter: { id: "pyts-boss-notebook-runner" }, metricParser: target.metricParser });
-    for (const view of [analyst, repository, JSON.stringify(planner), JSON.stringify(targetSummary(target))]) {
+    // Blind views: no value, tolerance, excerpt, or paper location for the Planner or the public.
+    for (const view of [planner, publicTargetSummary(target)]) {
+      expect(JSON.stringify(view)).not.toMatch(/reportedValue|tolerance|excerpt|Table 2/u);
+    }
+    for (const view of [analyst, repository, JSON.stringify(planner), JSON.stringify(publicTargetSummary(target))]) {
       expect(view).not.toMatch(/observed/iu);
     }
-    expect(JSON.stringify(targetSummary(target))).not.toContain("exec(compile");
+    expect(JSON.stringify(publicTargetSummary(target))).not.toContain("exec(compile");
   });
 
   it("approves a plan that fits the reviewed limits, and caps nothing by itself", async () => {
@@ -335,7 +341,7 @@ describe("the Urban Land Cover reviewed target", () => {
     expect(target.adapter!.content).not.toMatch(/81\.66|79\.88/u);
     const raw = await readFile(join(registry, "urban-land-cover-random-forest.json"), "utf8");
     expect(raw).not.toContain("79.88");
-    for (const view of [paperAnalystTarget(target), repositoryAnalystTarget(target), plannerTarget(target), targetSummary(target)]) {
+    for (const view of [paperAnalystTarget(target), repositoryAnalystTarget(target), plannerTarget(target), publicTargetSummary(target)]) {
       expect(JSON.stringify(view)).not.toMatch(/79\.88|observed/iu);
     }
   });
@@ -361,6 +367,8 @@ describe("the Urban Land Cover reviewed target", () => {
   it("refuses a different claim from the same table", async () => {
     const target = await urban();
     expect(claimMismatch(target, claim)).toBeNull();
-    expect(claimMismatch(target, { ...claim, method: "XGBoost", reportedValue: 83.1 })).toMatch(/reported value 83.1 instead of 81.66/u);
+    const mismatch = claimMismatch(target, { ...claim, method: "XGBoost", reportedValue: 83.1 });
+    expect(mismatch).toMatch(/a different reported value/u);
+    expect(mismatch).not.toMatch(/83\.1|81\.66/u);
   });
 });

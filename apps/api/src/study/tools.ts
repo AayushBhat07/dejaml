@@ -1,4 +1,4 @@
-import { chmod, lstat, open, readdir, readFile, realpath } from "node:fs/promises";
+import { chmod, lstat, mkdir, open, readdir, readFile, realpath } from "node:fs/promises";
 import { join, posix, relative, resolve, sep } from "node:path";
 
 import {
@@ -15,6 +15,7 @@ import { z } from "zod";
 
 import type { StudyContext } from "./context.js";
 import { labTools } from "./lab-tools.js";
+import { projectRepository } from "./projection.js";
 import { MAX_READ_BYTES, MAX_SEARCH_MATCHES, ok, RelativePathInput } from "./tool-helpers.js";
 
 /**
@@ -125,9 +126,10 @@ async function searchTree(root: string, start: string, needle: string): Promise<
   return { matches, truncated: matches.length >= MAX_SEARCH_MATCHES };
 }
 
-function requireRepository(ctx: StudyContext): { dir: string; root: string } {
-  if (!ctx.repository) throw new ToolDenied("the repository has not been acquired yet");
-  return ctx.repository;
+/** The execution projection agents read (notebook outputs stripped), never the original checkout. */
+function requireRepository(ctx: StudyContext): { dir: string } {
+  if (!ctx.repository || !ctx.projection) throw new ToolDenied("the repository has not been acquired yet");
+  return { dir: ctx.projection.dir };
 }
 
 // ---------------------------------------------------------------------------
@@ -158,6 +160,16 @@ export async function acquireRepository(ctx: StudyContext, repositoryUrl: string
   await chmod(receipt.destination, 0o755);
   ctx.repository = { receipt, dir: await realpath(receipt.destination), root };
   ctx.pinnedCommit = receipt.commitSha;
+  await refreshProjection(ctx);
+}
+
+/** (Re)builds the execution projection from the pinned checkout, withholding the sealed value when one is known. */
+export async function refreshProjection(ctx: StudyContext): Promise<void> {
+  if (!ctx.repository) return;
+  const destinationDir = join(ctx.workDir, "projections", `p${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`);
+  await mkdir(join(ctx.workDir, "projections"), { recursive: true, mode: 0o711 });
+  const projection = await projectRepository({ sourceDir: ctx.repository.dir, destinationDir, sealed: ctx.sealedForScan });
+  ctx.projection = { ...projection, dir: await realpath(projection.dir) };
 }
 
 function boardRead(_ctx: StudyContext): ToolDefinition {

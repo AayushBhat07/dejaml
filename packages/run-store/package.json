@@ -12,7 +12,8 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "vitest run src"
+    "test": "vitest run src",
+    "test:blinding": "vitest run src/blinding.test.ts"
   },
   "dependencies": {
     "@dejaml/contracts": "0.1.0"

@@ -137,6 +137,15 @@ export type BoundedRuntimeOptions = {
   now?: () => Date;
   /** Stream text from providers that support it. */
   stream?: boolean;
+  /**
+   * Checked before every model request, over the system prompt and every
+   * message that is not a tool result (the task inputs, messages from other
+   * agents, rollovers). A non-null reason fails the agent before the request
+   * is sent. Blinded studies use it to refuse any request that carries the
+   * sealed value; tool results are excluded because a correct measurement can
+   * equal the paper's value.
+   */
+  requestGuard?: (agent: { runId: string; agentId: string; role: AgentRole }, text: string) => string | null;
 };
 
 type Live = {
@@ -378,6 +387,12 @@ export class BoundedAgentRuntime implements AgentRuntime {
           messages = ledger.listTurns(agentId, usage.segments).map((turn) => turn.message as ChatMessage);
         }
 
+        if (this.#options.requestGuard) {
+          const guarded = [system, ...messages.flatMap((message) => (message.role === "user" ? [message.content] : []))].join("\n");
+          const refusal = this.#options.requestGuard({ runId: record.runId, agentId, role }, guarded);
+          if (refusal) return end("failed", null, `request refused before it was sent: ${refusal}`);
+        }
+
         const remainingOutput = limits.maxOutputTokens - usage.outputTokens;
         const response = await provider.chat({
           model: record.model,
@@ -421,7 +436,7 @@ export class BoundedAgentRuntime implements AgentRuntime {
           {
             iteration: usage.iterations,
             tools: response.toolCalls.map((call) => call.name),
-            text: response.text?.slice(0, 1_000) ?? null,
+            // The model's prose stays in the ledger: public events carry tool names and usage only.
             tokens: { input: response.usage.inputTokens, output: response.usage.outputTokens },
             costUsd: response.costUsd,
           },

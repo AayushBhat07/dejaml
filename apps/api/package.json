@@ -16,6 +16,7 @@
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run src",
+    "test:blinding": "vitest run src/study/sentinel.test.ts src/study/blinding.test.ts src/study/projection.test.ts",
     "start": "node dist/main.js",
     "verify:stack": "node scripts/verify-stack.mjs",
     "verify:failures": "node scripts/verify-failures.mjs",

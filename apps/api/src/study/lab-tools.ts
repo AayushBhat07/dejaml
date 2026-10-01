@@ -6,6 +6,8 @@ import { type CommandOutcome, LabError } from "@dejaml/lab-manager";
 import { inspectEnvironmentCommand } from "@dejaml/prep";
 import { z } from "zod";
 
+import { executionContract } from "./blinding.js";
+
 import { type CommandRecord, type EngineerLab, LAB_LAYOUT, PreparationFailure, type StudyContext } from "./context.js";
 import { DiagnosisSchema, INSTRUCTIONS, RESULT_DESCRIPTIONS, ROLE_GRANTS, ROLE_LIMITS } from "./roles.js";
 import { failed, MAX_READ_BYTES, MAX_SEARCH_MATCHES, ok, RelativePathInput, tail } from "./tool-helpers.js";
@@ -477,7 +479,8 @@ export function labTools(ctx: StudyContext): ToolDefinition[] {
             failingReceiptIds: input.receiptIds,
             engineer: lab.label,
             boardKey: lab.agentId,
-            contract: ctx.contract,
+            // The execution view only: never the reported value, tolerance, or paper excerpt.
+            contract: ctx.contract ? executionContract(ctx.contract) : null,
             hint: "Read command_receipt entries with key equal to boardKey and lab_logs for full output; the lab is at /workspace/case.",
           },
           grants: [...ROLE_GRANTS.debugger],

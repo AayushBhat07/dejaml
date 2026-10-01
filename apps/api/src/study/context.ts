@@ -15,6 +15,9 @@ import type { acquireGithubRepository, RepositoryReceipt } from "@dejaml/reposit
 import type { RunStore } from "@dejaml/run-store";
 import type { z } from "zod";
 
+import type { SealedTarget } from "./blinding.js";
+import type { Projection } from "./projection.js";
+
 export type ResourceBudget = z.infer<typeof ResourceBudgetSchema>;
 
 /** The fixed lab layout every engineer sees, relative to the lab workdir. */
@@ -191,6 +194,17 @@ export type StudyContext = {
   acquire: typeof acquireGithubRepository;
   /** The pinned checkout; `commitSha` is set on resume so the same commit is fetched again. */
   repository: { receipt: RepositoryReceipt; dir: string; root: string } | null;
+  /**
+   * The execution projection of the checkout (notebook outputs stripped, the
+   * sealed value withheld from documentation). Repository tools and labs read
+   * this, never the original.
+   */
+  projection: Projection | null;
+  /**
+   * Trusted code only: the sealed value, used to withhold it from projections
+   * and to refuse any agent request that carries it. No tool returns it.
+   */
+  sealedForScan: { value: number; unit: SealedTarget["metric"]["unit"] } | null;
   pinnedCommit: string | null;
   contract: ClaimContract | null;
   planDigest: string | null;

@@ -31,12 +31,15 @@ import {
   type ClaimTarget,
   type DatasetPort,
   type DependencyPort,
+  type BlindingProofCheck,
   type LabImagePort,
   type LeakCheck,
   type MultiAgentReport,
+  type MultiAgentResult,
+  proveBlinding,
   runMultiAgentStudy,
   type StudyConfig,
-  targetSummary,
+  publicTargetSummary,
 } from "./study/index.js";
 
 type ResourceBudget = z.infer<typeof ResourceBudgetSchema>;
@@ -106,6 +109,8 @@ export type StudyReport = {
   audit: AuditDecision | null;
   /** Present when independent agents ran the study instead of a reviewed plan. */
   study?: MultiAgentReport;
+  /** The server's re-check of the study's blinding, from its stored ledger, histories and events. */
+  blindingProof?: BlindingProofCheck[];
   failure: string | null;
   events: RunEvent[];
 };
@@ -160,6 +165,8 @@ export async function runStudy(
     audit: null,
     failure: null,
   };
+  // The administrator's audit copy of a blinded study (see finalize); never served without the admin token.
+  let auditStudy = null as MultiAgentResult["auditReport"] | null;
   const event = (
     type: string,
     status: RunEvent["status"],
@@ -234,7 +241,7 @@ export async function runStudy(
         finish("inconclusive");
         return await finalize();
       }
-      event("reviewed_target", "completed", `Investigating the reviewed claim ${target.caseId}`, targetSummary(target));
+      event("reviewed_target", "completed", `Investigating the reviewed claim ${target.caseId}`, publicTargetSummary(target));
     }
 
     // 2. Repository discovery: only a reviewed case may proceed.
@@ -553,6 +560,8 @@ export async function runStudy(
       },
     );
     report.study = result.report;
+    report.blindingProof = proveBlinding({ store, runId, report: result.report });
+    auditStudy = result.auditReport;
     report.repository = result.repository;
     report.metric = result.metric;
     report.assessment = result.assessment;
@@ -586,6 +595,12 @@ export async function runStudy(
     const reportsDir = join(deps.workRoot, "reports");
     await mkdir(reportsDir, { recursive: true });
     await writeFile(join(reportsDir, `${runId}.json`), `${JSON.stringify(complete, null, 2)}\n`);
+    if (auditStudy) {
+      // Server-only: the full study, including a sealed target that was never revealed. Readable by the service account alone.
+      await writeFile(join(reportsDir, `${runId}.audit.json`), `${JSON.stringify({ ...complete, study: auditStudy }, null, 2)}\n`, {
+        mode: 0o600,
+      });
+    }
     return complete;
   }
 }

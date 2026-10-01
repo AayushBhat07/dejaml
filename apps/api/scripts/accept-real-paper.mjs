@@ -26,6 +26,13 @@
 //   DEJAML_ACCEPT_PROVIDER  provider id from /api/config (default: the first listed)
 //   DEJAML_ACCEPT_MODEL     model from that provider (default: its first)
 //
+// Before anything is uploaded, the deterministic blinding and leakage tests run
+// (npm run test:blinding); the run is refused if any fails. After the study, the
+// paper's target must have been sealed before any agent, revealed only after the
+// observation and the blind review were locked, and verified against its
+// commitment; the server's re-check of every blind agent's history and this
+// script's own re-check of the report and the event stream must both pass.
+//
 // Exit codes: 0 all checks passed, 1 a check failed, 2 usage, 3 pending (no
 // provider key in the API's environment).
 import { spawnSync } from "node:child_process";
@@ -34,6 +41,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { BLINDING_ORDER, compareRevealed, revealTarget, valueForms } from "../dist/study/index.js";
 import { checkAcceptanceProvider, classifyAcceptanceRoute } from "./acceptance-route.mjs";
 
 const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
@@ -54,6 +62,16 @@ if (acceptanceCase.paper.sha256 && acceptanceCase.paper.sha256 !== paperSha256) 
   console.error(`The paper's SHA-256 ${paperSha256} does not match the case's ${acceptanceCase.paper.sha256}.`);
   process.exit(2);
 }
+
+// No real paper runs while the deterministic leakage tests fail: they prove the blinding this run relies on.
+const leakage = spawnSync("npm", ["run", "test:blinding"], { cwd: projectRoot, encoding: "utf8" });
+if (leakage.status !== 0) {
+  console.error(
+    `Acceptance refused: the deterministic blinding and leakage tests fail (npm run test:blinding).\n${leakage.stdout.slice(-2000)}`,
+  );
+  process.exit(2);
+}
+console.log("deterministic blinding and leakage tests: passed");
 
 const api = (process.env.DEJAML_ACCEPT_API ?? "http://127.0.0.1:8787/api").replace(/\/$/u, "");
 let config;
@@ -162,6 +180,20 @@ const engineers = study?.engineers ?? [];
 const measured = engineers.find((item) => typeof item.value === "number") ?? engineers[0] ?? null;
 const officialReceipt = measured?.official ? receipts.find((item) => item.receiptId === measured.official.receiptId) : official.at(-1);
 
+// The paper's target, opened here from the report's own reveal record and checked against its commitment.
+const blinding = study?.blinding ?? null;
+let revealed = null;
+let revealProblem = blinding?.reveal ? "" : "the target was never revealed";
+if (blinding?.reveal && blinding.commitment) {
+  try {
+    revealed = revealTarget({ canonical: blinding.reveal.canonical, commitment: blinding.commitment });
+  } catch (error) {
+    revealProblem = error instanceof Error ? error.message : String(error);
+  }
+}
+const phaseRecords = blinding?.records ?? [];
+const recordOf = (phase) => phaseRecords.find((item) => item.phase === phase) ?? null;
+
 // Sanitized: identifiers, digests, bounded excerpts; no prompts, hidden reasoning, keys, or environment dumps.
 const acceptanceReport = {
   schemaVersion: 1,
@@ -251,6 +283,26 @@ const acceptanceReport = {
     supervisor: study?.result?.supervisor ?? null,
     reasons: study?.result?.reasons ?? [],
   },
+  blinding: blinding
+    ? {
+        commitment: blinding.commitment,
+        sealedAt: blinding.sealedAt,
+        // The sealed schema: the field names the commitment binds (values are in the reveal record below).
+        sealedFields: revealed ? Object.keys(revealed).sort() : null,
+        records: phaseRecords.map(({ sequence, phase, round, commitment, at }) => ({ sequence, phase, round, commitment, at })),
+        observation: phaseRecords
+          .filter((item) => item.phase === "observation_locked")
+          .map((item) => ({ round: item.round, commitment: item.commitment, observation: item.record?.observation ?? null })),
+        blindReview: phaseRecords
+          .filter((item) => item.phase === "blind_review_locked")
+          .map((item) => ({ round: item.round, commitment: item.commitment, reviews: item.record?.reviews ?? [] })),
+        reveal: blinding.reveal,
+        comparison: blinding.comparison,
+        projection: blinding.projection,
+        errors: blinding.errors,
+      }
+    : null,
+  blindingProof: report.blindingProof ?? null,
   cleanup: study?.cleanup ?? null,
 };
 
@@ -300,13 +352,14 @@ if (!study) {
     check(
       "the reviewed claim was studied, not another one",
       target?.caseId === acceptanceCase.reviewedCaseId &&
-        contract?.paperReference?.page === claim.page &&
-        contract?.reportedValue === claim.reportedValue &&
-        contract?.metric?.unit === claim.unit &&
+        revealed?.caseId === acceptanceCase.reviewedCaseId &&
+        revealed?.claimLocator?.page === claim.page &&
+        revealed?.reportedValue === claim.reportedValue &&
+        revealed?.metric?.unit === claim.unit &&
         contract?.entrypoint === acceptanceCase.repository.entrypoint,
-      contract
-        ? `${contract.method} | ${contract.dataset?.name} | ${contract.metric?.name} | p.${contract.paperReference?.page} ${contract.paperReference?.location} | ${contract.reportedValue}`
-        : "no claim contract",
+      revealed
+        ? `${contract?.method} | ${contract?.dataset?.name} | ${revealed.metric.name} | p.${revealed.claimLocator.page} ${revealed.claimLocator.location} | ${revealed.reportedValue}`
+        : revealProblem,
     );
     check(
       `repository pinned to ${acceptanceCase.repository.commitSha.slice(0, 12)}`,
@@ -369,6 +422,59 @@ if (!study) {
           ["reproduced", "partially_reproduced", "not_reproduced", "inconclusive"].includes(acceptanceReport.status.final)),
     );
   }
+  // Blinding: the server's re-check from its stored histories, then this script's own from the report and the event stream.
+  const serverProof = report.blindingProof ?? [];
+  check("the server re-checked the blinding", serverProof.length >= 10, `${serverProof.length} checks`);
+  for (const item of serverProof) check(`blinding: ${item.name}`, item.pass, item.info);
+  check(
+    "sealed commitment recomputed here from the revealed payload",
+    revealed !== null && createHash("sha256").update(blinding.reveal.canonical).digest("hex") === blinding.commitment,
+    revealed ? `sha256 = ${blinding.commitment}` : revealProblem,
+  );
+  const firsts = BLINDING_ORDER.map((phase) => recordOf(phase)?.sequence ?? -1);
+  check(
+    "phases in order: sealed, agents, execution, observation lock, blind review lock, reveal, comparison, final status",
+    firsts.every((sequence, index) => sequence > 0 && (index === 0 || sequence > firsts[index - 1])),
+    phaseRecords.map((item) => item.phase).join(" > "),
+  );
+  const events = report.events;
+  const sealedEvent = events.find((event) => event.type === "target_sealed");
+  const firstAgent = events.find((event) => event.type === "agent_started");
+  const revealIndex = events.findIndex((event) => event.type === "target_revealed");
+  check(
+    "the sealed announcement came before any agent and carried four public fields",
+    Boolean(sealedEvent && firstAgent) &&
+      sealedEvent.sequence < firstAgent.sequence &&
+      JSON.stringify(Object.keys(sealedEvent.publicPayload).sort()) === JSON.stringify(["caseId", "commitment", "metric", "sealedAt"]),
+    sealedEvent ? Object.keys(sealedEvent.publicPayload).join(", ") : "no target_sealed event",
+  );
+  const forms = revealed ? valueForms(revealed.reportedValue, revealed.metric.unit) : [];
+  const observedTypes = new Set(["lab_output", "observation_locked", "metric_parsed"]);
+  const earlyLeaks = (revealIndex > 0 ? events.slice(0, revealIndex) : events).filter((event) => {
+    const text = JSON.stringify({ summary: event.summary, payload: event.publicPayload });
+    if (/"(reportedValue|paperReference|paperValue|tolerance)"\s*:\s*(?!null)/u.test(text)) return true;
+    if (observedTypes.has(event.type)) return false;
+    return forms.some((form) => new RegExp(`(?<![\\d.])${form.replaceAll(".", "\\.")}(?![\\d]|\\.\\d)`, "u").test(text));
+  });
+  check(
+    "no event the browser saw before the reveal carried the target",
+    revealIndex > 0 && earlyLeaks.length === 0,
+    `${revealIndex} events before the reveal; ${
+      forms.length ? `scanned for ${forms.join(", ")}` : "the value has no distinctive written form, so target fields were scanned"
+    }${earlyLeaks.length ? `; leaked in ${earlyLeaks.map((event) => event.type).join(", ")}` : ""}`,
+  );
+  const comparison = blinding?.comparison ?? null;
+  const recomputed = revealed && comparison ? compareRevealed(revealed, comparison.observed) : null;
+  check(
+    "comparison recomputed here: absolute delta within the revealed tolerance",
+    recomputed !== null &&
+      recomputed.absoluteDelta === comparison.absoluteDelta &&
+      recomputed.withinTolerance === comparison.withinTolerance &&
+      recomputed.observed === acceptanceReport.metric.observedValue,
+    comparison
+      ? `|${comparison.observed} − ${comparison.reported}| = ${comparison.absoluteDelta}, tolerance ${comparison.tolerance}, within ${comparison.withinTolerance}; blind verdicts ${comparison.blindVerdicts.join(", ")}`
+      : "no comparison",
+  );
   const leftovers = spawnSync("docker", ["ps", "-a", "--filter", `label=dejaml.run=${runId}`, "--format", "{{.Names}}"], {
     encoding: "utf8",
   });

@@ -453,9 +453,8 @@ type ScriptedCall = { name: string; input: unknown };
 export class ScriptedStudyProvider implements ChatProvider {
   readonly id = "scripted";
   readonly kind = "scripted" as const;
-  /** How the Independent Reviewers judge each submission. */
-  review: { verdict: "approve" | "reject"; equivalence: "equivalent" | "minor_deviations" | "not_equivalent" } = {
-    verdict: "approve",
+  /** How the blind Reviewers judge each submission (code derives approve/reject from it). */
+  review: { equivalence: "equivalent" | "partially_equivalent" | "not_equivalent" | "insufficient_evidence" } = {
     equivalence: "equivalent",
   };
   /** Changes to the Planner's plan (for policy tests). */
@@ -627,19 +626,16 @@ export class ScriptedStudyProvider implements ChatProvider {
         const key = String(inputs.submissionKey ?? "");
         if (turn === 0) return [{ name: "board_read", input: { key } }];
         if (turn === 1) return [{ name: "artifact_read", input: { engineerAgentId: key, path: "artifacts/result.json" } }];
+        const approve = this.review.equivalence === "equivalent" || this.review.equivalence === "partially_equivalent";
         return finish({
-          verdict: this.review.verdict,
           equivalence: this.review.equivalence,
-          summary:
-            this.review.verdict === "approve"
-              ? "The approved official command ran and wrote the metric."
-              : "The metric does not come from the paper's model.",
+          summary: approve ? "The approved official command ran and wrote the metric." : "The metric does not come from the paper's model.",
           checks: [
             { name: "official command ran", passed: true, explanation: "the official receipt exited 0" },
             { name: "metric from the run", passed: true, explanation: "artifact digest matches the official receipt" },
             {
               name: "dataset and metric match",
-              passed: this.review.verdict === "approve",
+              passed: approve,
               explanation: "same dataset and metric as the claim",
             },
           ],

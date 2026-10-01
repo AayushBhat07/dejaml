@@ -45,6 +45,9 @@ export type StatusDecision = {
   equivalence: "equivalent" | "minor_deviations" | null;
 };
 
+/** The revealed, verified target: the only source of the paper's value and tolerance for the decision. */
+export type RevealedComparison = { reportedValue: number; tolerance: number };
+
 export function rejection(outcome: EngineerOutcome): string | null {
   if (!outcome.official)
     return `the approved command never ran (${outcome.agentStatus}${outcome.agentReason ? `: ${outcome.agentReason}` : ""})`;
@@ -54,8 +57,9 @@ export function rejection(outcome: EngineerOutcome): string | null {
     return `the metric could not be parsed from the official run: ${outcome.metric && !outcome.metric.ok ? outcome.metric.reason : "not parsed"}`;
   if (outcome.value === null) return "the metric could not be converted to the paper's unit";
   if (!outcome.review) return "not reviewed";
-  if (outcome.review.verdict !== "approve") return `rejected by the Independent Reviewer: ${outcome.review.summary}`;
-  if (outcome.review.equivalence === "not_equivalent") return "the Independent Reviewer judged it not equivalent to the paper's method";
+  if (outcome.review.equivalence === "not_equivalent") return "the blind Reviewer judged it not equivalent to the approved method";
+  if (outcome.review.equivalence === "insufficient_evidence") return "the blind Reviewer found the evidence insufficient";
+  if (outcome.review.verdict !== "approve") return `rejected by the blind Reviewer: ${outcome.review.summary}`;
   return null;
 }
 
@@ -67,6 +71,12 @@ export function decideStatus(input: {
   /** Why the study stopped before measuring, when it did. */
   stopReasons: string[];
   contract: ClaimContract | null;
+  /**
+   * The paper's value and tolerance, from the revealed and verified sealed
+   * target. Null until the reveal: a study that stopped before it never
+   * compares, and is at most inconclusive.
+   */
+  revealed: RevealedComparison | null;
   adapter: boolean;
   outcomes: EngineerOutcome[];
   engineersLaunched: number;
@@ -107,11 +117,16 @@ export function decideStatus(input: {
     if (input.engineersLaunched === 0) reasons.push("no engineer ran the approved command");
     return empty("inconclusive");
   }
+  if (!input.revealed) {
+    reasons.push("the paper's target was not revealed, so no comparison was made");
+    return empty("inconclusive");
+  }
+  const { reportedValue, tolerance } = input.revealed;
   const launched = Math.max(input.engineersLaunched, approved.length);
   const required = launched === 1 ? 1 : Math.floor(launched / 2) + 1;
   const consensus = findConsensus(
     approved.map((outcome) => ({ agentName: outcome.label, value: outcome.value! })),
-    contract.tolerance,
+    tolerance,
     required,
   );
   if (consensus.status !== "agreed") {
@@ -129,10 +144,10 @@ export function decideStatus(input: {
     contract.environment.compatibilityConstraints.length > 0 ||
     group.some((outcome) => outcome.review?.equivalence !== "equivalent" || (outcome.submission?.deviations.length ?? 0) > 0);
   const equivalence = deviations ? "minor_deviations" : "equivalent";
-  const absoluteDifference = Math.abs(representative.value! - contract.reportedValue);
-  if (absoluteDifference > contract.tolerance + 1e-9) {
+  const absoluteDifference = round(Math.abs(representative.value! - reportedValue));
+  if (absoluteDifference > tolerance + 1e-9) {
     reasons.push(
-      `the measured value ${representative.value} differs from the paper's ${contract.reportedValue} by ${round(absoluteDifference)} ${contract.metric.unit} (tolerance ${contract.tolerance})`,
+      `the measured value ${representative.value} differs from the paper's ${reportedValue} by ${absoluteDifference} ${contract.metric.unit} (tolerance ${tolerance})`,
     );
     return { status: "not_reproduced", reasons, consensus, representative, absoluteDifference, equivalence };
   }
@@ -141,12 +156,16 @@ export function decideStatus(input: {
       input.adapter ? "an adapter wraps the official code" : null,
       contract.environment.compatibilityConstraints.length ? "compatibility constraints changed package versions" : null,
       group.some((outcome) => (outcome.submission?.deviations.length ?? 0) > 0) ? "the engineer declared deviations" : null,
-      group.some((outcome) => outcome.review?.equivalence === "minor_deviations") ? "the Reviewer found minor deviations" : null,
+      group.some((outcome) => outcome.review?.equivalence === "partially_equivalent")
+        ? "the blind Reviewer judged it partially equivalent"
+        : null,
     ].filter(Boolean);
     reasons.push(`the value matches within tolerance, with deviations: ${why.join("; ")}`);
     return { status: "partially_reproduced", reasons, consensus, representative, absoluteDifference, equivalence };
   }
-  reasons.push("the approved official command reproduced the paper's value within tolerance, reviewed as methodologically equivalent");
+  reasons.push(
+    "the approved official command reproduced the paper's value within tolerance, reviewed blind as methodologically equivalent",
+  );
   return { status: "reproduced", reasons, consensus, representative, absoluteDifference, equivalence };
 }
 
@@ -155,7 +174,7 @@ function round(value: number): number {
 }
 
 /** The Supervisor may only make the outcome more cautious, and only in these ways. */
-const DOWNGRADES: Record<ResultStatus, readonly ResultStatus[]> = {
+export const DOWNGRADES: Record<ResultStatus, readonly ResultStatus[]> = {
   reproduced: ["partially_reproduced", "inconclusive"],
   partially_reproduced: ["inconclusive"],
   not_reproduced: ["inconclusive"],

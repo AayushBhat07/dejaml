@@ -4,9 +4,11 @@ import { DatabaseSync } from "node:sqlite";
 
 import { type RunEvent, type RunStatus, RunEventSchema, RunStatusSchema } from "@dejaml/contracts";
 
+import { BlindingLedger } from "./blinding.js";
 import { AgentLedger } from "./ledger.js";
 import { StudyStages } from "./stages.js";
 
+export * from "./blinding.js";
 export * from "./ledger.js";
 export * from "./stages.js";
 
@@ -34,8 +36,9 @@ const ALLOWED_TRANSITIONS: Record<RunStatus, readonly RunStatus[]> = {
   validating_plan: ["preparing_lab", "inconclusive", "cancelled", "failed"],
   preparing_lab: ["running", "cancelled", "failed", "timed_out"],
   running: ["comparing", "cancelled", "failed", "timed_out"],
-  comparing: ["auditing", "completed", "inconclusive", "failed"],
-  auditing: ["completed", "inconclusive", "failed"],
+  // A study is still cancellable while its Reviewers and Supervisor work (the run shows `comparing` then).
+  comparing: ["auditing", "completed", "inconclusive", "cancelled", "failed"],
+  auditing: ["completed", "inconclusive", "cancelled", "failed"],
   completed: [],
   inconclusive: [],
   failed: [],
@@ -50,6 +53,8 @@ export class RunStore {
   readonly ledger: AgentLedger;
   /** The persisted study state machine (stages, owners, retries, terminal state). */
   readonly stages: StudyStages;
+  /** Commitments of blinded studies: the sealed target, the locked observation and review, and the reveal. */
+  readonly blinding: BlindingLedger;
 
   constructor(filename = ":memory:") {
     this.#database = new DatabaseSync(filename);
@@ -61,6 +66,7 @@ export class RunStore {
     this.#migrate();
     this.ledger = new AgentLedger(this.#database);
     this.stages = new StudyStages(this.#database);
+    this.blinding = new BlindingLedger(this.#database);
   }
 
   #migrate(): void {

@@ -161,7 +161,7 @@ describe("claim contract and policy review", () => {
       /neither the entry point/u,
     );
     expect(policy(contractFor({ command: { argv: ["python", "train.py", "--target", "81.66"], cwd: "repo" } })).violations.join()).toMatch(
-      /reported value/u,
+      /a value it must not know/u,
     );
     expect(
       policy(contractFor({ entrypoint: "missing.py", command: { argv: ["python", "missing.py"], cwd: "repo" } })).violations.join(),
@@ -262,14 +262,16 @@ function outcome(value: number | null, overrides: Partial<EngineerOutcome> = {})
 }
 
 describe("status from evidence", () => {
-  const base = { cancelled: false, failure: null, policyViolations: [], stopReasons: [], adapter: false, engineersLaunched: 1 };
   const contract = contractFor({ requirements: [] });
+  // The revealed, verified target: the only source of the paper's value and tolerance.
+  const revealed = { reportedValue: contract.reportedValue, tolerance: contract.tolerance };
+  const base = { cancelled: false, failure: null, policyViolations: [], stopReasons: [], adapter: false, engineersLaunched: 1, revealed };
 
   it("reproduces only an approved, equivalent measurement within tolerance", () => {
     expect(decideStatus({ ...base, contract, outcomes: [outcome(80.1)] }).status).toBe("reproduced");
     expect(decideStatus({ ...base, contract, outcomes: [outcome(70)] }).status).toBe("not_reproduced");
     expect(
-      decideStatus({ ...base, contract, outcomes: [outcome(80.1, { review: review({ equivalence: "minor_deviations" }) })] }).status,
+      decideStatus({ ...base, contract, outcomes: [outcome(80.1, { review: review({ equivalence: "partially_equivalent" }) })] }).status,
     ).toBe("partially_reproduced");
     expect(decideStatus({ ...base, adapter: true, contract, outcomes: [outcome(80.1)] }).status).toBe("partially_reproduced");
     expect(
@@ -281,15 +283,39 @@ describe("status from evidence", () => {
     ).toBe("partially_reproduced");
   });
 
+  it("never compares before the reveal: an approved measurement without the revealed target is inconclusive", () => {
+    const decision = decideStatus({ ...base, revealed: null, contract, outcomes: [outcome(80.1)] });
+    expect(decision.status).toBe("inconclusive");
+    expect(decision.absoluteDifference).toBeNull();
+    expect(decision.reasons.join(" ")).toMatch(/not revealed/u);
+  });
+
+  it("caps a partially equivalent blind verdict at partially reproduced, and compares with the revealed value only", () => {
+    const partial = decideStatus({
+      ...base,
+      contract,
+      outcomes: [outcome(80.1, { review: review({ equivalence: "partially_equivalent" }) })],
+    });
+    expect(partial.status).toBe("partially_reproduced");
+    // The contract's own numbers are never used: only the revealed comparison counts.
+    expect(decideStatus({ ...base, revealed: { reportedValue: 50, tolerance: 2 }, contract, outcomes: [outcome(80.1)] }).status).toBe(
+      "not_reproduced",
+    );
+  });
+
   it("never counts a failed run, an unparsed metric, or a rejected or non-equivalent review", () => {
     const failedRun = outcome(80, {
       official: { receiptId: "r", argv: [], cwd: "", exitCode: 1, timedOut: false, durationMs: 1, stdoutSha256: SHA },
     });
     expect(decideStatus({ ...base, contract, outcomes: [failedRun] }).status).toBe("inconclusive");
     expect(decideStatus({ ...base, contract, outcomes: [outcome(null)] }).status).toBe("inconclusive");
-    expect(decideStatus({ ...base, contract, outcomes: [outcome(80, { review: review({ verdict: "reject" }) })] }).status).toBe(
-      "inconclusive",
-    );
+    expect(
+      decideStatus({
+        ...base,
+        contract,
+        outcomes: [outcome(80, { review: review({ equivalence: "insufficient_evidence", verdict: "reject" }) })],
+      }).status,
+    ).toBe("inconclusive");
     expect(decideStatus({ ...base, contract, outcomes: [outcome(80, { review: review({ equivalence: "not_equivalent" }) })] }).status).toBe(
       "inconclusive",
     );

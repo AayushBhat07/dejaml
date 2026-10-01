@@ -19,6 +19,7 @@
     "start:local": "node scripts/start-local.mjs",
     "typecheck": "node scripts/run-workspaces.mjs typecheck",
     "test": "node scripts/run-workspaces.mjs test",
+    "test:blinding": "npm run test:blinding -w @dejaml/run-store && npm run test:blinding -w @dejaml/api",
     "start": "node apps/api/dist/main.js",
     "lint": "eslint .",
     "format": "prettier --write .",
