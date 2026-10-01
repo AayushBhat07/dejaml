@@ -15,7 +15,7 @@ import {
   type RunClient,
   type RunSubscription,
 } from "./lib/run-client";
-import { studyEvents } from "./test/stream";
+import { blindedStream, SENTINEL_TEXT, studyEvents } from "./test/stream";
 
 afterEach(() => {
   document.body.innerHTML = "";
@@ -148,6 +148,17 @@ describe("live mode", () => {
   it("deduplicates replayed events, stops listening when the run finishes, then shows the report and a new study", async () => {
     window.history.replaceState(null, "", `/?run=${studyEvents[0]!.runId}`);
     const report: ReportSummary = {
+      revealed: true,
+      blinding: {
+        sealed: true,
+        revealed: true,
+        commitment: "5".repeat(64),
+        sealedAt: "2026-10-01T15:17:52.000Z",
+        verified: true,
+        observationVerified: true,
+        comparison: null,
+        errors: [],
+      },
       paperValue: 81.66,
       observedValue: 79.88,
       signedDifference: -1.78,
@@ -181,6 +192,28 @@ describe("live mode", () => {
     fireEvent.click(screen.getByRole("button", { name: "New study" }));
     expect(screen.getByRole("heading", { name: "New study" })).toBeTruthy();
     expect(window.location.search).toBe("");
+  });
+
+  it("keeps the paper target sealed across a reload and a replayed reconnect, and shows it only after the reveal", async () => {
+    window.history.replaceState(null, "", `/?run=${studyEvents[0]!.runId}`);
+    const blinded = blindedStream();
+    const revealAt = blinded.findIndex((event) => event.type === "target_revealed");
+    const first = scriptedLiveClient();
+    const { unmount } = render(<App client={first.client} />);
+    await first.emit(blinded.slice(0, 50));
+    await first.emit([...blinded.slice(30, revealAt)].reverse());
+    expect(screen.getByTestId("value-hidden")).toBeTruthy();
+    expect(document.body.innerHTML).not.toMatch(SENTINEL_TEXT);
+    const sealedHtml = screen.getByTestId("blinding-panel").outerHTML;
+    unmount();
+
+    const second = scriptedLiveClient();
+    render(<App client={second.client} />);
+    await second.emit(blinded.slice(0, revealAt));
+    expect(screen.getByTestId("blinding-panel").outerHTML).toBe(sealedHtml);
+    expect(document.body.innerHTML).not.toMatch(SENTINEL_TEXT);
+    await second.emit(blinded.slice(revealAt, revealAt + 1));
+    expect(screen.getByTestId("blinding-paper-value").textContent).toBe("0.3142");
   });
 
   it("shows a reconnecting stream in the header", async () => {
@@ -278,13 +311,10 @@ describe("reviewed cases", () => {
       caseId === "pyts-boss-gunpoint" ? "The BOSS is concerned with time series classification" : "Urban land cover classification",
     paperSha256,
     claim: {
-      page: 3,
-      location: "Table 2",
       method: caseId === "pyts-boss-gunpoint" ? "BOSS" : "Random Forest",
       dataset: caseId === "pyts-boss-gunpoint" ? "GunPoint" : "UCI Urban Land Cover",
       split: "official test split",
       metric: { name: "accuracy", unit: "percent" },
-      reportedValue: caseId === "pyts-boss-gunpoint" ? 100 : 81.66,
     },
     repository: { url: "https://github.com/example/repository", commitSha: "0123456789abcdef0123456789abcdef01234567" },
     available: true,
@@ -310,8 +340,12 @@ describe("reviewed cases", () => {
     expect(screen.getByTestId("case-match").textContent).toContain("BOSS on GunPoint");
     expect((screen.getByLabelText("Case") as HTMLSelectElement).value).toBe("pyts-boss-gunpoint");
     const claim = screen.getByTestId("reviewed-claim");
-    expect(claim.textContent).toContain("Claim that will be tested: BOSS on GunPoint (official test split) reports accuracy of 100%.");
-    expect(claim.textContent).toContain("Page 3, Table 2");
+    expect(claim.textContent).toContain(
+      "Claim that will be tested: BOSS on GunPoint (official test split), measured as accuracy (percent).",
+    );
+    expect(claim.textContent).toContain("The paper's value is sealed until the run's observation and blind review are locked.");
+    // The reported value, page and location are not published before the run, so none is shown.
+    expect(claim.textContent).not.toMatch(/100%|Page \d|Table 2/u);
     // The repository comes from the case; the browser cannot name another.
     expect(screen.queryByLabelText("Code repository (optional)")).toBeNull();
 

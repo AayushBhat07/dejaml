@@ -147,7 +147,31 @@ describe("HttpRunClient streaming", () => {
 });
 
 describe("summarizeReport", () => {
-  it("reads only the public comparison, reviews, and checks from a server report", () => {
+  const commitment = "a1".repeat(32);
+  const blinding = (revealed: boolean) => ({
+    sealed: true,
+    revealed,
+    commitment,
+    sealedAt: "2026-10-01T15:17:52.000Z",
+    records: [{ sequence: 1, phase: "target_sealed", round: null, commitment, record: { secret: "never read" }, at: "x" }],
+    projection: null,
+    reveal: revealed ? { canonical: "{...}", recomputedCommitment: commitment, verified: true, observationVerified: true } : null,
+    comparison: revealed
+      ? {
+          observed: 79.88,
+          reported: 81.66,
+          absoluteDelta: 1.78,
+          tolerance: 2,
+          withinTolerance: true,
+          rule: "|observed - reported| <= tolerance",
+          blindVerdicts: ["equivalent"],
+        }
+      : null,
+    sealedPayload: null,
+    errors: [],
+  });
+
+  it("reads only the public comparison, reviews, checks and blinding record from a revealed report", () => {
     const summary = summarizeReport({
       assessment: {
         paperValue: 81.66,
@@ -160,15 +184,35 @@ describe("summarizeReport", () => {
       },
       study: {
         contract: { metric: { unit: "percent" } },
-        result: { paperValue: 81.66, observedValue: 79.88, tolerance: 2 },
+        result: { paperValue: 81.66, observedValue: 79.88, tolerance: 2, absoluteDifference: 1.78 },
+        blinding: blinding(true),
         engineers: [
-          { label: "engineer-1", review: { verdict: "approve", equivalence: "equivalent", summary: "ok", concerns: [] } },
+          { label: "engineer-1", review: { verdict: "approve", equivalence: "partially_equivalent", summary: "ok", concerns: [] } },
           { label: "engineer-2", review: null },
         ],
         board: [{ payload: { secret: "never read" } }],
       },
     });
     expect(summary).toEqual({
+      revealed: true,
+      blinding: {
+        sealed: true,
+        revealed: true,
+        commitment,
+        sealedAt: "2026-10-01T15:17:52.000Z",
+        verified: true,
+        observationVerified: true,
+        comparison: {
+          observed: 79.88,
+          reported: 81.66,
+          absoluteDelta: 1.78,
+          tolerance: 2,
+          withinTolerance: true,
+          rule: "|observed - reported| <= tolerance",
+          blindVerdicts: ["equivalent"],
+        },
+        errors: [],
+      },
       paperValue: 81.66,
       observedValue: 79.88,
       signedDifference: -1.78,
@@ -177,8 +221,31 @@ describe("summarizeReport", () => {
       verdict: "reproduced_within_tolerance",
       checks: [{ name: "approved command", passed: true, explanation: "ran" }],
       hypotheses: [],
-      reviews: [{ engineer: "engineer-1", verdict: "approve", equivalence: "equivalent", summary: "ok", concerns: [] }],
+      reviews: [{ engineer: "engineer-1", verdict: "approve", equivalence: "partially_equivalent", summary: "ok", concerns: [] }],
     });
+    expect(JSON.stringify(summary)).not.toContain("never read");
     expect(summarizeReport(null)).toBeNull();
+  });
+
+  it("holds no paper value, tolerance or difference before the reveal", () => {
+    const summary = summarizeReport({
+      assessment: { paperValue: null, observedValue: 79.88, signedDifference: null, tolerance: null, verdict: null },
+      study: {
+        contract: { metric: { name: "accuracy", unit: "percent" } },
+        result: { paperValue: null, observedValue: 79.88, tolerance: null, absoluteDifference: null },
+        blinding: blinding(false),
+        engineers: [],
+      },
+    })!;
+    expect(summary).toMatchObject({ revealed: false, paperValue: null, tolerance: null, signedDifference: null, observedValue: 79.88 });
+    expect(summary.blinding).toMatchObject({ sealed: true, revealed: false, commitment, verified: null, comparison: null });
+  });
+
+  it("never computes a difference from a report without a revealed blinding section", () => {
+    const summary = summarizeReport({
+      assessment: { paperValue: 81.66, observedValue: 79.88, tolerance: 2 },
+      study: { result: { paperValue: 81.66, observedValue: 79.88, tolerance: 2 } },
+    })!;
+    expect(summary).toMatchObject({ revealed: false, blinding: null, paperValue: null, tolerance: null, signedDifference: null });
   });
 });

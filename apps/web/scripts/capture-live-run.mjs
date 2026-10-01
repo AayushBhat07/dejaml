@@ -5,13 +5,18 @@
 //
 // Open it right after starting a study on a live DéjàML server (the API serving
 // a `VITE_DEJAML_API=live` build). It follows the run's SSE stream and saves a
-// screenshot of the dashboard when it observes, live:
-//   01  both analysts running at the same time
-//   02  the Planner working, or dependency preparation
-//   03  a Lab Engineer with live terminal output and resource telemetry
-//   04  an Independent Reviewer reviewing
-//   05  the final result and cleanup
+// screenshot of the dashboard when it observes, live, each step of the blinded study:
+//   01-target-sealed                        target_sealed
+//   02-analysts-running                     agent_started of the Paper / Repository Analysts (both started)
+//   03-planner-active                       agent_started of the Reproduction Planner
+//   04-lab-engineer-terminal                the first lab_output
+//   05-observation-locked-target-hidden     observation_locked
+//   06-blind-reviewer-active                agent_started of an Independent Reviewer
+//   07-target-revealed-final-comparison     deterministic_comparison (or final_status)
+//   08-cleanup-verified                     study_cleanup, completed
 // plus manifest.json listing what was captured, from which event, and what was missed.
+// Once the target is revealed, it checks that no screenshot taken before the
+// reveal had the paper's value anywhere in the page text (manifest "blinding").
 //
 // It refuses anything that is not a live run on that server: a replay build
 // (no API, or the page in replay mode), a replay run id, or a run it cannot
@@ -108,20 +113,26 @@ const state = {
   provider: null,
   model: null,
   running: new Map(), // agentId -> role
-  labOutput: new Set(),
-  labTelemetry: new Set(),
+  analystsStarted: new Set(),
+  revealed: null, // the target_revealed payload, once seen
   finished: false,
   lastSequence: 0,
 };
 const shots = [];
 const missed = [];
+/** Page text of each screenshot taken before the reveal, checked for the paper value once it is revealed. */
+const preRevealTexts = [];
 const MILESTONES = [
-  { id: "01-analysts-running", title: "Both analysts running" },
-  { id: "02-planner-and-preparation", title: "Planner / dependency preparation" },
-  { id: "03-lab-engineer-terminal", title: "Lab Engineer with terminal and telemetry" },
-  { id: "04-reviewer-active", title: "Independent Reviewer active" },
-  { id: "05-final-result-and-cleanup", title: "Final result and cleanup" },
+  { id: "01-target-sealed", title: "Paper target sealed" },
+  { id: "02-analysts-running", title: "Paper and Repository Analysts running" },
+  { id: "03-planner-active", title: "Reproduction Planner active" },
+  { id: "04-lab-engineer-terminal", title: "Lab Engineer with live terminal output" },
+  { id: "05-observation-locked-target-hidden", title: "Observation locked, paper target still hidden" },
+  { id: "06-blind-reviewer-active", title: "Blind Independent Reviewer active" },
+  { id: "07-target-revealed-final-comparison", title: "Target revealed and final comparison" },
+  { id: "08-cleanup-verified", title: "Cleanup verified" },
 ];
+const FULL_PAGE = new Set(["07-target-revealed-final-comparison", "08-cleanup-verified"]);
 const pending = [];
 const done = new Set();
 
@@ -140,30 +151,29 @@ function observe(event, live) {
       refuse(`this run uses scripted stand-ins (provider ${state.provider}, model ${state.model}); it is not a real study`);
     }
   }
-  if (event.type === "agent_started") state.running.set(payload.agentId, roleOf(event));
+  const role = roleOf(event);
+  if (event.type === "agent_started") state.running.set(payload.agentId, role);
   if (event.type === "agent_finished") state.running.delete(payload.agentId);
-  if (event.type === "lab_output" && payload.labId) state.labOutput.add(payload.labId);
-  if (event.type === "lab_telemetry" && payload.labId) state.labTelemetry.add(payload.labId);
   if (event.type === "run_finished") state.finished = true;
-  const roles = [...state.running.values()];
+  if (event.type === "target_revealed" && event.actor === "system") state.revealed = payload;
   const want = (id) => {
     if (done.has(id)) return;
     done.add(id);
     if (live) pending.push({ id, event });
     else missed.push({ id, reason: `already past when capture started (event ${event.sequence})` });
   };
-  if (roles.includes("paper_analyst") && roles.includes("repository_analyst")) want("01-analysts-running");
-  if (
-    (event.type === "agent_turn" && roleOf(event) === "reproduction_planner") ||
-    event.type === "dependencies_prepared" ||
-    (event.type === "stage_started" && payload.stage === "preparing")
-  )
-    want("02-planner-and-preparation");
-  const labActive = roles.includes("lab_engineer") && [...state.labOutput].some((lab) => state.labTelemetry.has(lab) || standIn);
-  if (labActive && (event.type === "lab_output" || event.type === "lab_telemetry")) want("03-lab-engineer-terminal");
-  if (event.type === "agent_turn" && roleOf(event) === "independent_reviewer" && roles.includes("independent_reviewer"))
-    want("04-reviewer-active");
-  if (event.type === "run_finished") want("05-final-result-and-cleanup");
+  const system = event.actor === "system";
+  if (system && event.type === "target_sealed") want("01-target-sealed");
+  if (event.type === "agent_started" && (role === "paper_analyst" || role === "repository_analyst")) {
+    state.analystsStarted.add(role);
+    if (state.analystsStarted.size === 2) want("02-analysts-running");
+  }
+  if (event.type === "agent_started" && role === "reproduction_planner") want("03-planner-active");
+  if (event.type === "lab_output" && event.status !== "warning") want("04-lab-engineer-terminal");
+  if (system && event.type === "observation_locked") want("05-observation-locked-target-hidden");
+  if (event.type === "agent_started" && role === "independent_reviewer") want("06-blind-reviewer-active");
+  if (system && (event.type === "deterministic_comparison" || event.type === "final_status")) want("07-target-revealed-final-comparison");
+  if (system && event.type === "study_cleanup" && event.status === "completed") want("08-cleanup-verified");
 }
 
 async function follow() {
@@ -229,18 +239,32 @@ async function capture({ id, event }) {
       { timeout: 15_000 },
     )
     .catch(() => process.stderr.write(`warning: the page had not shown event ${event.sequence} after 15 s\n`));
-  if (id === "05-final-result-and-cleanup") {
+  if (id === "07-target-revealed-final-comparison") {
+    // A revealed study shows the paper value; one that stayed sealed says so.
     await page
-      .waitForFunction(() => (document.querySelector('[data-testid="observed-value"]')?.textContent ?? "–") !== "–", null, {
-        timeout: 15_000,
-      })
+      .waitForFunction(
+        () =>
+          (document.querySelector('[data-testid="blinding-paper-value"]')?.textContent ?? "–") !== "–" ||
+          document.querySelector('[data-testid="stayed-sealed"]') !== null,
+        null,
+        { timeout: 15_000 },
+      )
       .catch(() => undefined);
   }
   await page.waitForTimeout(400);
   await stamp();
   const file = `${standIn ? "stand-in-" : ""}${id}.png`;
-  await page.screenshot({ path: join(resolve(outDir), file), fullPage: id === "05-final-result-and-cleanup" });
-  shots.push({ file, milestone: milestone?.title ?? id, sequence: event.sequence, eventType: event.type, eventTimestamp: event.timestamp });
+  const revealedOnPage = (await page.locator('[data-testid="blinding-panel"][data-revealed="true"]').count()) > 0;
+  if (!revealedOnPage) preRevealTexts.push({ file, text: await page.evaluate(() => document.body.innerText) });
+  await page.screenshot({ path: join(resolve(outDir), file), fullPage: FULL_PAGE.has(id) });
+  shots.push({
+    file,
+    milestone: milestone?.title ?? id,
+    sequence: event.sequence,
+    eventType: event.type,
+    eventTimestamp: event.timestamp,
+    targetRevealedOnPage: revealedOnPage,
+  });
   process.stdout.write(`captured ${file} at event ${event.sequence} (${event.type})\n`);
 }
 
@@ -257,6 +281,19 @@ for (const milestone of MILESTONES) {
 }
 await browser.close();
 
+// The paper value, as the page would write it, must not be in any screenshot taken before the reveal.
+let blinding = { revealed: false, checked: preRevealTexts.length, leaks: [] };
+if (state.revealed && typeof state.revealed.reportedValue === "number") {
+  const value = state.revealed.reportedValue;
+  // A whole number is checked only with its percent sign, so "100" in a byte count is not mistaken for it.
+  const forms = new Set(
+    [String(value), String(Math.round(value * 10_000) / 10_000)].map((form) => (form.includes(".") ? form : `${form}%`)),
+  );
+  const leaks = preRevealTexts.filter(({ text }) => [...forms].some((form) => text.includes(form))).map(({ file }) => file);
+  blinding = { revealed: true, checked: preRevealTexts.length, leaks };
+  if (leaks.length) process.stderr.write(`BLINDING LEAK: the paper value was on the page before the reveal in ${leaks.join(", ")}\n`);
+}
+
 const manifest = {
   kind: standIn ? "stand-in layout check (NOT evidence of a real study)" : "live run capture",
   baseUrl: base,
@@ -267,9 +304,10 @@ const manifest = {
   finishedBeforeCapture: finishedBeforeStart,
   shots,
   missed,
+  blinding,
 };
 await writeFile(join(resolve(outDir), `${standIn ? "stand-in-" : ""}manifest.json`), `${JSON.stringify(manifest, null, 2)}\n`);
 process.stdout.write(
   `${shots.length} screenshot(s) in ${resolve(outDir)}; missed: ${missed.map((item) => item.id).join(", ") || "none"}\n`,
 );
-process.exit(missed.length ? 1 : 0);
+process.exit(missed.length || blinding.leaks.length ? 1 : 0);

@@ -2,7 +2,8 @@ import type { RunEvent } from "@dejaml/contracts";
 import { describe, expect, it } from "vitest";
 
 import recorded from "../../../../fixtures/events/urban-land-cover-success.json";
-import { byType, engineerOne, labOne, makeEvent, studyEvents, until } from "../test/stream";
+import { blindedStream, byType, engineerOne, labOne, makeEvent, SENTINEL, SENTINEL_TEXT, studyEvents, until } from "../test/stream";
+import { appendEvents, EMPTY_LOG } from "./event-log";
 import { analyzeRun, formatElapsed, type AgentCard } from "./live-run";
 import { redact } from "./redact";
 
@@ -107,7 +108,6 @@ describe("analyzeRun: agent roster", () => {
           label: "engineer-1",
           iteration: 2,
           tools: ["request_debugging"],
-          text: null,
         },
       }),
       makeEvent(base + 2, {
@@ -274,6 +274,72 @@ describe("analyzeRun: older recordings", () => {
     expect(view.labs).toHaveLength(1);
     expect(view.labs[0]!.current?.text).toMatch(/python runner\.py --training data\/training\.csv/u);
     expect(view.labs[0]!.telemetry.length).toBeGreaterThanOrEqual(2);
+  });
+});
+
+describe("analyzeRun: blinding", () => {
+  const blinded = blindedStream();
+  const states = (view: ReturnType<typeof analyzeRun>) => Object.fromEntries(view.blinding.phases.map((phase) => [phase.id, phase.state]));
+
+  it("follows the eight phases in order, from the seal to the final status", () => {
+    const sealed = analyzeRun(until(byType("target_sealed"), blinded));
+    expect(sealed.blinding.sealed).toMatchObject({
+      caseId: "stand-in-rf-accuracy",
+      metric: "accuracy",
+      commitment: expect.stringMatching(/^[a-f0-9]{64}$/u),
+    });
+    expect(states(sealed)).toMatchObject({ target_sealed: "done", agents_started: "current", execution_completed: "pending" });
+    expect(sealed.stream.at(-1)?.category).toBe("blinding");
+
+    const observed = analyzeRun(until(byType("observation_locked"), blinded));
+    expect(observed.blinding.executions).toEqual([{ round: 1, engineers: 2, measured: 2 }]);
+    expect(observed.blinding.observation).toMatchObject({
+      round: 1,
+      metric: { name: "accuracy", unit: "fraction" },
+      observed: [
+        { engineer: "engineer-1", value: 0.2875, metricOk: true },
+        { engineer: "engineer-2", value: 0.2875, metricOk: true },
+      ],
+    });
+    expect(states(observed).blind_review_locked).toBe("current");
+
+    const reviewed = analyzeRun(until(byType("blind_review_locked"), blinded));
+    expect(reviewed.blinding.blindReview?.verdicts).toEqual([
+      { engineer: "engineer-1", equivalence: "equivalent" },
+      { engineer: "engineer-2", equivalence: "equivalent" },
+    ]);
+    expect(reviewed.blinding.reveal).toBeNull();
+    expect(reviewed.blinding.comparison).toBeNull();
+    expect(JSON.stringify(reviewed)).not.toMatch(SENTINEL_TEXT);
+
+    const end = analyzeRun(blinded);
+    expect(end.blinding.reveal).toMatchObject({ verified: true, reportedValue: SENTINEL, tolerance: 0.05 });
+    expect(end.blinding.comparison).toMatchObject({ reported: SENTINEL, withinTolerance: true, computedStatus: "reproduced" });
+    expect(end.blinding.final).toEqual({ status: "reproduced", sealed: false });
+    expect(Object.values(states(end))).toEqual(Array(8).fill("done"));
+  });
+
+  it("reads only method, dataset, split and metric from reviewed_target, even from an older stream with a value", () => {
+    const target = studyEvents.find(byType("reviewed_target"))!;
+    const old = {
+      ...target,
+      publicPayload: { ...target.publicPayload, claim: { ...(target.publicPayload.claim as object), reportedValue: SENTINEL, page: 3 } },
+    };
+    const view = analyzeRun([old]);
+    expect(view.claim).toEqual({
+      method: "Random Forest",
+      dataset: "UCI Urban Land Cover",
+      split: "official test set",
+      metric: "accuracy",
+      unit: "percent",
+    });
+    expect(JSON.stringify({ ...view, stream: [] })).not.toMatch(SENTINEL_TEXT);
+  });
+
+  it("derives the same blinding state from a reconnect that replays events out of order", () => {
+    const prefix = until(byType("blind_review_locked"), blinded);
+    const resumed = appendEvents(appendEvents(EMPTY_LOG, prefix.slice(0, 70)), [...prefix.slice(20)].reverse());
+    expect(analyzeRun(resumed.events).blinding).toEqual(analyzeRun(prefix).blinding);
   });
 });
 

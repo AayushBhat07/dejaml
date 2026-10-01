@@ -39,6 +39,57 @@ export function makeEvent(sequence: number, partial: Partial<RunEvent> & Pick<Ru
   };
 }
 
+/** A paper value that appears only in `target_revealed` (and the comparison after it) of `blindedStream`. */
+export const SENTINEL = 0.3141592653589793;
+/** What the sentinel looks like as text, rounded or as a percentage. */
+export const SENTINEL_TEXT = /0\.314|31\.4/u;
+const OBSERVED = 0.2875;
+
+/**
+ * The captured study with a fraction metric whose paper value is SENTINEL. The
+ * sentinel is only in the events after the blind review is locked, so anything
+ * built from an earlier prefix must not contain it.
+ */
+export function blindedStream(): RunEvent[] {
+  const metric = { name: "accuracy", unit: "fraction" };
+  return studyEvents.map((event) => {
+    const payload = event.publicPayload;
+    switch (event.type) {
+      case "observation_locked":
+        return {
+          ...event,
+          publicPayload: {
+            ...payload,
+            metric,
+            observed: [
+              { engineer: "engineer-1", value: OBSERVED, metricOk: true },
+              { engineer: "engineer-2", value: OBSERVED, metricOk: true },
+            ],
+          },
+        };
+      case "target_revealed":
+        return { ...event, publicPayload: { ...payload, reportedValue: SENTINEL, tolerance: 0.05, metric } };
+      case "deterministic_comparison":
+        return {
+          ...event,
+          publicPayload: {
+            ...payload,
+            comparison: {
+              observed: OBSERVED,
+              reported: SENTINEL,
+              absoluteDelta: Math.abs(OBSERVED - SENTINEL),
+              tolerance: 0.05,
+              withinTolerance: true,
+              rule: "|observed - reported| <= tolerance",
+            },
+          },
+        };
+      default:
+        return event;
+    }
+  });
+}
+
 export const engineerOne = studyEvents.find((event) => event.type === "agent_started" && event.publicPayload.label === "engineer-1")!;
 export const labOne = String(
   studyEvents.find((event) => event.type === "agent_command" && event.publicPayload.agent === "engineer-1")!.publicPayload.labId,

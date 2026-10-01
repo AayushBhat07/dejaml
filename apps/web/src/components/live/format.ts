@@ -29,6 +29,18 @@ export const AGENT_STATUS: Record<AgentStatus, { label: string; tone: Tone }> = 
   cancelled: { label: "Cancelled", tone: "neutral" },
 };
 
+/** A metric value as the dashboard shows it: four decimals at most, with % for percent. */
+export function formatMetricValue(value: number | null, unit: string | null): string {
+  if (value === null) return "–";
+  const rounded = Math.round(value * 10_000) / 10_000;
+  return unit === "percent" ? `${rounded}%` : String(rounded);
+}
+
+/** A 64-hex commitment shortened for display; the full value goes in a title. */
+export function shortHash(value: string): string {
+  return value.length > 20 ? `${value.slice(0, 12)}…${value.slice(-6)}` : value;
+}
+
 export function formatNumber(value: number): string {
   return value >= 10_000 ? `${(value / 1000).toFixed(0)}k` : value >= 1_000 ? `${(value / 1000).toFixed(1)}k` : String(value);
 }

@@ -33,16 +33,13 @@
       "caseId": "stand-in-rf-accuracy",
       "paperSha256": "e38e42f749470317b27a0762335696ac24d2022563513d965ac65c7810db0098",
       "claim": {
-        "page": 1,
-        "location": "Section 4",
         "method": "Random Forest",
         "dataset": "UCI Urban Land Cover",
         "split": "official test set",
         "metric": {
           "name": "accuracy",
           "unit": "percent"
-        },
-        "reportedValue": 81.66
+        }
       },
       "repository": {
         "url": "https://github.com/example/new-paper",
@@ -50,7 +47,8 @@
         "entrypoint": "train.py"
       },
       "adapter": null,
-      "maximumVerdict": "reproduced"
+      "maximumVerdict": "reproduced",
+      "caseVersion": 1
     }
   },
   {
@@ -88,9 +86,26 @@
     }
   },
   {
-    "id": "evt_8b24f3d9-cce0-43d4-815d-cbfd58213e71",
+    "id": "evt_blind_0005",
     "runId": "run_bd34b41e-41af-4615-88d4-acc02652cc96",
     "sequence": 5,
+    "timestamp": "2026-10-01T15:17:52.524Z",
+    "actor": "system",
+    "type": "target_sealed",
+    "status": "completed",
+    "summary": "Paper target sealed before any agent starts",
+    "evidence": [],
+    "publicPayload": {
+      "caseId": "stand-in-rf-accuracy",
+      "commitment": "2856480fbbfd59cbc0e0d1c7d142982e71ff6a3145683c47a953c71a2807b50d",
+      "metric": "accuracy",
+      "sealedAt": "2026-10-01T15:17:52.524Z"
+    }
+  },
+  {
+    "id": "evt_8b24f3d9-cce0-43d4-815d-cbfd58213e71",
+    "runId": "run_bd34b41e-41af-4615-88d4-acc02652cc96",
+    "sequence": 6,
     "timestamp": "2026-10-01T15:17:52.528Z",
     "actor": "system",
     "type": "study_team",
@@ -108,7 +123,7 @@
   {
     "id": "evt_49fffb68-2bf3-4be6-a3e4-b1f457a94989",
     "runId": "run_bd34b41e-41af-4615-88d4-acc02652cc96",
-    "sequence": 6,
+    "sequence": 7,
     "timestamp": "2026-10-01T15:17:52.531Z",
     "actor": "system",
     "type": "stage_started",
@@ -124,7 +139,7 @@
   {
     "id": "evt_bbfd6312-aa58-4243-a3d4-5a6c6d652b48",
     "runId": "run_bd34b41e-41af-4615-88d4-acc02652cc96",
-    "sequence": 7,
+    "sequence": 8,
     "timestamp": "2026-10-01T15:17:52.533Z",
     "actor": "system",
     "type": "stage_started",
@@ -138,9 +153,21 @@
     }
   },
   {
+    "id": "evt_blind_0009",
+    "runId": "run_bd34b41e-41af-4615-88d4-acc02652cc96",
+    "sequence": 9,
+    "timestamp": "2026-10-01T15:17:52.533Z",
+    "actor": "system",
+    "type": "agents_started",
+    "status": "started",
+    "summary": "Agents started with the paper target sealed",
+    "evidence": [],
+    "publicPayload": {}
+  },
+  {
     "id": "evt_86fb199a-8bd4-40be-8c14-711cda868387",
     "runId": "run_bd34b41e-41af-4615-88d4-acc02652cc96",
-    "sequence": 8,
+    "sequence": 10,
     "timestamp": "2026-10-01T15:17:52.535Z",
     "actor": "paper_analyst",
     "type": "agent_started",
@@ -174,7 +201,7 @@
   {
     "id": "evt_d069e5b9-616a-4085-a1c1-b4ed3d046724",
     "runId": "run_bd34b41e-41af-4615-88d4-acc02652cc96",
-    "sequence": 9,
+    "sequence": 11,
     "timestamp": "2026-10-01T15:17:52.549Z",
     "actor": "system",
     "type": "stage_started",
@@ -190,7 +217,7 @@
   {
     "id": "evt_2584f7ff-2b3e-4e57-8ac5-34ac7ae8d5de",
     "runId": "run_bd34b41e-41af-4615-88d4-acc02652cc96",
-    "sequence": 10,
+    "sequence": 12,
     "timestamp": "2026-10-01T15:17:52.550Z",
     "actor": "repository_analyst",
     "type": "agent_started",
@@ -226,7 +253,7 @@
   {
     "id": "evt_e2999655-8944-4c5e-be7a-2f272bc59ce4",
     "runId": "run_bd34b41e-41af-4615-88d4-acc02652cc96",
-    "sequence": 11,
+    "sequence": 13,
     "timestamp": "2026-10-01T15:17:52.571Z",
     "actor": "paper_analyst",
     "type": "agent_turn",
@@ -241,7 +268,6 @@
       "tools": [
         "paper_search"
       ],
-      "text": null,
       "tokens": {
         "input": 200,
         "output": 40
@@ -252,7 +278,7 @@
   {
     "id": "evt_2a4d5a9c-1f04-4ca2-962c-9281969b72d2",
     "runId": "run_bd34b41e-41af-4615-88d4-acc02652cc96",
-    "sequence": 12,
+    "sequence": 14,
     "timestamp": "2026-10-01T15:17:52.576Z",
     "actor": "repository_analyst",
     "type": "agent_turn",
@@ -267,7 +293,6 @@
       "tools": [
         "repo_acquire"
       ],
-      "text": null,
       "tokens": {
         "input": 200,
         "output": 40
@@ -278,7 +303,7 @@
   {
     "id": "evt_06e55501-e009-461f-bb7d-91bdd472040f",
     "runId": "run_bd34b41e-41af-4615-88d4-acc02652cc96",
-    "sequence": 13,
+    "sequence": 15,
     "timestamp": "2026-10-01T15:17:52.581Z",
     "actor": "system",
     "type": "repository_acquired",
@@ -299,7 +324,7 @@
   {
     "id": "evt_ff069612-bc3b-4d79-af03-6e16d263c121",
     "runId": "run_bd34b41e-41af-4615-88d4-acc02652cc96",
-    "sequence": 14,
+    "sequence": 16,
     "timestamp": "2026-10-01T15:17:52.595Z",
     "actor": "paper_analyst",
     "type": "agent_turn",
@@ -314,7 +339,6 @@
       "tools": [
         "finish"
       ],
-      "text": null,
       "tokens": {
         "input": 200,
         "output": 40
@@ -325,7 +349,7 @@
   {
     "id": "evt_f9e50694-a0d5-45c0-8c04-247939c0d41d",
     "runId": "run_bd34b41e-41af-4615-88d4-acc02652cc96",
-    "sequence": 15,
+    "sequence": 17,
     "timestamp": "2026-10-01T15:17:52.599Z",
     "actor": "paper_analyst",
     "type": "agent_finished",
@@ -352,7 +376,7 @@
   {
     "id": "evt_f2b42565-7f0d-4dab-8860-165846d48a02",
     "runId": "run_bd34b41e-41af-4615-88d4-acc02652cc96",
-    "sequence": 16,
+    "sequence": 18,
     "timestamp": "2026-10-01T15:17:52.602Z",
     "actor": "repository_analyst",
     "type": "agent_turn",
@@ -367,7 +391,6 @@
       "tools": [
         "repo_list"
       ],
-      "text": null,
       "tokens": {
         "input": 200,
         "output": 40
@@ -378,7 +401,7 @@
   {
     "id": "evt_08c7657e-58f7-492e-a494-e2433a9d42f3",
     "runId": "run_bd34b41e-41af-4615-88d4-acc02652cc96",
-    "sequence": 17,
+    "sequence": 19,
     "timestamp": "2026-10-01T15:17:52.637Z",
     "actor": "repository_analyst",
     "type": "agent_turn",
@@ -393,7 +416,6 @@
       "tools": [
         "finish"
       ],
-      "text": null,
       "tokens": {
         "input": 200,
         "output": 40
@@ -404,7 +426,7 @@
   {
     "id": "evt_2bd20aee-f11c-4d56-8fbe-12e2836c517a",
     "runId": "run_bd34b41e-41af-4615-88d4-acc02652cc96",
-    "sequence": 18,
+    "sequence": 20,
     "timestamp": "2026-10-01T15:17:52.640Z",
     "actor": "repository_analyst",
     "type": "agent_finished",
@@ -431,7 +453,7 @@
   {
     "id": "evt_19e9fbeb-5449-4ae0-886b-1c13d5488162",
     "runId": "run_bd34b41e-41af-4615-88d4-acc02652cc96",
-    "sequence": 19,
+    "sequence": 21,
     "timestamp": "2026-10-01T15:17:52.644Z",
     "actor": "system",
     "type": "stage_started",
@@ -447,7 +469,7 @@
   {
     "id": "evt_0080c9be-8109-4f42-9bbe-3252a67e4d5d",
     "runId": "run_bd34b41e-41af-4615-88d4-acc02652cc96",
-    "sequence": 20,
+    "sequence": 22,
     "timestamp": "2026-10-01T15:17:52.645Z",
     "actor": "reproduction_planner",
     "type": "agent_started",
@@ -485,7 +507,7 @@
   {
     "id": "evt_f7f78858-d291-4a05-9380-4183c60776ea",
     "runId": "run_bd34b41e-41af-4615-88d4-acc02652cc96",
-    "sequence": 21,
+    "sequence": 23,
     "timestamp": "2026-10-01T15:17:52.677Z",
     "actor": "reproduction_planner",
     "type": "agent_turn",
@@ -500,7 +522,6 @@
       "tools": [
         "board_read"
       ],
-      "text": null,
       "tokens": {
         "input": 200,
         "output": 40
@@ -511,7 +532,7 @@
   {
     "id": "evt_233c7ffe-611f-40ad-9662-67ca37cb31a1",
     "runId": "run_bd34b41e-41af-4615-88d4-acc02652cc96",
-    "sequence": 22,
+    "sequence": 24,
     "timestamp": "2026-10-01T15:17:52.702Z",
     "actor": "reproduction_planner",
     "type": "agent_turn",
@@ -526,7 +547,6 @@
       "tools": [
         "finish"
       ],
-      "text": null,
       "tokens": {
         "input": 200,
         "output": 40
@@ -537,7 +557,7 @@
   {
     "id": "evt_bbf90341-2e63-46dd-b24d-2bebaffdb131",
     "runId": "run_bd34b41e-41af-4615-88d4-acc02652cc96",
-    "sequence": 23,
+    "sequence": 25,
     "timestamp": "2026-10-01T15:17:52.708Z",
     "actor": "reproduction_planner",
     "type": "agent_finished",
@@ -564,7 +584,7 @@
   {
     "id": "evt_f3848539-444c-4fc3-b2ce-b0b2e29302e4",
     "runId": "run_bd34b41e-41af-4615-88d4-acc02652cc96",
-    "sequence": 24,
+    "sequence": 26,
     "timestamp": "2026-10-01T15:17:52.720Z",
     "actor": "system",
     "type": "stage_started",
@@ -580,7 +600,7 @@
   {
     "id": "evt_2c694489-5f0d-47af-b351-869ffa7ede3b",
     "runId": "run_bd34b41e-41af-4615-88d4-acc02652cc96",
-    "sequence": 25,
+    "sequence": 27,
     "timestamp": "2026-10-01T15:17:52.723Z",
     "actor": "system",
     "type": "plan_approved",
@@ -595,7 +615,7 @@
   {
     "id": "evt_82edb9ee-ad25-47ba-90ff-376e45a79623",
     "runId": "run_bd34b41e-41af-4615-88d4-acc02652cc96",
-    "sequence": 26,
+    "sequence": 28,
     "timestamp": "2026-10-01T15:17:52.725Z",
     "actor": "system",
     "type": "stage_started",
@@ -611,7 +631,7 @@
   {
     "id": "evt_5df8dcee-2ac1-468a-8666-58eb39d80853",
     "runId": "run_bd34b41e-41af-4615-88d4-acc02652cc96",
-    "sequence": 27,
+    "sequence": 29,
     "timestamp": "2026-10-01T15:17:52.725Z",
     "actor": "system",
     "type": "lab_image_ready",
@@ -627,7 +647,7 @@
   {
     "id": "evt_dee6c1ba-9fe4-4a6e-864f-7151d684d7d2",
     "runId": "run_bd34b41e-41af-4615-88d4-acc02652cc96",
-    "sequence": 28,
+    "sequence": 30,
     "timestamp": "2026-10-01T15:17:52.728Z",
     "actor": "system",
     "type": "stage_started",
@@ -643,7 +663,7 @@
   {
     "id": "evt_944a825c-9d76-4c07-bbca-7a4c6be6061c",
     "runId": "run_bd34b41e-41af-4615-88d4-acc02652cc96",
-    "sequence": 29,
+    "sequence": 31,
     "timestamp": "2026-10-01T15:17:52.733Z",
     "actor": "lab_engineer",
     "type": "lab_create",
@@ -659,7 +679,7 @@
   {
     "id": "evt_9c107ba1-9bdf-475b-bd03-b65473e49228",
     "runId": "run_bd34b41e-41af-4615-88d4-acc02652cc96",
-    "sequence": 30,
+    "sequence": 32,
     "timestamp": "2026-10-01T15:17:52.734Z",
     "actor": "lab_engineer",
     "type": "lab_create",
@@ -675,7 +695,7 @@
   {
     "id": "evt_da089124-453d-4189-bf05-8f8be5a21d4c",
     "runId": "run_bd34b41e-41af-4615-88d4-acc02652cc96",
-    "sequence": 31,
+    "sequence": 33,
     "timestamp": "2026-10-01T15:17:52.739Z",
     "actor": "lab_engineer",
     "type": "lab_create",
@@ -724,7 +744,7 @@
   {
     "id": "evt_8e3a0cbe-274e-4472-9f37-267ef45b9408",
     "runId": "run_bd34b41e-41af-4615-88d4-acc02652cc96",
-    "sequence": 32,
+    "sequence": 34,
     "timestamp": "2026-10-01T15:17:52.744Z",
     "actor": "lab_engineer",
     "type": "agent_command",
@@ -751,7 +771,7 @@
   {
     "id": "evt_e1aceb49-a8f5-4a44-9cd7-3a9d5d35c304",
     "runId": "run_bd34b41e-41af-4615-88d4-acc02652cc96",
-    "sequence": 33,
+    "sequence": 35,
     "timestamp": "2026-10-01T15:17:52.747Z",
     "actor": "lab_engineer",
     "type": "lab_create",
@@ -800,7 +820,7 @@
   {
     "id": "evt_bc5088ca-a934-4bbd-a77d-d5a3ceb6fe18",
     "runId": "run_bd34b41e-41af-4615-88d4-acc02652cc96",
-    "sequence": 34,
+    "sequence": 36,
     "timestamp": "2026-10-01T15:17:52.747Z",
     "actor": "lab_engineer",
     "type": "agent_command",
@@ -827,7 +847,7 @@
   {
     "id": "evt_c9bc3bdc-036d-4112-8256-4f4afe83685b",
     "runId": "run_bd34b41e-41af-4615-88d4-acc02652cc96",
-    "sequence": 35,
+    "sequence": 37,
     "timestamp": "2026-10-01T15:17:52.752Z",
     "actor": "lab_engineer",
     "type": "agent_command",
@@ -854,7 +874,7 @@
   {
     "id": "evt_42fb0dd1-5301-4bca-8586-3a80ed791b8d",
     "runId": "run_bd34b41e-41af-4615-88d4-acc02652cc96",
-    "sequence": 36,
+    "sequence": 38,
     "timestamp": "2026-10-01T15:17:52.754Z",
     "actor": "lab_engineer",
     "type": "agent_command",
@@ -879,7 +899,7 @@
   {
     "id": "evt_f39b1977-fa76-46dc-9fba-26479720e89a",
     "runId": "run_bd34b41e-41af-4615-88d4-acc02652cc96",
-    "sequence": 37,
+    "sequence": 39,
     "timestamp": "2026-10-01T15:17:52.755Z",
     "actor": "lab_engineer",
     "type": "agent_command",
@@ -906,7 +926,7 @@
   {
     "id": "evt_a0309831-9496-4db6-ba5a-d37733828ec3",
     "runId": "run_bd34b41e-41af-4615-88d4-acc02652cc96",
-    "sequence": 38,
+    "sequence": 40,
     "timestamp": "2026-10-01T15:17:52.756Z",
     "actor": "lab_engineer",
     "type": "agent_command",
@@ -931,7 +951,7 @@
   {
     "id": "evt_9e4210c6-125d-4fae-a6e4-c489393fb05d",
     "runId": "run_bd34b41e-41af-4615-88d4-acc02652cc96",
-    "sequence": 39,
+    "sequence": 41,
     "timestamp": "2026-10-01T15:17:52.760Z",
     "actor": "lab_engineer",
     "type": "agent_command",
@@ -958,7 +978,7 @@
   {
     "id": "evt_ccf2dfc1-c1f5-4dc4-9c7c-2d5c267c406a",
     "runId": "run_bd34b41e-41af-4615-88d4-acc02652cc96",
-    "sequence": 40,
+    "sequence": 42,
     "timestamp": "2026-10-01T15:17:52.760Z",
     "actor": "lab_engineer",
     "type": "agent_command",
@@ -983,7 +1003,7 @@
   {
     "id": "evt_d5bcfffd-91a6-4389-8123-e2b80b06d8ac",
     "runId": "run_bd34b41e-41af-4615-88d4-acc02652cc96",
-    "sequence": 41,
+    "sequence": 43,
     "timestamp": "2026-10-01T15:17:52.763Z",
     "actor": "lab_engineer",
     "type": "agent_command",
@@ -1010,7 +1030,7 @@
   {
     "id": "evt_0059c01f-4b93-4cfa-a40d-76d0e7fbdd23",
     "runId": "run_bd34b41e-41af-4615-88d4-acc02652cc96",
-    "sequence": 42,
+    "sequence": 44,
     "timestamp": "2026-10-01T15:17:52.763Z",
     "actor": "lab_engineer",
     "type": "agent_command",
@@ -1035,7 +1055,7 @@
   {
     "id": "evt_78ba8be1-15b2-4523-9aaf-8c3b0b40f5a5",
     "runId": "run_bd34b41e-41af-4615-88d4-acc02652cc96",
-    "sequence": 43,
+    "sequence": 45,
     "timestamp": "2026-10-01T15:17:52.767Z",
     "actor": "lab_engineer",
     "type": "agent_command",
@@ -1062,7 +1082,7 @@
   {
     "id": "evt_45d2200b-b7b4-43c3-90cd-6ba124262eb7",
     "runId": "run_bd34b41e-41af-4615-88d4-acc02652cc96",
-    "sequence": 44,
+    "sequence": 46,
     "timestamp": "2026-10-01T15:17:52.768Z",
     "actor": "lab_engineer",
     "type": "agent_command",
@@ -1091,7 +1111,7 @@
   {
     "id": "evt_8fe1e961-179c-4e9d-a3f0-fab472fd59c4",
     "runId": "run_bd34b41e-41af-4615-88d4-acc02652cc96",
-    "sequence": 45,
+    "sequence": 47,
     "timestamp": "2026-10-01T15:17:52.768Z",
     "actor": "lab_engineer",
     "type": "agent_command",
@@ -1118,7 +1138,7 @@
   {
     "id": "evt_d47e5012-de5b-4bf3-afc5-9da3f46e3494",
     "runId": "run_bd34b41e-41af-4615-88d4-acc02652cc96",
-    "sequence": 46,
+    "sequence": 48,
     "timestamp": "2026-10-01T15:17:52.769Z",
     "actor": "lab_engineer",
     "type": "agent_command",
@@ -1147,7 +1167,7 @@
   {
     "id": "evt_44c5c0eb-d504-4600-ba1c-018e6079604c",
     "runId": "run_bd34b41e-41af-4615-88d4-acc02652cc96",
-    "sequence": 47,
+    "sequence": 49,
     "timestamp": "2026-10-01T15:17:52.774Z",
     "actor": "lab_engineer",
     "type": "agent_command",
@@ -1174,7 +1194,7 @@
   {
     "id": "evt_77c63af8-9cc1-4339-acb2-a95e66103899",
     "runId": "run_bd34b41e-41af-4615-88d4-acc02652cc96",
-    "sequence": 48,
+    "sequence": 50,
     "timestamp": "2026-10-01T15:17:52.775Z",
     "actor": "system",
     "type": "lab_ready",
@@ -1189,7 +1209,7 @@
   {
     "id": "evt_17b7d7ed-69f9-4484-b43e-77532406aa12",
     "runId": "run_bd34b41e-41af-4615-88d4-acc02652cc96",
-    "sequence": 49,
+    "sequence": 51,
     "timestamp": "2026-10-01T15:17:52.776Z",
     "actor": "lab_engineer",
     "type": "agent_started",
@@ -1233,7 +1253,7 @@
   {
     "id": "evt_0ff21bd3-b5e5-441d-b3bf-c4433d07632f",
     "runId": "run_bd34b41e-41af-4615-88d4-acc02652cc96",
-    "sequence": 50,
+    "sequence": 52,
     "timestamp": "2026-10-01T15:17:52.780Z",
     "actor": "lab_engineer",
     "type": "agent_command",
@@ -1260,7 +1280,7 @@
   {
     "id": "evt_aa179062-5fda-4f27-9959-9c3959010710",
     "runId": "run_bd34b41e-41af-4615-88d4-acc02652cc96",
-    "sequence": 51,
+    "sequence": 53,
     "timestamp": "2026-10-01T15:17:52.781Z",
     "actor": "system",
     "type": "lab_ready",
@@ -1275,7 +1295,7 @@
   {
     "id": "evt_8c938c46-1709-475b-9285-d3c4844b4f7c",
     "runId": "run_bd34b41e-41af-4615-88d4-acc02652cc96",
-    "sequence": 52,
+    "sequence": 54,
     "timestamp": "2026-10-01T15:17:52.782Z",
     "actor": "lab_engineer",
     "type": "agent_started",
@@ -1319,7 +1339,7 @@
   {
     "id": "evt_deaec84f-e82d-45e7-b264-50143d06c1ec",
     "runId": "run_bd34b41e-41af-4615-88d4-acc02652cc96",
-    "sequence": 53,
+    "sequence": 55,
     "timestamp": "2026-10-01T15:17:52.801Z",
     "actor": "lab_engineer",
     "type": "agent_turn",
@@ -1334,7 +1354,6 @@
       "tools": [
         "lab_run_official"
       ],
-      "text": null,
       "tokens": {
         "input": 200,
         "output": 40
@@ -1345,7 +1364,7 @@
   {
     "id": "evt_4c33cb93-d9f6-421e-9b05-29090521b99c",
     "runId": "run_bd34b41e-41af-4615-88d4-acc02652cc96",
-    "sequence": 54,
+    "sequence": 56,
     "timestamp": "2026-10-01T15:17:52.803Z",
     "actor": "lab_engineer",
     "type": "agent_command",
@@ -1374,7 +1393,7 @@
   {
     "id": "evt_d86695b0-2cf4-46b2-b4f7-57a74c9624d2",
     "runId": "run_bd34b41e-41af-4615-88d4-acc02652cc96",
-    "sequence": 55,
+    "sequence": 57,
     "timestamp": "2026-10-01T15:17:52.809Z",
     "actor": "lab_engineer",
     "type": "agent_turn",
@@ -1389,7 +1408,6 @@
       "tools": [
         "lab_run_official"
       ],
-      "text": null,
       "tokens": {
         "input": 200,
         "output": 40
@@ -1400,7 +1418,7 @@
   {
     "id": "evt_2d895c65-3e3f-4ef1-bb77-92a590bca88d",
     "runId": "run_bd34b41e-41af-4615-88d4-acc02652cc96",
-    "sequence": 56,
+    "sequence": 58,
     "timestamp": "2026-10-01T15:17:52.811Z",
     "actor": "lab_engineer",
     "type": "agent_command",
@@ -1429,7 +1447,7 @@
   {
     "id": "evt_9af51404-f1ed-448f-b7f9-ca10f6c4510d",
     "runId": "run_bd34b41e-41af-4615-88d4-acc02652cc96",
-    "sequence": 57,
+    "sequence": 59,
     "timestamp": "2026-10-01T15:17:52.813Z",
     "actor": "lab_engineer",
     "type": "agent_command",
@@ -1456,7 +1474,7 @@
   {
     "id": "evt_ad02fdab-5066-4ef1-bdf5-f06a5d4df87e",
     "runId": "run_bd34b41e-41af-4615-88d4-acc02652cc96",
-    "sequence": 58,
+    "sequence": 60,
     "timestamp": "2026-10-01T15:17:52.814Z",
     "actor": "lab_engineer",
     "type": "agent_command",
@@ -1480,7 +1498,7 @@
   {
     "id": "evt_c4bdd2eb-eef1-496c-abb0-625b9d09bb8f",
     "runId": "run_bd34b41e-41af-4615-88d4-acc02652cc96",
-    "sequence": 59,
+    "sequence": 61,
     "timestamp": "2026-10-01T15:17:52.818Z",
     "actor": "lab_engineer",
     "type": "agent_command",
@@ -1507,7 +1525,7 @@
   {
     "id": "evt_7f0ad9db-b929-4a6d-b42b-9737f09c9e2a",
     "runId": "run_bd34b41e-41af-4615-88d4-acc02652cc96",
-    "sequence": 60,
+    "sequence": 62,
     "timestamp": "2026-10-01T15:17:52.819Z",
     "actor": "lab_engineer",
     "type": "agent_command",
@@ -1531,7 +1549,7 @@
   {
     "id": "evt_b4bb5e99-ac34-4f80-8c59-cd6ba6d63f26",
     "runId": "run_bd34b41e-41af-4615-88d4-acc02652cc96",
-    "sequence": 61,
+    "sequence": 63,
     "timestamp": "2026-10-01T15:17:53.065Z",
     "actor": "lab_engineer",
     "type": "lab_output",
@@ -1557,7 +1575,7 @@
   {
     "id": "evt_8765f90d-55f1-48e1-8f9e-9ce148b89b7e",
     "runId": "run_bd34b41e-41af-4615-88d4-acc02652cc96",
-    "sequence": 62,
+    "sequence": 64,
     "timestamp": "2026-10-01T15:17:53.069Z",
     "actor": "lab_engineer",
     "type": "lab_output",
@@ -1583,7 +1601,7 @@
   {
     "id": "evt_43df04f6-70d6-4015-8a0e-e089bed89303",
     "runId": "run_bd34b41e-41af-4615-88d4-acc02652cc96",
-    "sequence": 63,
+    "sequence": 65,
     "timestamp": "2026-10-01T15:17:53.316Z",
     "actor": "lab_engineer",
     "type": "lab_output",
@@ -1608,7 +1626,7 @@
   {
     "id": "evt_1e820136-d5cd-4c36-b9e5-7abb5a0c5c18",
     "runId": "run_bd34b41e-41af-4615-88d4-acc02652cc96",
-    "sequence": 64,
+    "sequence": 66,
     "timestamp": "2026-10-01T15:17:53.319Z",
     "actor": "lab_engineer",
     "type": "lab_output",
@@ -1633,7 +1651,7 @@
   {
     "id": "evt_6949dda2-bb95-4b6b-8669-9425c0de7739",
     "runId": "run_bd34b41e-41af-4615-88d4-acc02652cc96",
-    "sequence": 65,
+    "sequence": 67,
     "timestamp": "2026-10-01T15:17:53.418Z",
     "actor": "lab_engineer",
     "type": "lab_output",
@@ -1658,7 +1676,7 @@
   {
     "id": "evt_098e7a82-1877-409e-8c88-1ad4c387bb44",
     "runId": "run_bd34b41e-41af-4615-88d4-acc02652cc96",
-    "sequence": 66,
+    "sequence": 68,
     "timestamp": "2026-10-01T15:17:53.420Z",
     "actor": "lab_engineer",
     "type": "agent_command",
@@ -1691,7 +1709,7 @@
   {
     "id": "evt_e5c1cb6e-edc8-41ad-a661-d1a91e935f13",
     "runId": "run_bd34b41e-41af-4615-88d4-acc02652cc96",
-    "sequence": 67,
+    "sequence": 69,
     "timestamp": "2026-10-01T15:17:53.421Z",
     "actor": "system",
     "type": "official_run",
@@ -1708,7 +1726,7 @@
   {
     "id": "evt_b4f3bafb-7979-4f93-977d-3c8385366d60",
     "runId": "run_bd34b41e-41af-4615-88d4-acc02652cc96",
-    "sequence": 68,
+    "sequence": 70,
     "timestamp": "2026-10-01T15:17:53.423Z",
     "actor": "lab_engineer",
     "type": "lab_output",
@@ -1733,7 +1751,7 @@
   {
     "id": "evt_b7a00c87-05cc-4c9b-af28-2986060c854a",
     "runId": "run_bd34b41e-41af-4615-88d4-acc02652cc96",
-    "sequence": 69,
+    "sequence": 71,
     "timestamp": "2026-10-01T15:17:53.424Z",
     "actor": "lab_engineer",
     "type": "agent_command",
@@ -1766,7 +1784,7 @@
   {
     "id": "evt_8f1dbbe2-2970-480e-91a8-944c195442c8",
     "runId": "run_bd34b41e-41af-4615-88d4-acc02652cc96",
-    "sequence": 70,
+    "sequence": 72,
     "timestamp": "2026-10-01T15:17:53.425Z",
     "actor": "system",
     "type": "official_run",
@@ -1783,7 +1801,7 @@
   {
     "id": "evt_84901f38-8319-4646-9d46-564bf3a11057",
     "runId": "run_bd34b41e-41af-4615-88d4-acc02652cc96",
-    "sequence": 71,
+    "sequence": 73,
     "timestamp": "2026-10-01T15:17:53.442Z",
     "actor": "lab_engineer",
     "type": "agent_turn",
@@ -1798,7 +1816,6 @@
       "tools": [
         "finish"
       ],
-      "text": null,
       "tokens": {
         "input": 200,
         "output": 40
@@ -1809,7 +1826,7 @@
   {
     "id": "evt_8a80880a-728f-46b8-9367-407a31a2ad50",
     "runId": "run_bd34b41e-41af-4615-88d4-acc02652cc96",
-    "sequence": 72,
+    "sequence": 74,
     "timestamp": "2026-10-01T15:17:53.444Z",
     "actor": "lab_engineer",
     "type": "agent_finished",
@@ -1836,7 +1853,7 @@
   {
     "id": "evt_67b37b2a-18a6-4646-913d-9aef78c24798",
     "runId": "run_bd34b41e-41af-4615-88d4-acc02652cc96",
-    "sequence": 73,
+    "sequence": 75,
     "timestamp": "2026-10-01T15:17:53.446Z",
     "actor": "lab_engineer",
     "type": "agent_turn",
@@ -1851,7 +1868,6 @@
       "tools": [
         "finish"
       ],
-      "text": null,
       "tokens": {
         "input": 200,
         "output": 40
@@ -1862,7 +1878,7 @@
   {
     "id": "evt_dc13e313-fc72-4c73-9506-f5cc59030a4c",
     "runId": "run_bd34b41e-41af-4615-88d4-acc02652cc96",
-    "sequence": 74,
+    "sequence": 76,
     "timestamp": "2026-10-01T15:17:53.447Z",
     "actor": "lab_engineer",
     "type": "agent_finished",
@@ -1889,7 +1905,7 @@
   {
     "id": "evt_5a203d63-95fd-4f9d-ad68-9e27205fd81c",
     "runId": "run_bd34b41e-41af-4615-88d4-acc02652cc96",
-    "sequence": 75,
+    "sequence": 77,
     "timestamp": "2026-10-01T15:17:53.450Z",
     "actor": "lab_engineer",
     "type": "artifact_read",
@@ -1911,7 +1927,7 @@
   {
     "id": "evt_5eb92236-f05b-4b05-9c38-184dd613b1be",
     "runId": "run_bd34b41e-41af-4615-88d4-acc02652cc96",
-    "sequence": 76,
+    "sequence": 78,
     "timestamp": "2026-10-01T15:17:53.451Z",
     "actor": "lab_engineer",
     "type": "artifact_read",
@@ -1933,7 +1949,7 @@
   {
     "id": "evt_e6641a5e-d531-4332-9cfb-fe8a62d44da0",
     "runId": "run_bd34b41e-41af-4615-88d4-acc02652cc96",
-    "sequence": 77,
+    "sequence": 79,
     "timestamp": "2026-10-01T15:17:53.457Z",
     "actor": "lab_engineer",
     "type": "lab_cleanup",
@@ -1958,12 +1974,12 @@
   {
     "id": "evt_08a833b0-8f61-4fd7-93d3-60706e3cab01",
     "runId": "run_bd34b41e-41af-4615-88d4-acc02652cc96",
-    "sequence": 78,
+    "sequence": 80,
     "timestamp": "2026-10-01T15:17:53.460Z",
     "actor": "system",
     "type": "engineer_finished",
     "status": "completed",
-    "summary": "engineer-1 measured 79.88 percent with the approved command",
+    "summary": "engineer-1 finished the approved command; its measurement is sealed in the observation lock",
     "evidence": [],
     "publicPayload": {
       "engineer": "engineer-1",
@@ -1973,7 +1989,7 @@
   {
     "id": "evt_8c5d47a3-5178-44e8-8391-e19857bcecdc",
     "runId": "run_bd34b41e-41af-4615-88d4-acc02652cc96",
-    "sequence": 79,
+    "sequence": 81,
     "timestamp": "2026-10-01T15:17:53.461Z",
     "actor": "lab_engineer",
     "type": "lab_cleanup",
@@ -1998,12 +2014,12 @@
   {
     "id": "evt_02734c84-f844-461f-8746-1ed0f14cccbe",
     "runId": "run_bd34b41e-41af-4615-88d4-acc02652cc96",
-    "sequence": 80,
+    "sequence": 82,
     "timestamp": "2026-10-01T15:17:53.461Z",
     "actor": "system",
     "type": "engineer_finished",
     "status": "completed",
-    "summary": "engineer-2 measured 79.88 percent with the approved command",
+    "summary": "engineer-2 finished the approved command; its measurement is sealed in the observation lock",
     "evidence": [],
     "publicPayload": {
       "engineer": "engineer-2",
@@ -2011,9 +2027,56 @@
     }
   },
   {
+    "id": "evt_blind_0083",
+    "runId": "run_bd34b41e-41af-4615-88d4-acc02652cc96",
+    "sequence": 83,
+    "timestamp": "2026-10-01T15:17:53.461Z",
+    "actor": "system",
+    "type": "execution_completed",
+    "status": "completed",
+    "summary": "Execution round 1 completed: 2 engineers, 2 measured",
+    "evidence": [],
+    "publicPayload": {
+      "round": 1,
+      "engineers": 2,
+      "measured": 2
+    }
+  },
+  {
+    "id": "evt_blind_0084",
+    "runId": "run_bd34b41e-41af-4615-88d4-acc02652cc96",
+    "sequence": 84,
+    "timestamp": "2026-10-01T15:17:53.461Z",
+    "actor": "system",
+    "type": "observation_locked",
+    "status": "completed",
+    "summary": "Observation locked for round 1",
+    "evidence": [],
+    "publicPayload": {
+      "round": 1,
+      "commitment": "efa9b49e72b3b1b750af9ff5c2c9549edbe616704fdd836028afec36c84c3865",
+      "metric": {
+        "name": "accuracy",
+        "unit": "percent"
+      },
+      "observed": [
+        {
+          "engineer": "engineer-1",
+          "value": 79.88,
+          "metricOk": true
+        },
+        {
+          "engineer": "engineer-2",
+          "value": 79.88,
+          "metricOk": true
+        }
+      ]
+    }
+  },
+  {
     "id": "evt_6c84e6b2-db0f-48af-a968-45596d77d94f",
     "runId": "run_bd34b41e-41af-4615-88d4-acc02652cc96",
-    "sequence": 81,
+    "sequence": 85,
     "timestamp": "2026-10-01T15:17:53.463Z",
     "actor": "system",
     "type": "stage_started",
@@ -2029,7 +2092,7 @@
   {
     "id": "evt_5623b05b-f36c-4c4b-a322-aaed0e517b28",
     "runId": "run_bd34b41e-41af-4615-88d4-acc02652cc96",
-    "sequence": 82,
+    "sequence": 86,
     "timestamp": "2026-10-01T15:17:53.464Z",
     "actor": "independent_reviewer",
     "type": "agent_started",
@@ -2066,7 +2129,7 @@
   {
     "id": "evt_dab0a832-dd33-4066-ab12-1bff8ce942d6",
     "runId": "run_bd34b41e-41af-4615-88d4-acc02652cc96",
-    "sequence": 83,
+    "sequence": 87,
     "timestamp": "2026-10-01T15:17:53.470Z",
     "actor": "independent_reviewer",
     "type": "agent_started",
@@ -2103,7 +2166,7 @@
   {
     "id": "evt_1f4796f5-e734-4b89-b65c-d9a1b392d8a4",
     "runId": "run_bd34b41e-41af-4615-88d4-acc02652cc96",
-    "sequence": 84,
+    "sequence": 88,
     "timestamp": "2026-10-01T15:17:53.491Z",
     "actor": "independent_reviewer",
     "type": "agent_turn",
@@ -2118,7 +2181,6 @@
       "tools": [
         "board_read"
       ],
-      "text": null,
       "tokens": {
         "input": 200,
         "output": 40
@@ -2129,7 +2191,7 @@
   {
     "id": "evt_eef68545-6092-480d-b8f0-676061e6b901",
     "runId": "run_bd34b41e-41af-4615-88d4-acc02652cc96",
-    "sequence": 85,
+    "sequence": 89,
     "timestamp": "2026-10-01T15:17:53.499Z",
     "actor": "independent_reviewer",
     "type": "agent_turn",
@@ -2144,7 +2206,6 @@
       "tools": [
         "board_read"
       ],
-      "text": null,
       "tokens": {
         "input": 200,
         "output": 40
@@ -2155,7 +2216,7 @@
   {
     "id": "evt_34dd796f-2bf4-4b15-bd3b-160d84d11d07",
     "runId": "run_bd34b41e-41af-4615-88d4-acc02652cc96",
-    "sequence": 86,
+    "sequence": 90,
     "timestamp": "2026-10-01T15:17:53.516Z",
     "actor": "independent_reviewer",
     "type": "agent_turn",
@@ -2170,7 +2231,6 @@
       "tools": [
         "artifact_read"
       ],
-      "text": null,
       "tokens": {
         "input": 200,
         "output": 40
@@ -2181,7 +2241,7 @@
   {
     "id": "evt_5189b623-1604-431e-9b08-db686eff822c",
     "runId": "run_bd34b41e-41af-4615-88d4-acc02652cc96",
-    "sequence": 87,
+    "sequence": 91,
     "timestamp": "2026-10-01T15:17:53.522Z",
     "actor": "independent_reviewer",
     "type": "agent_turn",
@@ -2196,7 +2256,6 @@
       "tools": [
         "artifact_read"
       ],
-      "text": null,
       "tokens": {
         "input": 200,
         "output": 40
@@ -2207,7 +2266,7 @@
   {
     "id": "evt_d65971a9-91b2-4996-8f48-94ca0ad949cc",
     "runId": "run_bd34b41e-41af-4615-88d4-acc02652cc96",
-    "sequence": 88,
+    "sequence": 92,
     "timestamp": "2026-10-01T15:17:53.539Z",
     "actor": "independent_reviewer",
     "type": "agent_turn",
@@ -2222,7 +2281,6 @@
       "tools": [
         "finish"
       ],
-      "text": null,
       "tokens": {
         "input": 200,
         "output": 40
@@ -2233,7 +2291,7 @@
   {
     "id": "evt_72f20f2b-77aa-4805-8da3-73554880009d",
     "runId": "run_bd34b41e-41af-4615-88d4-acc02652cc96",
-    "sequence": 89,
+    "sequence": 93,
     "timestamp": "2026-10-01T15:17:53.541Z",
     "actor": "independent_reviewer",
     "type": "agent_finished",
@@ -2260,7 +2318,7 @@
   {
     "id": "evt_8a332206-3ee9-4f34-ad00-04a9dbeb41ee",
     "runId": "run_bd34b41e-41af-4615-88d4-acc02652cc96",
-    "sequence": 90,
+    "sequence": 94,
     "timestamp": "2026-10-01T15:17:53.544Z",
     "actor": "independent_reviewer",
     "type": "agent_turn",
@@ -2275,7 +2333,6 @@
       "tools": [
         "finish"
       ],
-      "text": null,
       "tokens": {
         "input": 200,
         "output": 40
@@ -2286,7 +2343,7 @@
   {
     "id": "evt_52747b85-cb1a-4c6f-9a0a-ec8e64972f13",
     "runId": "run_bd34b41e-41af-4615-88d4-acc02652cc96",
-    "sequence": 91,
+    "sequence": 95,
     "timestamp": "2026-10-01T15:17:53.545Z",
     "actor": "independent_reviewer",
     "type": "agent_finished",
@@ -2311,9 +2368,85 @@
     }
   },
   {
+    "id": "evt_blind_0096",
+    "runId": "run_bd34b41e-41af-4615-88d4-acc02652cc96",
+    "sequence": 96,
+    "timestamp": "2026-10-01T15:17:53.545Z",
+    "actor": "system",
+    "type": "blind_review_locked",
+    "status": "completed",
+    "summary": "Blind review locked (2 verdicts)",
+    "evidence": [],
+    "publicPayload": {
+      "round": 1,
+      "commitment": "67253e044834f64f0eb07c8ef6de321cb53b9eb9153b1693fbda848f04751ee6",
+      "verdicts": [
+        {
+          "engineer": "engineer-1",
+          "equivalence": "equivalent"
+        },
+        {
+          "engineer": "engineer-2",
+          "equivalence": "equivalent"
+        }
+      ]
+    }
+  },
+  {
+    "id": "evt_blind_0097",
+    "runId": "run_bd34b41e-41af-4615-88d4-acc02652cc96",
+    "sequence": 97,
+    "timestamp": "2026-10-01T15:17:53.545Z",
+    "actor": "system",
+    "type": "target_revealed",
+    "status": "completed",
+    "summary": "Paper target revealed and its commitment verified",
+    "evidence": [],
+    "publicPayload": {
+      "commitment": "2856480fbbfd59cbc0e0d1c7d142982e71ff6a3145683c47a953c71a2807b50d",
+      "verified": true,
+      "reportedValue": 81.66,
+      "tolerance": 2,
+      "metric": {
+        "name": "accuracy",
+        "unit": "percent"
+      },
+      "claimLocator": {
+        "page": 1,
+        "location": "Section 4"
+      }
+    }
+  },
+  {
+    "id": "evt_blind_0098",
+    "runId": "run_bd34b41e-41af-4615-88d4-acc02652cc96",
+    "sequence": 98,
+    "timestamp": "2026-10-01T15:17:53.545Z",
+    "actor": "system",
+    "type": "deterministic_comparison",
+    "status": "completed",
+    "summary": "Deterministic comparison: within tolerance",
+    "evidence": [],
+    "publicPayload": {
+      "comparison": {
+        "observed": 79.88,
+        "reported": 81.66,
+        "absoluteDelta": 1.78,
+        "tolerance": 2,
+        "withinTolerance": true,
+        "rule": "|observed - reported| <= tolerance"
+      },
+      "computedStatus": "reproduced",
+      "blindVerdicts": [
+        "equivalent",
+        "equivalent"
+      ]
+    }
+  },
+  {
     "id": "evt_b128790e-af90-4632-87ba-355544d64117",
     "runId": "run_bd34b41e-41af-4615-88d4-acc02652cc96",
-    "sequence": 92,
+    "sequence": 99,
     "timestamp": "2026-10-01T15:17:53.547Z",
     "actor": "system",
     "type": "stage_started",
@@ -2329,7 +2462,7 @@
   {
     "id": "evt_0ca3d99a-6807-4dbb-bd49-b592d3c6b261",
     "runId": "run_bd34b41e-41af-4615-88d4-acc02652cc96",
-    "sequence": 93,
+    "sequence": 100,
     "timestamp": "2026-10-01T15:17:53.549Z",
     "actor": "supervisor",
     "type": "agent_started",
@@ -2361,7 +2494,7 @@
   {
     "id": "evt_fe3b2b82-6d62-4660-8658-dd7ad024f05f",
     "runId": "run_bd34b41e-41af-4615-88d4-acc02652cc96",
-    "sequence": 94,
+    "sequence": 101,
     "timestamp": "2026-10-01T15:17:53.574Z",
     "actor": "supervisor",
     "type": "agent_turn",
@@ -2376,7 +2509,6 @@
       "tools": [
         "finish"
       ],
-      "text": null,
       "tokens": {
         "input": 200,
         "output": 40
@@ -2387,7 +2519,7 @@
   {
     "id": "evt_de9014d7-bfd6-4706-8fb1-138cd487a1de",
     "runId": "run_bd34b41e-41af-4615-88d4-acc02652cc96",
-    "sequence": 95,
+    "sequence": 102,
     "timestamp": "2026-10-01T15:17:53.576Z",
     "actor": "supervisor",
     "type": "agent_finished",
@@ -2412,9 +2544,24 @@
     }
   },
   {
+    "id": "evt_blind_0103",
+    "runId": "run_bd34b41e-41af-4615-88d4-acc02652cc96",
+    "sequence": 103,
+    "timestamp": "2026-10-01T15:17:53.576Z",
+    "actor": "system",
+    "type": "final_status",
+    "status": "completed",
+    "summary": "Final status: reproduced",
+    "evidence": [],
+    "publicPayload": {
+      "status": "reproduced",
+      "sealed": false
+    }
+  },
+  {
     "id": "evt_5acd5168-ca70-4363-a61f-8b03da870012",
     "runId": "run_bd34b41e-41af-4615-88d4-acc02652cc96",
-    "sequence": 96,
+    "sequence": 104,
     "timestamp": "2026-10-01T15:17:53.585Z",
     "actor": "system",
     "type": "study_cleanup",
@@ -2464,7 +2611,7 @@
   {
     "id": "evt_175b03db-60f7-4d57-a9df-e4efc9376aa7",
     "runId": "run_bd34b41e-41af-4615-88d4-acc02652cc96",
-    "sequence": 97,
+    "sequence": 105,
     "timestamp": "2026-10-01T15:17:53.587Z",
     "actor": "system",
     "type": "study_result",
@@ -2481,7 +2628,7 @@
   {
     "id": "evt_6ce47ae6-de3b-4295-b5af-c9f7a5e2427e",
     "runId": "run_bd34b41e-41af-4615-88d4-acc02652cc96",
-    "sequence": 98,
+    "sequence": 106,
     "timestamp": "2026-10-01T15:17:53.592Z",
     "actor": "system",
     "type": "run_finished",

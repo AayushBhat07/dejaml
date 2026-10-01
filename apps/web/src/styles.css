@@ -1106,6 +1106,34 @@ a.button {
   padding: 2px var(--space-1);
 }
 
+/* Blinding */
+.blinding {
+  border-top: 3px solid var(--accent);
+}
+.blinding[data-revealed="true"] {
+  border-top-color: var(--positive);
+}
+.blinding h2 {
+  font-size: 18px;
+}
+.blinding-hash {
+  font-size: 12px;
+  background: var(--surface-muted);
+  border-radius: var(--radius-sm);
+  padding: 1px var(--space-1);
+}
+.blinding-steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+}
+.blinding-steps .stage-step {
+  gap: 8px;
+}
+
 /* Completion */
 .completion {
   border-top: 3px solid var(--border);

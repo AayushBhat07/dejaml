@@ -7,9 +7,14 @@ import { describeArgv, redact } from "./redact";
  * public event stream, in one pass, in sequence order. Nothing is invented:
  * a card, a lab, or a stage exists only because an event said so, and a
  * waiting role says what it waits for according to the study's real
- * dependency order. Hidden reasoning is never read: `agent_turn` carries a
- * bounded copy of the model's visible text in its payload, and the dashboard
- * deliberately shows only the turn's tool names.
+ * dependency order. Model prose is never shown: `agent_turn` carries only
+ * tool names, tokens and cost, and the dashboard shows only the tool names.
+ *
+ * The study is blinded: the paper's reported value is sealed before any agent
+ * starts and revealed only after the observation and the blind review are
+ * locked. Nothing here reads a paper value from anywhere but the
+ * `target_revealed` event, so a view built from a stream that stops before that
+ * event (a reload, a replay, a reconnect) never holds one.
  */
 
 export type Role = RunEvent["actor"];
@@ -102,7 +107,18 @@ export type LabCard = {
 };
 
 export type Category =
-  "agents" | "messages" | "tools" | "evidence" | "repository" | "claims" | "plan" | "preparation" | "lab" | "review" | "stages";
+  | "agents"
+  | "messages"
+  | "tools"
+  | "evidence"
+  | "repository"
+  | "claims"
+  | "plan"
+  | "preparation"
+  | "lab"
+  | "review"
+  | "blinding"
+  | "stages";
 
 export const CATEGORY_LABELS: Record<Category, string> = {
   agents: "Agent status",
@@ -115,6 +131,7 @@ export const CATEGORY_LABELS: Record<Category, string> = {
   preparation: "Preparation",
   lab: "Lab",
   review: "Review",
+  blinding: "Blinding",
   stages: "Stages",
 };
 
@@ -152,6 +169,74 @@ export type CleanupSummary = {
   liveAgents: number;
 };
 
+/** The blinding protocol's phases, in the order the server emits them. */
+export const BLINDING_PHASES = [
+  { id: "target_sealed", label: "Paper target sealed" },
+  { id: "agents_started", label: "Agents started" },
+  { id: "execution_completed", label: "Execution completed" },
+  { id: "observation_locked", label: "Observation locked" },
+  { id: "blind_review_locked", label: "Blind review locked" },
+  { id: "target_revealed", label: "Paper target revealed" },
+  { id: "deterministic_comparison", label: "Deterministic comparison" },
+  { id: "final_status", label: "Final status" },
+] as const;
+
+export type BlindingPhaseId = (typeof BLINDING_PHASES)[number]["id"];
+
+export const EQUIVALENCE_LABELS: Record<string, string> = {
+  equivalent: "Equivalent",
+  partially_equivalent: "Partially equivalent",
+  not_equivalent: "Not equivalent",
+  insufficient_evidence: "Insufficient evidence",
+  // Recorded before the blinded review: kept readable.
+  minor_deviations: "Minor deviations",
+};
+
+export function equivalenceLabel(value: string | null): string {
+  return value === null ? "No verdict" : (EQUIVALENCE_LABELS[value] ?? value.replaceAll("_", " "));
+}
+
+export type Blinding = {
+  /** Any blinding event arrived. */
+  present: boolean;
+  sealed: { caseId: string | null; commitment: string; metric: string | null; sealedAt: string | null } | null;
+  phases: Array<{ id: BlindingPhaseId; label: string; state: "done" | "current" | "pending"; at: string | null }>;
+  executions: Array<{ round: number; engineers: number | null; measured: number | null }>;
+  /** The latest locked observation (one per execution round). */
+  observation: {
+    round: number | null;
+    commitment: string | null;
+    metric: { name: string; unit: string | null } | null;
+    observed: Array<{ engineer: string; value: number | null; metricOk: boolean }>;
+  } | null;
+  /** The latest locked blind review: verdicts only, never a comparison. */
+  blindReview: {
+    round: number | null;
+    commitment: string | null;
+    verdicts: Array<{ engineer: string | null; equivalence: string | null }>;
+  } | null;
+  /** Only from `target_revealed`: the one place a paper value enters the view. */
+  reveal: {
+    commitment: string | null;
+    verified: boolean;
+    reportedValue: number | null;
+    tolerance: number | null;
+    metric: { name: string; unit: string | null } | null;
+    claimLocator: { page: number | null; location: string | null } | null;
+  } | null;
+  comparison: {
+    observed: number | null;
+    reported: number | null;
+    absoluteDelta: number | null;
+    tolerance: number | null;
+    withinTolerance: boolean | null;
+    rule: string | null;
+    computedStatus: string | null;
+    blindVerdicts: string[];
+  } | null;
+  final: { status: string | null; sealed: boolean } | null;
+};
+
 export type RunView = {
   /** The stream comes from separate native agents (as opposed to an older role-per-lane recording). */
   native: boolean;
@@ -166,7 +251,9 @@ export type RunView = {
   provider: string | null;
   model: string | null;
   caseId: string | null;
-  claim: { method: string; dataset: string; metric: string; unit: string; reportedValue: number | null; page: number | null } | null;
+  /** The claim as everyone but the sealed target sees it: never a value or a page. */
+  claim: { method: string; dataset: string; split: string; metric: string; unit: string } | null;
+  blinding: Blinding;
   paperFileName: string | null;
   startedAt: string | null;
   endedAt: string | null;
@@ -302,6 +389,14 @@ const CATEGORY_BY_TYPE: Record<string, Category> = {
   lab_disk_limit: "lab",
   comparison_started: "review",
   comparison_completed: "review",
+  target_sealed: "blinding",
+  agents_started: "blinding",
+  execution_completed: "blinding",
+  observation_locked: "blinding",
+  blind_review_locked: "blinding",
+  target_revealed: "blinding",
+  deterministic_comparison: "blinding",
+  final_status: "blinding",
   audit_started: "review",
   audit_completed: "review",
 };
@@ -387,12 +482,14 @@ export function analyzeRun(events: readonly RunEvent[]): RunView {
   let latestStage: string | null = null;
   let executingRound = 1;
   const preparation: Preparation = { image: null, wheels: null, dataset: null, failure: null };
+  const blinding = newBlinding();
   const view: Omit<RunView, "cards" | "debuggerNote" | "labs" | "stream" | "stages" | "currentStage" | "preparation"> = {
     native,
     provider: null,
     model: null,
     caseId: null,
     claim: null,
+    blinding,
     paperFileName: null,
     startedAt: events[0]?.timestamp ?? null,
     endedAt: null,
@@ -734,16 +831,26 @@ export function analyzeRun(events: readonly RunEvent[]): RunView {
         view.caseId = str(payload.caseId);
         const claim = record(payload.claim);
         const metric = record(claim.metric);
+        // Only the public parts: a value, page, or location in an older stream is never read.
         view.claim = {
           method: str(claim.method) ?? "",
           dataset: str(claim.dataset) ?? "",
+          split: str(claim.split) ?? "",
           metric: str(metric.name) ?? "",
           unit: str(metric.unit) ?? "",
-          reportedValue: num(claim.reportedValue),
-          page: num(claim.page),
         };
         break;
       }
+      case "target_sealed":
+      case "agents_started":
+      case "execution_completed":
+      case "observation_locked":
+      case "blind_review_locked":
+      case "target_revealed":
+      case "deterministic_comparison":
+      case "final_status":
+        if (event.actor === "system") applyBlinding(blinding, event.type, payload, event.timestamp);
+        break;
       case "repository_found":
         view.caseId = view.caseId ?? str(payload.reviewedTarget);
         break;
@@ -917,6 +1024,8 @@ export function analyzeRun(events: readonly RunEvent[]): RunView {
     );
   }
 
+  finishBlinding(blinding, ended);
+
   const stages = native ? stageSteps(startedStages, failedStages, latestStage, view) : legacyStageSteps(events, view);
   const currentStage = ended
     ? view.result
@@ -940,6 +1049,111 @@ export function analyzeRun(events: readonly RunEvent[]): RunView {
     currentStage,
     preparation,
   };
+}
+
+function newBlinding(): Blinding {
+  return {
+    present: false,
+    sealed: null,
+    phases: BLINDING_PHASES.map((phase) => ({ id: phase.id, label: phase.label, state: "pending", at: null })),
+    executions: [],
+    observation: null,
+    blindReview: null,
+    reveal: null,
+    comparison: null,
+    final: null,
+  };
+}
+
+const metricOf = (value: unknown): { name: string; unit: string | null } | null => {
+  const metric = record(value);
+  const name = str(metric.name);
+  return name ? { name, unit: str(metric.unit) } : null;
+};
+
+function applyBlinding(blinding: Blinding, type: BlindingPhaseId, payload: Record<string, unknown>, at: string): void {
+  blinding.present = true;
+  const phase = blinding.phases.find((item) => item.id === type)!;
+  phase.state = "done";
+  phase.at = at;
+  switch (type) {
+    case "target_sealed":
+      blinding.sealed = {
+        caseId: str(payload.caseId),
+        commitment: str(payload.commitment) ?? "",
+        metric: str(payload.metric),
+        sealedAt: str(payload.sealedAt) ?? at,
+      };
+      break;
+    case "execution_completed":
+      blinding.executions.push({
+        round: num(payload.round) ?? blinding.executions.length + 1,
+        engineers: num(payload.engineers),
+        measured: num(payload.measured),
+      });
+      break;
+    case "observation_locked":
+      blinding.observation = {
+        round: num(payload.round),
+        commitment: str(payload.commitment),
+        metric: metricOf(payload.metric),
+        observed: (Array.isArray(payload.observed) ? payload.observed.map(record) : []).map((item) => ({
+          engineer: str(item.engineer) ?? "engineer",
+          value: num(item.value),
+          metricOk: item.metricOk === true,
+        })),
+      };
+      break;
+    case "blind_review_locked":
+      blinding.blindReview = {
+        round: num(payload.round),
+        commitment: str(payload.commitment),
+        verdicts: (Array.isArray(payload.verdicts) ? payload.verdicts.map(record) : []).map((item) => ({
+          engineer: str(item.engineer),
+          equivalence: str(item.equivalence),
+        })),
+      };
+      break;
+    case "target_revealed": {
+      const locator = record(payload.claimLocator);
+      blinding.reveal = {
+        commitment: str(payload.commitment),
+        verified: payload.verified === true,
+        reportedValue: num(payload.reportedValue),
+        tolerance: num(payload.tolerance),
+        metric: metricOf(payload.metric),
+        claimLocator: Object.keys(locator).length ? { page: num(locator.page), location: str(locator.location) } : null,
+      };
+      break;
+    }
+    case "deterministic_comparison": {
+      const comparison = payload.comparison && typeof payload.comparison === "object" ? record(payload.comparison) : null;
+      blinding.comparison = {
+        observed: comparison ? num(comparison.observed) : null,
+        reported: comparison ? num(comparison.reported) : null,
+        absoluteDelta: comparison ? num(comparison.absoluteDelta) : null,
+        tolerance: comparison ? num(comparison.tolerance) : null,
+        withinTolerance: comparison && typeof comparison.withinTolerance === "boolean" ? comparison.withinTolerance : null,
+        rule: comparison ? str(comparison.rule) : null,
+        computedStatus: str(payload.computedStatus),
+        blindVerdicts: strings(payload.blindVerdicts),
+      };
+      break;
+    }
+    case "final_status":
+      blinding.final = { status: str(payload.status), sealed: payload.sealed === true };
+      break;
+    default:
+      break;
+  }
+}
+
+/** Marks the next phase current while the study runs; a finished study has no current phase. */
+function finishBlinding(blinding: Blinding, ended: boolean): void {
+  if (!blinding.present || ended) return;
+  const lastDone = blinding.phases.map((phase) => phase.state).lastIndexOf("done");
+  const next = blinding.phases[lastDone + 1];
+  if (next) next.state = "current";
 }
 
 function upsertArtifact(lab: LabCard, path: string, bytes: number | null, sha256: string | null): void {

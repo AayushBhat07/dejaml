@@ -1,6 +1,7 @@
 import { Badge, type Tone } from "../Badge";
-import type { AgentCard, CleanupSummary, LabCard, RunView } from "../../lib/live-run";
+import { equivalenceLabel, type AgentCard, type CleanupSummary, type LabCard, type RunView } from "../../lib/live-run";
 import type { ReportSummary } from "../../lib/run-client";
+import { formatMetricValue } from "./format";
 
 const RESULTS: Record<string, { label: string; tone: Tone; explanation: string }> = {
   reproduced: {
@@ -47,12 +48,6 @@ const REVIEW_VERDICTS: Record<string, { label: string; tone: Tone }> = {
   approve: { label: "Approved", tone: "positive" },
   reject: { label: "Rejected", tone: "negative" },
 };
-
-function formatValue(value: number | null, unit: string | null): string {
-  if (value === null) return "–";
-  const rounded = Math.round(value * 10_000) / 10_000;
-  return unit === "percent" ? `${rounded}%` : String(rounded);
-}
 
 function Stat({ label, value, unit, testId }: { label: string; value: string; unit?: string; testId: string }) {
   return (
@@ -119,10 +114,19 @@ export function Completion({
   const result = statusKey
     ? (RESULTS[statusKey] ?? { label: statusKey.replaceAll("_", " "), tone: "neutral" as Tone, explanation: "" })
     : null;
-  const unit = report?.unit ?? (view.claim?.unit || null);
-  const paperValue = report?.paperValue ?? view.claim?.reportedValue ?? null;
-  const observed = report?.observedValue ?? null;
-  const delta = report?.signedDifference ?? null;
+  const { reveal, comparison, observation } = view.blinding;
+  // The paper value comes only from the reveal event, or from a report that says the target was revealed.
+  const revealedReport = report?.revealed === true ? report : null;
+  const unit = reveal?.metric?.unit ?? report?.unit ?? observation?.metric?.unit ?? (view.claim?.unit || null);
+  const paperValue = reveal?.reportedValue ?? revealedReport?.paperValue ?? null;
+  const lockedObserved = observation?.observed.find((item) => item.value !== null)?.value ?? null;
+  const observed = report?.observedValue ?? comparison?.observed ?? lockedObserved;
+  const delta =
+    paperValue === null
+      ? null
+      : (revealedReport?.signedDifference ?? (observed !== null ? Math.round((observed - paperValue) * 1e6) / 1e6 : null));
+  const tolerance = reveal?.tolerance ?? revealedReport?.tolerance ?? null;
+  const sealed = paperValue === null && view.blinding.sealed !== null;
   const unitWord = unit === "percent" ? "points" : "";
   return (
     <section className="card completion stack" aria-labelledby="completion-title" data-result={statusKey ?? "pending"}>
@@ -150,8 +154,8 @@ export function Completion({
       </div>
       {result?.explanation ? <p className="muted small">{result.explanation}</p> : null}
       <div className="comparison">
-        <Stat label="Paper reports" value={formatValue(paperValue, unit)} testId="paper-value" />
-        <Stat label="We observed" value={formatValue(observed, unit)} testId="observed-value" />
+        <Stat label="Paper reports" value={sealed ? "Sealed" : formatMetricValue(paperValue, unit)} testId="paper-value" />
+        <Stat label="We observed" value={formatMetricValue(observed, unit)} testId="observed-value" />
         <Stat
           label="Difference"
           value={delta === null ? "–" : `${delta > 0 ? "+" : ""}${Math.round(delta * 100) / 100}`}
@@ -160,8 +164,8 @@ export function Completion({
         />
         <Stat
           label="Tolerance"
-          value={report?.tolerance === null || report?.tolerance === undefined ? "–" : `±${report.tolerance}`}
-          unit={report?.tolerance ? unitWord : ""}
+          value={tolerance === null ? "–" : `±${tolerance}`}
+          unit={tolerance ? unitWord : ""}
           testId="tolerance-value"
         />
       </div>
@@ -188,7 +192,12 @@ export function Completion({
                 return (
                   <li key={review.engineer}>
                     <span className="mono">{review.engineer}</span> <Badge tone={verdict.tone}>{verdict.label}</Badge>
-                    {review.equivalence ? <span className="muted"> · {review.equivalence.replaceAll("_", " ")}</span> : null}
+                    {review.equivalence ? (
+                      <span className="muted" data-testid="review-equivalence">
+                        {" "}
+                        · {equivalenceLabel(review.equivalence)}
+                      </span>
+                    ) : null}
                     {review.summary ? <p className="muted">{review.summary}</p> : null}
                     {review.concerns.length ? (
                       <ul className="scope-list">

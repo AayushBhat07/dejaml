@@ -7,24 +7,27 @@ import type { ReviewedCase, ServerConfig, StudyOptions } from "../lib/run-client
 
 type Accepted = Extract<PaperCheck, { ok: true }>;
 
-function formatClaimValue(item: ReviewedCase): string {
-  return item.claim.metric.unit === "percent" ? `${item.claim.reportedValue}%` : `${item.claim.reportedValue} (${item.claim.metric.unit})`;
-}
-
-/** The claim a reviewed case tests, as the server publishes it: never an observed value. */
+/**
+ * The claim a reviewed case tests, as the server publishes it: method, dataset,
+ * split and metric. Never the paper's value, page or location (sealed until the
+ * run's observation and blind review are locked) and never an observed value.
+ */
 function ClaimSummary({ item }: { item: ReviewedCase }) {
   return (
     <div className="claim-summary stack-tight" data-testid="reviewed-claim">
       <p className="small">
-        <strong>Claim that will be tested:</strong> {item.claim.method} on {item.claim.dataset} ({item.claim.split}) reports{" "}
-        {item.claim.metric.name} of <strong>{formatClaimValue(item)}</strong>.
+        <strong>Claim that will be tested:</strong> {item.claim.method} on {item.claim.dataset} ({item.claim.split}), measured as{" "}
+        <strong>{item.claim.metric.name}</strong> ({item.claim.metric.unit}).
+      </p>
+      <p className="small" data-testid="claim-sealed">
+        The paper's value is sealed until the run's observation and blind review are locked.
       </p>
       <dl className="file-summary">
         <dt>Paper</dt>
         <dd>{item.paperTitle}</dd>
-        <dt>Where</dt>
+        <dt>Metric</dt>
         <dd>
-          Page {item.claim.page}, {item.claim.location}
+          {item.claim.metric.name} ({item.claim.metric.unit})
         </dd>
         <dt>Repository</dt>
         <dd className="mono">

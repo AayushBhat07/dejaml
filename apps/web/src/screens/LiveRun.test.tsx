@@ -3,8 +3,10 @@ import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { appendEvents, EMPTY_LOG } from "../lib/event-log";
-import type { ReportSummary } from "../lib/run-client";
-import { byType, labOne, makeEvent, studyEvents, until } from "../test/stream";
+import { buildReport } from "../lib/lab";
+import { analyzeRun } from "../lib/live-run";
+import { summarizeReport, type ReportSummary } from "../lib/run-client";
+import { blindedStream, byType, labOne, makeEvent, SENTINEL_TEXT, studyEvents, until } from "../test/stream";
 import { LiveRun } from "./LiveRun";
 
 afterEach(() => {
@@ -15,6 +17,17 @@ const logOf = (events: readonly RunEvent[]) => appendEvents(EMPTY_LOG, events);
 const props = { runId: studyEvents[0]!.runId, connection: "live" as const, reportHref: "/api/runs/r/report", onDownload: () => undefined };
 const cards = (role: string) => screen.getAllByTestId("agent-card").filter((card) => card.getAttribute("data-role") === role);
 const finalReport: ReportSummary = {
+  revealed: true,
+  blinding: {
+    sealed: true,
+    revealed: true,
+    commitment: "5".repeat(64),
+    sealedAt: "2026-10-01T15:17:52.000Z",
+    verified: true,
+    observationVerified: true,
+    comparison: null,
+    errors: [],
+  },
   paperValue: 81.66,
   observedValue: 79.88,
   signedDifference: -1.78,
@@ -287,5 +300,159 @@ describe("Live Run Dashboard", () => {
     expect(within(screen.getByRole("region", { name: /Result/u })).getByText("Cancelled")).toBeTruthy();
     expect(screen.getByTestId("current-stage").textContent).toBe("Finished: cancelled");
     expect(within(screen.getByTestId("cleanup-verification")).getByText("Cleanup verified")).toBeTruthy();
+  });
+});
+
+describe("Live Run Dashboard: blinding", () => {
+  const blinded = blindedStream();
+  const revealAt = blinded.findIndex(byType("target_revealed"));
+  const beforeReveal = blinded.slice(0, revealAt);
+  const panel = () => screen.getByTestId("blinding-panel");
+  const phaseState = (id: string) => panel().querySelector(`[data-phase="${id}"]`)?.getAttribute("data-state");
+
+  it("never shows the paper value before target_revealed, at any point of the stream", () => {
+    expect(beforeReveal.at(-1)!.type).toBe("blind_review_locked");
+    expect(JSON.stringify(beforeReveal)).not.toMatch(SENTINEL_TEXT);
+    const { rerender } = render(<LiveRun {...props} log={logOf(beforeReveal.slice(0, 1))} />);
+    for (let index = 1; index <= beforeReveal.length; index += 1) {
+      const prefix = beforeReveal.slice(0, index);
+      rerender(<LiveRun {...props} log={logOf(prefix)} />);
+      // Rendered text, attributes (titles, tooltips), and the state the page derives.
+      expect(document.body.innerHTML).not.toMatch(SENTINEL_TEXT);
+      expect(JSON.stringify(analyzeRun(prefix))).not.toMatch(SENTINEL_TEXT);
+      // The downloadable event log holds only what the stream said.
+      expect(JSON.stringify(buildReport(props.runId, prefix, null))).not.toMatch(SENTINEL_TEXT);
+    }
+    // Everything up to the review lock is on screen, with no comparison.
+    expect(within(panel()).getByText("Paper target sealed", { selector: "strong" })).toBeTruthy();
+    expect(screen.getByTestId("value-hidden").textContent).toBe("Reported value hidden until experiment and review are locked.");
+    const commitment = screen.getByTestId("target-commitment");
+    expect(commitment.getAttribute("title")).toMatch(/^[a-f0-9]{64}$/u);
+    expect(commitment.textContent).toMatch(/^[a-f0-9]{12}…[a-f0-9]{6}$/u);
+    expect(screen.getByTestId("blinding-metric").textContent).toBe("Metric: accuracy (fraction)");
+    expect(screen.getByTestId("blinding-observation").textContent).toContain("0.2875");
+    expect(screen.getByTestId("observation-commitment").getAttribute("title")).toMatch(/^[a-f0-9]{64}$/u);
+    expect(within(screen.getByTestId("blind-verdicts")).getAllByText("Equivalent")).toHaveLength(2);
+    expect(screen.queryByTestId("blinding-reveal")).toBeNull();
+    expect(screen.queryByTestId("commitment-verified")).toBeNull();
+    expect(phaseState("blind_review_locked")).toBe("done");
+    expect(phaseState("target_revealed")).toBe("current");
+    expect(phaseState("final_status")).toBe("pending");
+  });
+
+  it("rebuilds the same sealed state after a reload or a replay with duplicates", () => {
+    const fresh = render(<LiveRun {...props} log={logOf(beforeReveal)} />);
+    const html = fresh.container.innerHTML;
+    fresh.unmount();
+    const replayed = appendEvents(appendEvents(EMPTY_LOG, beforeReveal.slice(0, 60)), [...beforeReveal.slice(30)].reverse());
+    const again = render(<LiveRun {...props} log={replayed} />);
+    expect(again.container.innerHTML).toBe(html);
+    expect(html).not.toMatch(SENTINEL_TEXT);
+  });
+
+  it("after target_revealed shows the paper value, delta, tolerance, verified commitment, blind verdicts and final status", () => {
+    const { rerender } = render(<LiveRun {...props} log={logOf(blinded.slice(0, revealAt + 1))} />);
+    expect(panel().getAttribute("data-revealed")).toBe("true");
+    expect(screen.getByTestId("blinding-paper-value").textContent).toBe("0.3142");
+    expect(screen.getByTestId("blinding-observed-value").textContent).toBe("0.2875");
+    expect(screen.getByTestId("blinding-delta").textContent).toBe("0.0267");
+    expect(screen.getByTestId("blinding-tolerance").textContent).toBe("±0.05");
+    const verified = screen.getByTestId("commitment-verified");
+    expect(within(verified).getByText("Commitment verified")).toBeTruthy();
+    expect(verified.querySelector("code")?.getAttribute("title")).toBe(screen.getByTestId("target-commitment").getAttribute("title"));
+    expect(within(screen.getByTestId("blind-verdicts")).getAllByText("Equivalent")).toHaveLength(2);
+    expect(screen.queryByTestId("value-hidden")).toBeNull();
+
+    rerender(<LiveRun {...props} connection="closed" log={logOf(blinded)} />);
+    expect(screen.getByTestId("blinding-final-status").textContent).toBe("Final status: reproduced");
+    expect(screen.getByTestId("blinding-delta").textContent).toBe("0.0267");
+    expect(panel().querySelectorAll('[data-state="done"]')).toHaveLength(8);
+    // The result section takes the paper value from the reveal event, with no server report needed.
+    expect(screen.getByTestId("paper-value").textContent).toBe("0.3142");
+    expect(screen.getByTestId("observed-value").textContent).toBe("0.2875");
+    expect(screen.getByTestId("tolerance-value").textContent).toBe("±0.05");
+  });
+
+  it("says the target stayed sealed when the study stops before the locks, and never shows a value", () => {
+    const running = until(
+      byType("lab_output", (event) => event.publicPayload.labId === labOne),
+      blinded,
+    );
+    let sequence = running.at(-1)!.sequence;
+    const tail = [
+      makeEvent(++sequence, {
+        type: "final_status",
+        status: "failed",
+        summary: "Final status: failed (the paper target stayed sealed)",
+        publicPayload: { status: "failed", sealed: true },
+      }),
+      makeEvent(++sequence, {
+        type: "study_result",
+        status: "failed",
+        summary: "Result: failed",
+        publicPayload: { status: "failed", reasons: ["the lab failed"] },
+      }),
+      makeEvent(++sequence, {
+        type: "run_finished",
+        status: "failed",
+        summary: "Study finished: failed",
+        publicPayload: { runStatus: "failed", verdict: null },
+      }),
+    ];
+    const sealedReport = summarizeReport({
+      assessment: { paperValue: null, observedValue: null, tolerance: null },
+      study: {
+        result: { paperValue: null, observedValue: null, tolerance: null, absoluteDifference: null },
+        blinding: { sealed: true, revealed: false, commitment: "c".repeat(64), reveal: null, comparison: null, errors: [] },
+        engineers: [],
+      },
+    });
+    render(<LiveRun {...props} connection="closed" log={logOf([...running, ...tail])} report={sealedReport} />);
+    expect(screen.getByTestId("stayed-sealed").textContent).toBe("The paper target stayed sealed (the study stopped before the locks).");
+    expect(screen.queryByTestId("value-hidden")).toBeNull();
+    expect(screen.queryByTestId("blinding-reveal")).toBeNull();
+    expect(screen.getByTestId("paper-value").textContent).toBe("Sealed");
+    expect(screen.getByTestId("tolerance-value").textContent).toBe("–");
+    expect(screen.getByTestId("blinding-final-status").textContent).toBe("Final status: failed");
+    expect(panel().querySelector('[data-state="current"]')).toBeNull();
+    expect(phaseState("target_revealed")).toBe("pending");
+    expect(document.body.innerHTML).not.toMatch(SENTINEL_TEXT);
+  });
+
+  it("labels every blind review equivalence, in the blinding panel and in the reviewer verdicts", () => {
+    const upTo = blinded.slice(0, blinded.findIndex(byType("blind_review_locked")));
+    const lock = blinded.find(byType("blind_review_locked"))!;
+    const verdicts = [
+      { engineer: "engineer-1", equivalence: "equivalent" },
+      { engineer: "engineer-2", equivalence: "partially_equivalent" },
+      { engineer: "engineer-3", equivalence: "not_equivalent" },
+      { engineer: "engineer-4", equivalence: "insufficient_evidence" },
+      { engineer: null, equivalence: null },
+    ];
+    render(
+      <LiveRun
+        {...props}
+        log={logOf([...upTo, { ...lock, publicPayload: { ...lock.publicPayload, verdicts } }])}
+        report={{
+          ...finalReport,
+          reviews: verdicts.slice(0, 4).map((item) => ({
+            engineer: item.engineer!,
+            verdict: item.equivalence === "equivalent" ? "approve" : "reject",
+            equivalence: item.equivalence,
+            summary: null,
+            concerns: [],
+          })),
+        }}
+      />,
+    );
+    const labels = ["Equivalent", "Partially equivalent", "Not equivalent", "Insufficient evidence", "No verdict"];
+    expect(
+      within(screen.getByTestId("blind-verdicts"))
+        .getAllByText(/./u, { selector: ".badge" })
+        .map((badge) => badge.textContent),
+    ).toEqual(labels);
+    expect(screen.getAllByTestId("review-equivalence").map((item) => item.textContent?.replace(/^\s*·\s*/u, ""))).toEqual(
+      labels.slice(0, 4),
+    );
   });
 });

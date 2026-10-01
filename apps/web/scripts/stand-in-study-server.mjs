@@ -6,6 +6,10 @@
 // DéjàML reproduced anything, and capture-live-run.mjs refuses to treat it as one
 // unless it is told to label its screenshots as stand-in.
 //
+// It serves no canned events: the blinding events (target_sealed … final_status)
+// and the value-free /api/config come from the API it runs. The reviewed target
+// below holds the paper's value only on the server side, where the API seals it.
+//
 // Build first:  npm run build && VITE_DEJAML_API=live npm run build --workspace @dejaml/web
 // Then:         node apps/web/scripts/stand-in-study-server.mjs   (PORT, STAND_IN_ENGINEERS, STAND_IN_MODEL_MS, STAND_IN_EXEC_MS)
 // It prints the URL and the path of the stand-in paper to upload.

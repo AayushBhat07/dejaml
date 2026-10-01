@@ -3,6 +3,7 @@ import { useMemo, useState } from "react";
 
 import { ActivityStream } from "../components/live/ActivityStream";
 import { AgentRoster } from "../components/live/AgentRoster";
+import { BlindingPanel } from "../components/live/BlindingPanel";
 import { Completion } from "../components/live/Completion";
 import { useNow } from "../components/live/format";
 import { LabPanel } from "../components/live/LabPanel";
@@ -12,12 +13,18 @@ import { findingsFor } from "../lib/lab";
 import { analyzeRun } from "../lib/live-run";
 import type { ConnectionState, ReportSummary, ReviewedCase, RunInfo } from "../lib/run-client";
 
-/** Older recordings carry their comparison in a Result Verifier event instead of a server report. */
+/**
+ * Older recordings (made before studies were blinded) carry their comparison in
+ * a Result Verifier event instead of a server report. That event is the
+ * recording's own end-of-study comparison, so it counts as revealed.
+ */
 function recordedSummary(events: readonly RunEvent[]): ReportSummary | null {
   const findings = findingsFor(events);
   if (!findings) return null;
   const { assessment } = findings;
   return {
+    revealed: true,
+    blinding: null,
     paperValue: assessment.paperValue,
     observedValue: assessment.observedValue,
     signedDifference: assessment.signedDifference,
@@ -75,8 +82,9 @@ export function LiveRun({
   const fileName = info?.fileName ?? view.paperFileName;
   const title = reviewed?.paperTitle ?? fileName ?? "New study";
   const claim = view.claim;
+  // The claim without its value: the paper's number is sealed and shown only in the Blinding panel after the reveal.
   const subtitle = claim
-    ? `Claim under test: ${claim.method} on ${claim.dataset}, ${claim.metric} ${claim.reportedValue ?? "?"}${claim.unit === "percent" ? "%" : ""}${claim.page ? ` (page ${claim.page})` : ""}${view.caseId ? ` · reviewed case ${view.caseId}` : ""}`
+    ? `Claim under test: ${claim.method} on ${claim.dataset}${claim.split ? ` (${claim.split})` : ""}, ${claim.metric}${claim.unit ? ` (${claim.unit})` : ""}${view.caseId ? ` · reviewed case ${view.caseId}` : ""}`
     : fileName && fileName !== title
       ? fileName
       : null;
@@ -107,6 +115,9 @@ export function LiveRun({
         onCancel={cancel}
         cancelling={cancelRequested || view.cancelling}
       />
+      {view.native || view.blinding.present ? (
+        <BlindingPanel blinding={view.blinding} ended={ended} finalStatus={view.result?.status ?? null} />
+      ) : null}
       {showCompletion ? (
         <Completion
           view={view}

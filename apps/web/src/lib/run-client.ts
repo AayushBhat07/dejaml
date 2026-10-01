@@ -28,8 +28,9 @@ export type ProviderOption = { id: string; label: string; models: string[] };
 
 /**
  * A reviewed case as the server publishes it: which paper and claim it covers
- * and whether it can run. Never an observed value, a tolerance, a command, or
- * any policy detail.
+ * and whether it can run. Never the paper's reported value (it is sealed until
+ * the run's observation and blind review are locked), its page or location, an
+ * observed value, a tolerance, a command, or any policy detail.
  */
 export type ReviewedCase = {
   caseId: string;
@@ -38,14 +39,10 @@ export type ReviewedCase = {
   /** SHA-256 of the exact PDF the case was reviewed against. */
   paperSha256: string;
   claim: {
-    page: number;
-    location: string;
     method: string;
     dataset: string;
     split: string;
     metric: { name: string; unit: "fraction" | "percent" | "score" };
-    /** The value the paper reports: the claim under test. */
-    reportedValue: number;
   };
   repository: { url: string; commitSha: string };
   available: boolean;
@@ -59,8 +56,36 @@ export type ConnectionState = "connecting" | "live" | "reconnecting" | "closed";
 /** Public facts about a run that are not in its events (the uploaded file's name). */
 export type RunInfo = { fileName: string | null };
 
-/** The parts of the server's final report the dashboard shows; read only after the study finished. */
+/** The report's blinding record: the sealed commitment and, once revealed, its verification. */
+export type ReportBlinding = {
+  sealed: boolean;
+  revealed: boolean;
+  commitment: string | null;
+  sealedAt: string | null;
+  /** The reveal recomputed the sealed commitment and it matched. */
+  verified: boolean | null;
+  observationVerified: boolean | null;
+  comparison: {
+    observed: number | null;
+    reported: number | null;
+    absoluteDelta: number | null;
+    tolerance: number | null;
+    withinTolerance: boolean | null;
+    rule: string | null;
+    blindVerdicts: string[];
+  } | null;
+  errors: string[];
+};
+
+/**
+ * The parts of the server's final report the dashboard shows; read only after
+ * the study finished. `paperValue`, `tolerance` and `signedDifference` are null
+ * unless the report says the sealed target was revealed.
+ */
 export type ReportSummary = {
+  /** The sealed target was revealed (and so the paper value may be shown). */
+  revealed: boolean;
+  blinding: ReportBlinding | null;
   paperValue: number | null;
   observedValue: number | null;
   signedDifference: number | null;
@@ -111,7 +136,44 @@ const record = (value: unknown): Record<string, unknown> => (value && typeof val
 const num = (value: unknown): number | null => (typeof value === "number" && Number.isFinite(value) ? value : null);
 const text = (value: unknown): string | null => (typeof value === "string" ? value : null);
 
-/** Picks the public comparison fields from a server report; anything else in it is ignored. */
+const bool = (value: unknown): boolean | null => (typeof value === "boolean" ? value : null);
+const texts = (value: unknown): string[] => (Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : []);
+
+function summarizeBlinding(raw: unknown): ReportBlinding | null {
+  if (!raw || typeof raw !== "object") return null;
+  const blinding = record(raw);
+  const reveal = blinding.reveal && typeof blinding.reveal === "object" ? record(blinding.reveal) : null;
+  const comparison = blinding.comparison && typeof blinding.comparison === "object" ? record(blinding.comparison) : null;
+  const revealed = blinding.revealed === true;
+  return {
+    sealed: blinding.sealed === true,
+    revealed,
+    commitment: text(blinding.commitment),
+    sealedAt: text(blinding.sealedAt),
+    verified: reveal ? bool(reveal.verified) : null,
+    observationVerified: reveal ? bool(reveal.observationVerified) : null,
+    // A comparison holds the paper value: read only once the report says it was revealed.
+    comparison:
+      revealed && comparison
+        ? {
+            observed: num(comparison.observed),
+            reported: num(comparison.reported),
+            absoluteDelta: num(comparison.absoluteDelta),
+            tolerance: num(comparison.tolerance),
+            withinTolerance: bool(comparison.withinTolerance),
+            rule: text(comparison.rule),
+            blindVerdicts: texts(comparison.blindVerdicts),
+          }
+        : null,
+    errors: texts(blinding.errors),
+  };
+}
+
+/**
+ * Picks the public comparison fields from a server report; anything else in it
+ * is ignored. The paper value, tolerance and difference are read only from a
+ * report whose blinding section says the target was revealed.
+ */
 export function summarizeReport(raw: unknown): ReportSummary | null {
   const report = record(raw);
   if (Object.keys(report).length === 0) return null;
@@ -120,15 +182,20 @@ export function summarizeReport(raw: unknown): ReportSummary | null {
   const result = record(study.result);
   const unit = record(record(study.contract).metric).unit ?? record(report.metric).unit;
   const engineers = Array.isArray(study.engineers) ? study.engineers.map(record) : [];
-  const paperValue = num(result.paperValue) ?? num(assessment.paperValue);
+  const blinding = summarizeBlinding(study.blinding);
+  const revealed = blinding?.revealed === true;
+  const paperValue = revealed ? (num(result.paperValue) ?? num(assessment.paperValue) ?? blinding.comparison?.reported ?? null) : null;
   const observedValue = num(result.observedValue) ?? num(assessment.observedValue);
   return {
+    revealed,
+    blinding,
     paperValue,
     observedValue,
     signedDifference:
-      num(assessment.signedDifference) ??
-      (paperValue !== null && observedValue !== null ? Math.round((observedValue - paperValue) * 1e6) / 1e6 : null),
-    tolerance: num(result.tolerance) ?? num(assessment.tolerance),
+      paperValue === null
+        ? null
+        : (num(assessment.signedDifference) ?? (observedValue !== null ? Math.round((observedValue - paperValue) * 1e6) / 1e6 : null)),
+    tolerance: revealed ? (num(result.tolerance) ?? num(assessment.tolerance) ?? blinding.comparison?.tolerance ?? null) : null,
     unit: unit === "fraction" || unit === "percent" || unit === "score" ? unit : null,
     verdict: text(assessment.verdict),
     checks: (Array.isArray(assessment.checks) ? assessment.checks.map(record) : []).map((check) => ({
