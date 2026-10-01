@@ -64,7 +64,15 @@ import {
   type SupervisorVerdict,
   SupervisorVerdictSchema,
 } from "./roles.js";
-import { type ClaimTarget, claimMismatch, paperAnalystTarget, plannerTarget, repositoryAnalystTarget, targetSummary } from "./targets.js";
+import {
+  adapterSha256,
+  type ClaimTarget,
+  claimMismatch,
+  paperAnalystTarget,
+  plannerTarget,
+  repositoryAnalystTarget,
+  targetSummary,
+} from "./targets.js";
 import { acquireRepository, buildStudyTools } from "./tools.js";
 import {
   applySupervisor,
@@ -1128,6 +1136,28 @@ export async function runMultiAgentStudy(
               contract,
               planDigest: ctx.planDigest,
               adapter,
+              adapterSha256: adapter ? adapterSha256(adapter.content) : null,
+              reviewedAdapterId:
+                adapter && target?.adapter && adapterSha256(adapter.content) === target.adapter.sha256 ? target.adapter.id : null,
+              // What the Repository Analyst found in the pinned repository (the official entry point and metric sources).
+              repositoryEvidence: repoOut?.result
+                ? {
+                    summary: repoOut.result.summary,
+                    entrypoints: repoOut.result.entrypoints,
+                    metricSources: repoOut.result.metricSources,
+                    runInstructions: repoOut.result.runInstructions,
+                  }
+                : null,
+              repository: repoOut?.repository ?? null,
+              dependencyManifest: prepOut?.dependencies
+                ? {
+                    manifestSha256: prepOut.dependencies.manifestSha256,
+                    containerPlatform: prepOut.dependencies.containerPlatform,
+                    packages: prepOut.dependencies.packages.map((item) => `${item.name}==${item.version}`),
+                    changes: prepOut.dependencies.changes,
+                  }
+                : null,
+              datasets: prepOut?.datasets ?? [],
               officialReceiptId: engineer.official?.receiptId ?? null,
               parsedMetric: engineer.metric,
               valueInPaperUnit: engineer.value,

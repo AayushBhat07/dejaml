@@ -1,48 +1,82 @@
 // Real-Docker infrastructure proof of the multi-agent study, on a real paper.
 //
-// Everything is real except the model: the pyts paper (JMLR 2020) is ingested
-// from its PDF, the official pyts-repro repository is cloned from GitHub and
-// pinned by SHA, the lab image is made ready by digest for the selected
-// platform, Python wheels are resolved and downloaded by the egress-restricted
-// prep containers, and the official BOSS notebook runs in a sealed, offline
-// Docker lab. The agents' decisions come from a fixed script
-// (ScriptedProofProvider below), so this proves the runtime, the stage
-// machine, the tools, the trust zones, the evidence and the cleanup. It does
-// NOT prove that a model can do the study, and it never counts as an
-// acceptance run; see accept-real-paper.mjs for that.
+// Everything is real except the model: the case's paper is ingested from its
+// PDF and matched to the server's reviewed claim target, the official
+// repository is cloned from GitHub and pinned by SHA, the lab image is made
+// ready by digest for the selected platform, Python wheels are resolved and
+// downloaded by the egress-restricted prep containers, a download dataset is
+// fetched from its allowlisted host and checked against its reviewed hash, and
+// the planned command runs in a sealed, offline Docker lab. The agents'
+// decisions come from the case's `scriptedProof` answers (ScriptedProofProvider
+// below), so this proves the runtime, the stage machine, the tools, the trust
+// zones, the evidence and the cleanup. It does NOT prove that a model can do
+// the study, and it never counts as an acceptance run; see
+// accept-real-paper.mjs for that.
 //
-// Needs Docker, git access to GitHub, and access to the package index for the
-// prep containers. The Python 3.11 base image is used by digest (pull it once
-// with `docker pull python@sha256:e41613d4…` if it is missing). On a machine
-// whose outbound TLS is intercepted, set DEJAML_PREP_CA_BUNDLE (it defaults to
+// Needs Docker, git access to GitHub, access to the package index for the prep
+// containers, and, for a case with a download dataset, HTTPS access to that
+// dataset's host. Base images are used by digest. On a machine whose outbound
+// TLS is intercepted, set DEJAML_PREP_CA_BUNDLE (it defaults to
 // /root/.ccr/ca-bundle.crt when present).
 //
-//   npm run build && node apps/api/scripts/verify-study-docker.mjs
+//   npm run build && node apps/api/scripts/verify-study-docker.mjs [case.json] [paper.pdf]
+//
+//   acceptance/cases/pyts-boss-gunpoint.json              default; paper included
+//   acceptance/cases/urban-land-cover-random-forest.json  pass the arXiv PDF
 import { spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { mkdtemp, readdir, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { platformFromEnv } from "@dejaml/contracts";
 import { ImageReadiness, LabManager, loadBaseImageLock } from "@dejaml/lab-manager";
 import { ingestPdf } from "@dejaml/paper-intake";
 import { DependencyPreparer, loadCompatibilityConstraints, loadPrepPolicy } from "@dejaml/prep";
+import { DEFAULT_DATASET_POLICY } from "@dejaml/net-guard";
 import { RunStore } from "@dejaml/run-store";
 
-import { checkTargetPaper, loadReviewedTargets, preparerPort, readinessLabImagePort, runMultiAgentStudy } from "../dist/study/index.js";
+import {
+  checkTargetPaper,
+  loadReviewedTargets,
+  localDatasetPort,
+  preparerPort,
+  readinessLabImagePort,
+  runMultiAgentStudy,
+} from "../dist/study/index.js";
 
 const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
-const acceptance = JSON.parse(await readFile(join(projectRoot, "acceptance/cases/pyts-boss-gunpoint.json"), "utf8"));
+const [caseArgument, paperArgument] = process.argv.slice(2);
+const casePath = resolve(caseArgument ?? join(projectRoot, "acceptance/cases/pyts-boss-gunpoint.json"));
+const acceptance = JSON.parse(await readFile(casePath, "utf8"));
+const SCRIPT = acceptance.scriptedProof;
+if (!acceptance.reviewedCaseId || !SCRIPT) {
+  console.error(`${acceptance.caseId} has no reviewed target or no scriptedProof answers.`);
+  process.exit(2);
+}
+const paperPath = paperArgument ? resolve(paperArgument) : acceptance.paper.file ? join(projectRoot, acceptance.paper.file) : null;
+if (!paperPath || !existsSync(paperPath)) {
+  console.error(
+    `${acceptance.caseId} does not include its paper; pass the PDF (${acceptance.paper.source ?? "see the case"}) as the second argument.`,
+  );
+  process.exit(2);
+}
 // The server's reviewed claim target for this case, as the API resolves it from the id.
 const TARGET = (await loadReviewedTargets(join(projectRoot, "config/reviewed-targets"), projectRoot)).get(acceptance.reviewedCaseId);
 const REPOSITORY = acceptance.repository.url;
+const [OWNER, NAME] = new URL(REPOSITORY).pathname.slice(1).split("/");
 const TRUSTED = (await loadCompatibilityConstraints(join(projectRoot, "config/compatibility-constraints.txt"))).map((item) => ({
   requirement: item.spec,
   reason: item.reason,
 }));
-const PIP = TRUSTED.find((item) => item.requirement.startsWith("pip"));
+// A download dataset may come only from its own host; nothing else is allowlisted.
+const datasetSource = TARGET?.dataset.source;
+const DATASET_POLICY = {
+  ...DEFAULT_DATASET_POLICY,
+  allowedHosts: datasetSource?.kind === "download" ? [new URL(datasetSource.url).hostname] : [],
+};
+const PYTHON = SCRIPT.plan.python;
 
 /** Plays each role from a fixed script; every step still goes through the real tools. */
 class ScriptedProofProvider {
@@ -90,60 +124,43 @@ class ScriptedProofProvider {
           return finish({ proposedStatus: inputs.computedStatus, rationale: "Scripted infrastructure proof: keeps the computed status." });
         return finish({ action: "continue", reason: "none", guidance: "" });
       case "Paper Analyst":
-        if (turn === 0) return [{ name: "paper_read_page", input: { page: 4 } }];
+        if (turn === 0) return [{ name: "paper_read_page", input: { page: SCRIPT.paperAnalyst.claim.page } }];
         return finish({
           status: "ready",
-          summary: "Table 2 reports BOSS + 1-NN test accuracy per dataset; pyts reaches 1.000 on GunPoint.",
+          summary: SCRIPT.paperAnalyst.summary,
           selectedRepositoryUrl: REPOSITORY,
-          claim: {
-            method: "BOSS transformer followed by a one-nearest-neighbor classifier with the BOSS metric",
-            dataset: "UCR GunPoint",
-            split: "the fixed UCR train/test split (test set)",
-            preprocessing: "not stated beyond the BOSS transformation",
-            seedPolicy: "not stated (the method is deterministic)",
-            metric: { name: "accuracy", unit: "fraction" },
-            reportedValue: 1,
-            page: 4,
-            location: "Table 2, row pyts, column GunPoint",
-            excerpt: "pyts 0.752 0.870 1.000 0.526 1.000",
-            missingFields: ["hyperparameters (in the notebook, not the PDF)"],
-          },
+          claim: SCRIPT.paperAnalyst.claim,
           reasons: [],
         });
       case "Repository Analyst":
         if (turn === 0) return [{ name: "repo_acquire", input: { repositoryUrl: inputs.repositoryCandidates?.[0]?.url ?? REPOSITORY } }];
-        if (turn === 1) return [{ name: "repo_list", input: { path: "0.10.0" } }];
+        if (turn === 1) return [{ name: "repo_list", input: { path: SCRIPT.repositoryAnalyst.listPath } }];
         return finish({
           status: "ready",
-          summary: "0.10.0/BOSS.ipynb fits BOSS + 1-NN on each UCR dataset in dataset_params and prints the test accuracy.",
-          entrypoints: [{ path: "0.10.0/BOSS.ipynb", why: "the notebook behind Table 2 for pyts 0.10.0" }],
+          summary: SCRIPT.repositoryAnalyst.summary,
+          entrypoints: SCRIPT.repositoryAnalyst.entrypoints,
           dataFiles: [],
           dependencyFiles: [],
-          metricSources: [{ path: "0.10.0/BOSS.ipynb", description: "prints 'Accuracy on the test set: x.xxx' per dataset" }],
-          runInstructions: "Run the notebook's cells in order with pyts 0.10.0 installed.",
-          warnings: ["datasets other than GunPoint are downloaded from timeseriesclassification.com at run time"],
+          metricSources: SCRIPT.repositoryAnalyst.metricSources,
+          runInstructions: SCRIPT.repositoryAnalyst.runInstructions,
+          warnings: SCRIPT.repositoryAnalyst.warnings,
         });
-      case "Reproduction Planner":
+      case "Reproduction Planner": {
         if (turn === 0) return [{ name: "board_read", input: { kinds: ["paper_claim", "repository_mapping"] } }];
+        const { compatibilityConstraints, ...plan } = SCRIPT.plan;
         return finish({
           status: "ready",
-          summary:
-            "Run the official notebook's code cells unchanged, keeping only GunPoint (the other datasets need downloads the offline lab cannot make).",
           blockedReason: null,
-          entrypoint: "0.10.0/BOSS.ipynb",
-          command: { argv: ["python", "../work/adapter/run_boss_notebook.py", "0.10.0/BOSS.ipynb", "GunPoint"], cwd: "repo" },
-          python: "3.11",
+          ...plan,
           requirements: acceptance.environment.wheels,
-          // pyts 0.10.0's metadata is refused by pip 24.1+; the trusted file allows the older installer.
-          compatibilityConstraints: PIP ? [PIP] : [],
-          dataset: { name: "UCR GunPoint", source: { kind: "package", package: "pyts", path: "datasets/cached_datasets/UCR/GunPoint" } },
-          metricParser: { source: "stdout", pattern: "Accuracy on the test set: (\\d\\.\\d{3})" },
-          expectedRuntimeSeconds: 60,
-          stopConditions: ["the command exits non-zero", "no accuracy line is printed"],
+          // Each constraint must come from the project's trusted file, with its reason.
+          compatibilityConstraints: compatibilityConstraints.map(
+            (spec) => TRUSTED.find((item) => item.requirement === spec) ?? { requirement: spec, reason: "missing from the trusted file" },
+          ),
           // The reviewed adapter, by id: code substitutes the hash-checked file.
           adapter: { reviewedAdapterId: inputs.reviewedTarget?.reviewedAdapter?.id ?? "missing" },
-          risks: ["newer numpy/scipy/scikit-learn/numba than the authors' Python 3.7 environment"],
         });
+      }
       case "Lab Engineer":
         if (turn === 0) return [{ name: "lab_run_official", input: {} }];
         if (lastFailed && typeof last.receiptId === "string" && turn < 3) {
@@ -177,17 +194,7 @@ class ScriptedProofProvider {
         });
       case "Independent Reviewer":
         if (turn === 0) return [{ name: "board_read", input: { key: String(inputs.submissionKey ?? "") } }];
-        return finish({
-          verdict: "approve",
-          equivalence: "minor_deviations",
-          summary: "The official notebook cells ran unchanged; the adapter only restricts which datasets are evaluated.",
-          checks: [
-            { name: "official code ran", passed: true, explanation: "the approved command's receipt exited 0" },
-            { name: "same dataset and metric", passed: true, explanation: "GunPoint test accuracy, as in Table 2" },
-            { name: "metric from the run", passed: true, explanation: "the lab parsed the accuracy line from the official run's stdout" },
-          ],
-          concerns: ["an adapter selects GunPoint only"],
-        });
+        return finish({ verdict: "approve", ...SCRIPT.review });
       default:
         return [{ name: "give_up", input: { reason: `unscripted role ${role}` } }];
     }
@@ -213,13 +220,10 @@ const preparer = new DependencyPreparer({
   workRoot: join(root, "prep-tmp"),
   imageProvider: readiness,
 });
-const run = store.createRun({ fileName: "pyts-jmlr-2020-19-763.pdf", bytes: 1 });
+const run = store.createRun({ fileName: basename(paperPath), bytes: 1 });
 store.transitionRun(run.id, "ingesting");
 store.transitionRun(run.id, "discovering_repository");
-const paper = await ingestPdf({
-  fileName: "pyts-jmlr-2020-19-763.pdf",
-  data: new Uint8Array(await readFile(join(projectRoot, acceptance.paper.file))),
-});
+const paper = await ingestPdf({ fileName: basename(paperPath), data: new Uint8Array(await readFile(paperPath)) });
 check(
   "paper ingested from the real PDF and matched to the reviewed target",
   paper.file.sha256 === acceptance.paper.sha256 &&
@@ -233,9 +237,7 @@ const result = await runMultiAgentStudy(
   {
     runId: run.id,
     paper,
-    candidates: [
-      { repositoryUrl: REPOSITORY, owner: "johannfaouzi", name: "pyts-repro", occurrences: [{ pageNumber: 1, rawUrl: REPOSITORY }] },
-    ],
+    candidates: [{ repositoryUrl: REPOSITORY, owner: OWNER, name: NAME, occurrences: [{ pageNumber: 1, rawUrl: REPOSITORY }] }],
     signal: new AbortController().signal,
     target: TARGET,
   },
@@ -248,13 +250,13 @@ const result = await runMultiAgentStudy(
       lock: await loadBaseImageLock(join(projectRoot, "lab-images/python-base/bases.lock.json")),
       contextDir: join(projectRoot, "lab-images/python-base"),
     }),
-    datasets: null,
+    datasets: DATASET_POLICY.allowedHosts.length ? localDatasetPort(DATASET_POLICY) : null,
     config: {
       platform,
       resources: { cpus: 2, memoryMb: 4096, pids: 256, timeoutSeconds: 1800, networkDuringRun: false },
       engineers: 1,
       provider: { id: "scripted-proof", model: "none" },
-      datasetPolicy: { allowedHosts: [], maxRedirects: 3, maxBytes: 1024, timeoutMs: 1000 },
+      datasetPolicy: DATASET_POLICY,
       maxStudyMs: 40 * 60_000,
       commandTimeoutSeconds: 900,
       maxReplans: 1,
@@ -307,7 +309,7 @@ check(
 );
 check(
   "lab image ready for the platform",
-  study.labImage?.containerPlatform === platform.containerPlatform && study.labImage?.python === "3.11",
+  study.labImage?.containerPlatform === platform.containerPlatform && study.labImage?.python === PYTHON,
   `${study.labImage?.name} ${study.labImage?.imageId} digest ${study.labImage?.digest}`,
 );
 const packages = study.dependencies?.packages ?? [];
@@ -319,20 +321,28 @@ check(
   ) && packages.every((item) => /^[a-f0-9]{64}$/u.test(item.sha256) && (item.tags.includes(arch) || item.tags.endsWith("-any"))),
   packages.map((item) => `${item.name}==${item.version} ${item.tags} ${item.sha256.slice(0, 12)}`).join("\n      "),
 );
+const reviewedSource = TARGET?.dataset.source;
 check(
-  "dataset identified by its wheel",
-  study.datasets.some((item) => item.requestedUrl.startsWith("wheel:pyts-0.10.0") && item.checksumVerified),
+  reviewedSource?.kind === "download"
+    ? "dataset downloaded from its allowlisted host, checksum verified"
+    : "dataset identified by its wheel",
+  reviewedSource?.kind === "download"
+    ? study.datasets.some(
+        (item) => item.requestedUrl === reviewedSource.url && item.sha256 === reviewedSource.sha256 && item.checksumVerified,
+      )
+    : study.datasets.some((item) => item.requestedUrl.startsWith(`wheel:${reviewedSource?.package}-`) && item.checksumVerified),
   JSON.stringify(study.datasets),
 );
 const engineer = study.engineers[0];
 check(
-  "official notebook ran offline and exited 0",
+  "planned command ran offline and exited 0",
   engineer?.official?.exitCode === 0,
   `${engineer?.official?.argv.join(" ")} in ${engineer?.official?.cwd}: exit ${engineer?.official?.exitCode}, ${engineer?.official?.durationMs} ms`,
 );
+const expectedValue = acceptance.expected.observedValue;
 check(
-  "metric parsed by the lab from stdout",
-  engineer?.value === 1,
+  `metric parsed by the lab from ${study.contract?.metricParser?.source === "json" ? study.contract.metricParser.path : "stdout"}`,
+  typeof engineer?.value === "number" && (expectedValue === undefined || engineer.value === expectedValue),
   `parsed ${engineer?.value} (paper ${study.result.paperValue}, delta ${study.result.absoluteDifference})`,
 );
 check(
@@ -341,9 +351,11 @@ check(
   `${engineer?.reviewerAgentId}: ${engineer?.review?.verdict} (${engineer?.review?.equivalence})`,
 );
 check(
-  "status computed from evidence, capped by the adapter",
-  study.result.status === "partially_reproduced" && study.result.computedStatus === "partially_reproduced",
-  study.result.reasons.join(" | "),
+  `status computed from evidence (${acceptance.expected.statuses.join(" / ")}), capped by the adapter`,
+  acceptance.expected.statuses.includes(study.result.status) &&
+    study.result.computedStatus === study.result.status &&
+    study.result.status !== "reproduced",
+  `${study.result.status}: ${study.result.reasons.join(" | ")}`,
 );
 const leftovers = spawnSync("docker", ["ps", "-a", "--filter", `label=dejaml.run=${run.id}`, "--format", "{{.Names}}"], {
   encoding: "utf8",

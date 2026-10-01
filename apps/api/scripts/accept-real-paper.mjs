@@ -14,8 +14,10 @@
 // Usage (the API must already be running, for example `npm run start:local`):
 //   node apps/api/scripts/accept-real-paper.mjs <case.json> [paper.pdf]
 //
-//   acceptance/cases/pyts-boss-gunpoint.json          positive case (paper included)
-//   acceptance/cases/ccs-reproducibility-survey.json  negative case (pass its PDF)
+//   acceptance/cases/pyts-boss-gunpoint.json              positive case (paper included)
+//   acceptance/cases/urban-land-cover-random-forest.json  positive case (pass the arXiv PDF; needs
+//                                                         DEJAML_DATASET_ALLOWED_HOSTS=archive.ics.uci.edu)
+//   acceptance/cases/ccs-reproducibility-survey.json      negative case (pass its PDF)
 //
 // Environment (all optional):
 //   DEJAML_ACCEPT_API       API base (default http://127.0.0.1:8787/api)
@@ -84,6 +86,17 @@ if (!["openai", "anthropic"].includes(provider.id) || !route?.official) {
   process.exit(2);
 }
 const model = process.env.DEJAML_ACCEPT_MODEL ?? provider.models[0];
+// A case whose dataset is downloaded needs its host on the server's allowlist; refuse before any tokens are spent.
+const datasetHost = acceptanceCase.dataset?.allowedHost;
+if (datasetHost && !(health?.datasetHosts ?? []).includes(datasetHost)) {
+  console.error(
+    [
+      `${acceptanceCase.caseId} downloads its dataset from ${datasetHost}, which the API does not allow.`,
+      `Add it to the API's environment and restart: DEJAML_DATASET_ALLOWED_HOSTS=${datasetHost}`,
+    ].join("\n"),
+  );
+  process.exit(2);
+}
 
 const form = new FormData();
 form.append("paper", new Blob([paper], { type: "application/pdf" }), basename(paperPath));

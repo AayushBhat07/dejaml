@@ -74,6 +74,7 @@ need a real provider key.
 | Requirement | Source | Proof |
 |---|---|---|
 | No network, non-root, read-only root, caps dropped, no-new-privileges, limits, read-only mounts | `services/lab-manager/src/manager.ts` (`#auditContainer`) | `manager.test.ts`; Docker: `verify:docker -w @dejaml/lab-manager` |
+| Network isolation judged on genuine devices (kernel lists + sysfs structure); control files such as `bonding_masters` skipped, unknown real devices still fail | `services/lab-manager/src/network-isolation.ts` | `network-isolation.test.ts` (fake sysfs: ignored control file, unknown `eth1` fails, kernel-only device fails, kernel-named file fails); Docker: `verify:docker` incl. bridge negative control |
 | Narrow lab tools, no host shell | `apps/api/src/study/lab-tools.ts` | `tools.test.ts` |
 | Approved command only on unchanged state (code, data, venv, adapter) | `lab_run_official`, `measureIntegrity` | `tools.test.ts`; `api.test.ts` tamper test |
 
@@ -112,6 +113,9 @@ need a real provider key.
 | Agents may reject the target; no silent claim switch | `TARGETED_INSTRUCTIONS`, `claimMismatch` | `api.test.ts` "stops before planning when the Paper Analyst returns a different claim"; `targets.test.ts` BOSSVS listing |
 | Cannot bypass policy, execution or review; never relaxes policy | `reviewPolicy({ target })` | `targets.test.ts` "never relaxes policy" and "refuses a plan that strays …" |
 | Maximum honest verdict | `decide` in `study.ts` | Docker proof (pyts → partially_reproduced) |
+| Second target: Urban Land Cover RF (paper hash, commit, page/value, adapter hash, dataset URL+hash+extract, cp312 pins, JSON parser, statuses) | `config/reviewed-targets/urban-land-cover-random-forest.json`, `acceptance/cases/urban-land-cover-random-forest.json`, `acceptance/proof/urban_land_cover_runner.py` | `targets.test.ts` "the Urban Land Cover reviewed target"; `check-reviewed-target.mjs`; Docker proof with the case path (Mac) |
+| Reviewer gets claim evidence, commit, notebook evidence, adapter text+hash, differences, command, dataset checksum, manifest, logs, artifact, metric | `study.ts` reviewing stage inputs; Reviewer instructions in `roles.ts` | Docker proof "independent review ran"; real acceptance |
+| Acceptance refuses before spending tokens when the dataset host is not allowed | `accept-real-paper.mjs` (`/api/health` `datasetHosts`) | manual |
 
 ## M. AWS-ready boundaries
 

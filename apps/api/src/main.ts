@@ -122,6 +122,8 @@ const api = createApiServer({
     })),
     dependencyPreparation: prep ? "enabled" : "disabled",
     reviewedTargets: [...reviewedTargets.keys()],
+    // The administrator's dataset allowlist (host names only), so a client can tell why a download would be refused.
+    datasetHosts,
     // Where each available provider's calls go (host only, never a key): `official` means the vendor's own API, not a bridge.
     providers: providers.providers
       .filter((item) => item.available)
@@ -131,7 +133,6 @@ const api = createApiServer({
         endpointHost: item.baseUrl ? new URL(item.baseUrl).host : (OFFICIAL_HOSTS[item.kind] ?? null),
         official: item.baseUrl === undefined && item.kind in OFFICIAL_HOSTS,
       })),
-    datasetHosts: datasetHosts.length,
   }),
 });
 

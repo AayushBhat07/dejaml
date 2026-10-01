@@ -87,6 +87,31 @@ substitutes the hash-checked file. The target's `maximumVerdict` caps the
 computed status (`partially_reproduced` for pyts, because of the adapter).
 Without a target, the agents choose one claim themselves as before.
 
+Two targets are reviewed. `pyts-boss-gunpoint` (JMLR 2020, Table 2, GunPoint,
+1.000; the official notebook through an adapter that keeps GunPoint) and
+`urban-land-cover-random-forest` (arXiv 2609.19010, p. 4 Table 2, Random
+Forest on the UCI Urban Land Cover test set, 81.66 %, tolerance 1.0 pp). The
+Urban repository (`mtesha/tdl-vs-ml-urbanlandcover@49ece7ff`) has only a
+notebook, so the target names a project-owned reviewed adapter
+(`acceptance/proof/urban_land_cover_runner.py`, SHA-256 `9156565e…`, derived
+from `cases/urban-land-cover/runner.py` `276fa3d9…` with the paper-comparison
+block removed so the experiment never contains the paper's value). Its listed
+differences are the four known paper/notebook discrepancies (seeds unset,
+validation split not stratified, test set z-scored independently, CSV names)
+plus the adapter's own seed 42. The dataset is the UCI archive by URL and
+SHA-256 `277a2700…` (CC BY 4.0), the environment is Python 3.12 with numpy
+2.5.3, pandas 3.0.6, scipy 1.18.1 and scikit-learn 1.9.1, and the metric is
+`metrics.accuracyPercent` in `artifacts/result.json`. No observed value is
+recorded anywhere an agent can see; the run is not required to match the paper
+(`not_reproduced` and `partially_reproduced` are both accepted outcomes).
+
+The Independent Reviewer receives the claim contract (page, excerpt, command,
+dataset source and hash), the plan digest, the adapter text with its SHA-256
+and reviewed id and every listed difference, the Repository Analyst's
+notebook evidence, the pinned repository, the dependency manifest, the dataset
+receipts, the official receipt, logs, exported artifacts and the parsed metric,
+and is told to judge the protocol, not whether the number matches the paper.
+
 **Status** (`verdict.ts`): computed from the official run's parsed metric, the
 Reviewers' verdicts, Engineer consensus and the policy. An adapter, a trusted
 compatibility constraint, or Reviewer-declared minor deviations cap the result
@@ -121,7 +146,9 @@ at `partially_reproduced`. Final states: `reproduced`, `partially_reproduced`,
    by what can carry traffic, not by one `/sys/class/net` listing: Docker
    Desktop's LinuxKit kernel puts inert fallback tunnel devices (`tunl0`,
    `ip6tnl0`, …) in every namespace, so besides `lo` only those may exist and
-   each must be down, unaddressed and unrouted. Agents use narrow lab tools
+   each must be down, unaddressed and unrouted. Devices are told apart from
+   sysfs control files (the bonding driver's `bonding_masters`) by the kernel's
+   own interface lists and the sysfs device structure, never by name. Agents use narrow lab tools
    (`lab-tools.ts`); `lab_run_official` runs only the approved argv, after an
    integrity check of the code, the plan's data, the adapter and the venv.
 
@@ -153,6 +180,8 @@ npm run verify:images   -w @dejaml/lab-manager  # image readiness against real D
 npm run verify:docker   -w @dejaml/prep         # wheel zone against real Docker and PyPI
 npm run verify:failures -w @dejaml/api          # API failure scenarios against real Docker
 node apps/api/scripts/verify-study-docker.mjs   # the whole study on the pyts paper, scripted model
+node apps/api/scripts/verify-study-docker.mjs acceptance/cases/urban-land-cover-random-forest.json <2609.19010.pdf>
+node apps/api/scripts/check-reviewed-target.mjs <caseId> <paper.pdf>   # paper hash, excerpt on the page, commit and entry point
 npm audit
 ```
 
@@ -178,6 +207,8 @@ export DEJAML_ANTHROPIC_API_KEY=…      # server environment only
 npm run build && npm run start:local
 node apps/api/scripts/accept-real-paper.mjs acceptance/cases/pyts-boss-gunpoint.json
 node apps/api/scripts/accept-real-paper.mjs acceptance/cases/ccs-reproducibility-survey.json <survey-paper.pdf>
+# needs DEJAML_DATASET_ALLOWED_HOSTS=archive.ics.uci.edu in the API's environment
+node apps/api/scripts/accept-real-paper.mjs acceptance/cases/urban-land-cover-random-forest.json <2609.19010.pdf>
 ```
 
 The positive case sends only `reviewedCaseId=pyts-boss-gunpoint` with the
@@ -214,7 +245,13 @@ download); the negative case `inconclusive` or `policy_blocked`.
 
 ## Known limitations
 
-- **No real-model run yet** (no key in this environment).
+- Real-model runs happen on the owner's Mac (no key in the cloud container,
+  which also cannot reach arxiv.org or archive.ics.uci.edu). The Urban
+  scripted proof therefore runs there too; in the cloud its wheels were
+  prepared for cp312 and the adapter ran offline on synthetic CSVs only.
+- The Urban excerpt is the value `81.66` alone, because the PDF could not be
+  fetched to copy a longer quote; `check-reviewed-target.mjs` prints the page
+  text around it for a person to confirm against Table 2.
 - One bounded claim per paper.
 - Papers that need a GPU, a source build, or a non-allowlisted dataset host end
   `policy_blocked` or `inconclusive`.

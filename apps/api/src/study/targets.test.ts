@@ -218,3 +218,149 @@ describe("reviewed claim targets", () => {
     expect(result.violations.join(" ")).toContain("not in the project's trusted constraints file");
   });
 });
+
+describe("the Urban Land Cover reviewed target", () => {
+  const URBAN_COMMIT = "49ece7ff4cc43fd4cb258678d44854f1cb2a417d";
+  const DATASET = {
+    kind: "download" as const,
+    url: "https://archive.ics.uci.edu/static/public/295/urban%2Bland%2Bcover.zip",
+    sha256: "277a27000a4a4b593f655595b92904ccb30ece48b8bb2a35cf5d3854d7204f79",
+    extract: true,
+  };
+  const claim: PaperClaim = {
+    method: "Random Forest classifier",
+    dataset: "UCI Urban Land Cover",
+    split: "the official UCI test set",
+    preprocessing: "z-score scaling",
+    seedPolicy: "fixed seeds, not listed",
+    metric: { name: "test accuracy", unit: "percent" },
+    reportedValue: 81.66,
+    page: 4,
+    location: "Table 2, row Random Forest",
+    excerpt: "81.66",
+    missingFields: [],
+  };
+  const urbanPlan: Plan = {
+    status: "ready",
+    summary: "Run the reviewed adapter on the official CSVs.",
+    blockedReason: null,
+    entrypoint: "Urban Land Cover Classification.ipynb",
+    command: {
+      argv: [
+        "python",
+        "../work/adapter/urban_land_cover_runner.py",
+        "--training",
+        "../data/extracted/urban+land+cover/training.csv",
+        "--testing",
+        "../data/extracted/urban+land+cover/testing.csv",
+        "--output",
+        "../artifacts/result.json",
+      ],
+      cwd: "repo",
+    },
+    python: "3.12",
+    requirements: ["numpy==2.5.3", "pandas==3.0.6", "scipy==1.18.1", "scikit-learn==1.9.1"],
+    compatibilityConstraints: [],
+    dataset: { name: "UCI Urban Land Cover", source: DATASET },
+    metricParser: { source: "json", path: "artifacts/result.json", key: "metrics.accuracyPercent" },
+    expectedRuntimeSeconds: 60,
+    stopConditions: ["the command exits non-zero"],
+    adapter: null,
+    risks: [],
+  };
+
+  async function urban() {
+    const target = (await loadReviewedTargets(registry, root)).get("urban-land-cover-random-forest");
+    if (!target) throw new Error("the urban target is missing");
+    return target;
+  }
+
+  async function reviewUrban(changes: Partial<Plan> = {}) {
+    const target = await urban();
+    const { id: _id, sha256: _sha, ...reviewed } = target.adapter!;
+    const adapter = changes.adapter === undefined ? reviewed : changes.adapter;
+    const reconciled = reconcile({
+      claim,
+      plan: { ...urbanPlan, ...changes, adapter },
+      repository: { url: target.repository.url, commitSha: URBAN_COMMIT },
+      platform: buildPlatformSpec({ architecture: "arm64", python: "3.12" }),
+      tolerance: target.tolerance,
+    });
+    if (!reconciled.ok) throw new Error(reconciled.reasons.join("; "));
+    return reviewPolicy({
+      contract: reconciled.contract,
+      adapter,
+      repository: { commitSha: URBAN_COMMIT, files: new Set(["Urban Land Cover Classification.ipynb", "README.md"]) },
+      datasetPolicy: { allowedHosts: ["archive.ics.uci.edu"], maxRedirects: 3, maxBytes: 5 * 1024 * 1024, timeoutMs: 1000 } as never,
+      dependencies,
+      commandTimeoutSeconds: 900,
+      trustedConstraints: [],
+      target,
+    });
+  }
+
+  it("loads with its paper, pinned commit, dataset hash, metric parser and hash-checked adapter", async () => {
+    const target = await urban();
+    expect(target).toMatchObject({
+      caseId: "urban-land-cover-random-forest",
+      paper: { sha256: "13b0c3fb3c2823f78eb650f918aa521493bddd6eccb55a2b9857c37d44d0a6a1" },
+      claim: { page: 4, reportedValue: 81.66, metric: { unit: "percent" } },
+      repository: {
+        url: "https://github.com/mtesha/tdl-vs-ml-urbanlandcover",
+        commitSha: URBAN_COMMIT,
+        entrypoint: "Urban Land Cover Classification.ipynb",
+      },
+      dataset: { source: DATASET },
+      metricParser: { source: "json", path: "artifacts/result.json", key: "metrics.accuracyPercent" },
+      tolerance: 1,
+      maximumVerdict: "partially_reproduced",
+    });
+    expect(target.adapter?.sha256).toBe("9156565eb6cac1679f266ee03644dc377fc87934c8ced1a903e167999e591476");
+  });
+
+  it("labels the adapter as project-owned and lists every known difference from the paper", async () => {
+    const target = await urban();
+    const differences = target.adapter!.differences.join("\n");
+    expect(target.adapter!.content).toContain("reviewed adapter (project-owned, NOT official repository code)");
+    expect(differences).toMatch(/project-owned adapter, not official repository code/u);
+    expect(differences).toMatch(/random_state unset.*42/u);
+    expect(differences).toMatch(/stratif/u);
+    expect(differences).toMatch(/z-scores the test set independently/u);
+    expect(differences).toMatch(/urbantraining\.csv/u);
+  });
+
+  it("never carries the paper value or a prior observed value in anything an agent can see", async () => {
+    const target = await urban();
+    // The adapter never prints the paper's number, so a run cannot echo it; 79.88 was the earlier deterministic result.
+    expect(target.adapter!.content).not.toMatch(/81\.66|79\.88/u);
+    const raw = await readFile(join(registry, "urban-land-cover-random-forest.json"), "utf8");
+    expect(raw).not.toContain("79.88");
+    for (const view of [paperAnalystTarget(target), repositoryAnalystTarget(target), plannerTarget(target), targetSummary(target)]) {
+      expect(JSON.stringify(view)).not.toMatch(/79\.88|observed/iu);
+    }
+  });
+
+  it("approves the faithful plan and refuses one that changes the dataset, parser or Python", async () => {
+    const approved = await reviewUrban();
+    expect(approved.violations).toEqual([]);
+    expect(approved.outcome).toBe("approved");
+    const cases: Array<[Partial<Plan>, RegExp]> = [
+      [{ dataset: { name: "UCI Urban Land Cover", source: { ...DATASET, sha256: "0".repeat(64) } } }, /dataset download/u],
+      [{ dataset: { name: "UCI Urban Land Cover", source: { ...DATASET, extract: false } } }, /dataset download/u],
+      [{ metricParser: { source: "json", path: "artifacts/result.json", key: "metrics.f1" } }, /metric parser/u],
+      [{ python: "3.11" }, /Python 3.11/u],
+      [{ requirements: [...urbanPlan.requirements, "xgboost==2.1.0"] }, /outside the reviewed set/u],
+    ];
+    for (const [changes, reason] of cases) {
+      const result = await reviewUrban(changes);
+      expect(result.outcome, String(reason)).not.toBe("approved");
+      expect(result.violations.join("; ")).toMatch(reason);
+    }
+  });
+
+  it("refuses a different claim from the same table", async () => {
+    const target = await urban();
+    expect(claimMismatch(target, claim)).toBeNull();
+    expect(claimMismatch(target, { ...claim, method: "XGBoost", reportedValue: 83.1 })).toMatch(/reported value 83.1 instead of 81.66/u);
+  });
+});

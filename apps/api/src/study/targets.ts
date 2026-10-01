@@ -67,7 +67,14 @@ const ClaimTargetFileSchema = z.strictObject({
     source: z.discriminatedUnion("kind", [
       z.strictObject({ kind: z.literal("package"), package: z.string().min(1).max(100) }),
       z.strictObject({ kind: z.literal("repository") }),
-      z.strictObject({ kind: z.literal("download"), url: z.string().max(2_000), sha256: Sha256 }),
+      z.strictObject({
+        kind: z.literal("download"),
+        url: z.string().max(2_000),
+        sha256: Sha256,
+        extract: z.boolean(),
+        /** Files the reviewed archive holds, as the lab sees them under `data/extracted/`; a planning aid, not a check. */
+        files: z.array(RelativePath).max(20).optional(),
+      }),
     ]),
   }),
   /** A reviewed adapter the plan may use by id; the file is checked against its hash when the registry loads. */
@@ -283,7 +290,7 @@ export function targetViolations(
       metric: { unit: string };
       metricParser: unknown;
       expectedRuntimeSeconds: number;
-      dataset: { source: { kind: string; package?: string; url?: string; sha256?: string | null } };
+      dataset: { source: { kind: string; package?: string; url?: string; sha256?: string | null; extract?: boolean } };
       environment: {
         platform: { python: { version: string } };
         requirements: string[];
@@ -321,7 +328,10 @@ export function targetViolations(
   if (source.kind !== expected.kind) out.push(`the plan's dataset source (${source.kind}) is not the reviewed one (${expected.kind})`);
   else if (expected.kind === "package" && norm(source.package ?? "") !== norm(expected.package))
     out.push(`the plan's dataset package ${source.package} is not the reviewed ${expected.package}`);
-  else if (expected.kind === "download" && (source.url !== expected.url || source.sha256 !== expected.sha256))
+  else if (
+    expected.kind === "download" &&
+    (source.url !== expected.url || source.sha256 !== expected.sha256 || source.extract !== expected.extract)
+  )
     out.push("the plan's dataset download is not the reviewed one");
   if (adapter) {
     if (!target.adapter) out.push("this claim has no reviewed adapter, so the plan may not use one");
