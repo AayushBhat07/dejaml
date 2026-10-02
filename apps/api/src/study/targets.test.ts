@@ -316,6 +316,7 @@ describe("the Urban Land Cover reviewed target", () => {
       repository: { url: target.repository.url, commitSha: URBAN_COMMIT },
       platform: buildPlatformSpec({ architecture: "arm64", python: "3.12" }),
       tolerance: target.tolerance,
+      additionalMetrics: target.additionalMetrics,
     });
     if (!reconciled.ok) throw new Error(reconciled.reasons.join("; "));
     return reviewPolicy({
@@ -343,10 +344,36 @@ describe("the Urban Land Cover reviewed target", () => {
       },
       dataset: { source: DATASET },
       metricParser: { source: "json", path: "artifacts/result.json", key: "metrics.accuracyPercent" },
+      additionalMetrics: [
+        {
+          metric: { name: "macro precision", unit: "fraction" },
+          reportedValue: 0.81,
+          metricParser: { source: "json", path: "artifacts/result.json", key: "metrics.macroPrecision" },
+          tolerance: 0.02,
+        },
+        {
+          metric: { name: "macro recall", unit: "fraction" },
+          reportedValue: 0.83,
+          metricParser: { source: "json", path: "artifacts/result.json", key: "metrics.macroRecall" },
+          tolerance: 0.02,
+        },
+        {
+          metric: { name: "macro F1", unit: "fraction" },
+          reportedValue: 0.81,
+          metricParser: { source: "json", path: "artifacts/result.json", key: "metrics.macroF1" },
+          tolerance: 0.02,
+        },
+        {
+          metric: { name: "macro AUC-ROC (one-vs-rest)", unit: "fraction" },
+          reportedValue: 0.97,
+          metricParser: { source: "json", path: "artifacts/result.json", key: "metrics.macroAucOvr" },
+          tolerance: 0.02,
+        },
+      ],
       tolerance: 1,
       maximumVerdict: "partially_reproduced",
     });
-    expect(target.adapter?.sha256).toBe("9156565eb6cac1679f266ee03644dc377fc87934c8ced1a903e167999e591476");
+    expect(target.adapter?.sha256).toBe("7e4dc528f8151b6761b195170aaa74c86a8d6dbe8b42fccda6d12a03f8261e58");
   });
 
   it("labels the adapter as project-owned and lists every known difference from the paper", async () => {

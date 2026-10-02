@@ -346,6 +346,19 @@ check(
   typeof engineer?.value === "number" && (expectedValue === undefined || engineer.value === expectedValue),
   `parsed ${engineer?.value} (paper ${study.result.paperValue}, delta ${study.result.absoluteDifference})`,
 );
+const reportedMetrics = study.result.metrics ?? [];
+check(
+  "every reviewed paper metric was parsed and compared",
+  TARGET !== undefined &&
+    reportedMetrics.length === 1 + TARGET.additionalMetrics.length &&
+    TARGET.additionalMetrics.every((reviewed) => {
+      const metric = reportedMetrics.find((item) => item.name.toLowerCase() === reviewed.metric.name.toLowerCase());
+      return metric?.paperValue === reviewed.reportedValue && typeof metric.observedValue === "number" && metric.status !== "not_measured";
+    }),
+  reportedMetrics
+    .map((item) => `${item.name}: paper=${item.paperValue} observed=${item.observedValue} status=${item.status}`)
+    .join("\n      "),
+);
 check(
   "independent review ran",
   engineer?.review?.verdict === "approve",
