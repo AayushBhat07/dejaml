@@ -42,6 +42,7 @@ describe("sealed target commitment", () => {
     // Every field the commitment binds.
     expect(Object.keys(JSON.parse(first.canonical) as object).sort()).toEqual(
       [
+        "additionalMetrics",
         "caseId",
         "caseVersion",
         "claimLocator",
@@ -215,10 +216,25 @@ describe("execution view", () => {
       expectedRuntimeSeconds: 10,
       metricParser: { source: "stdout", pattern: "acc (\\d\\.\\d+)" },
       tolerance: 0.02,
+      additionalMetrics: [
+        {
+          metric: { name: "macro F1", unit: "fraction" },
+          reportedValue: 0.2718281828459045,
+          paperReference: { page: 4, location: "Table 2", excerpt: "macro F1 0.2718281828459045" },
+          metricParser: { source: "json", path: "artifacts/result.json", key: "metrics.macroF1" },
+          tolerance: 0.03,
+        },
+      ],
       stopConditions: ["exit non-zero"],
     });
     const text = JSON.stringify(view);
-    expect(text).not.toMatch(/reportedValue|tolerance|paperReference|excerpt|Table 2|0\.314/u);
+    expect(text).not.toMatch(/reportedValue|tolerance|paperReference|excerpt|Table 2|0\.314|0\.271828/u);
     expect(view.metric).toEqual({ name: "test accuracy", unit: "fraction", direction: "higher_is_better" });
+    expect(view.additionalMetrics).toEqual([
+      {
+        metric: { name: "macro F1", unit: "fraction", direction: "higher_is_better" },
+        metricParser: { source: "json", path: "artifacts/result.json", key: "metrics.macroF1" },
+      },
+    ]);
   });
 });

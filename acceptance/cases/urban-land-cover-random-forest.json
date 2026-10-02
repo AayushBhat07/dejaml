@@ -39,12 +39,13 @@
   },
   "expected": {
     "statuses": ["partially_reproduced", "not_reproduced"],
-    "why": "The notebook is run through a project-owned adapter (status capped at partially_reproduced), and the paper's protocol differs from the notebook in four documented ways. The run is not required to match the paper: not_reproduced, or partially_reproduced within the 1.0 pp tolerance, are both acceptable outcomes. The expected observed value is deliberately not recorded here.",
+    "why": "The notebook is run through a project-owned adapter (status capped at partially_reproduced), and the paper's protocol differs from the notebook in four documented ways. The run is not required to match the paper: not_reproduced, or partially_reproduced within the 2.0 pp tolerance, are both acceptable outcomes. The expected observed value is deliberately not recorded here.",
     "expectedRuntimeSeconds": 60
   },
   "caveats": [
     "The adapter fixes the validation split seed to 42; the notebook leaves it unset, so the authors' exact split is unknown.",
-    "The secondary metrics (precision, recall, F1, AUC) are recorded by the adapter but not compared."
+    "This reviewed target version uses a 2.0 percentage-point primary tolerance because the paper reports a single rounded result, does not disclose its exact seeds, and differs from the published notebook protocol; earlier runs sealed under the 1.0-point policy are not relabeled.",
+    "Precision, recall, F1, and one-vs-rest macro AUC are sealed before execution and compared independently; the primary accuracy metric alone determines the headline verdict."
   ],
   "scriptedProof": {
     "paperAnalyst": {
@@ -105,10 +106,15 @@
     },
     "review": {
       "equivalence": "partially_equivalent",
-      "summary": "The reviewed project-owned adapter ran the notebook's Random Forest protocol on the official CSVs; the accuracy came from the run's own JSON artifact.",
+      "summary": "The reviewed project-owned adapter ran the notebook's Random Forest protocol on the official CSVs; accuracy and every additional metric came from the run's own JSON artifact.",
       "checks": [
         { "name": "approved command ran", "passed": true, "explanation": "the receipt exited 0" },
-        { "name": "metric from the run", "passed": true, "explanation": "metrics.accuracyPercent from artifacts/result.json" }
+        { "name": "primary metric from the run", "passed": true, "explanation": "metrics.accuracyPercent from artifacts/result.json" },
+        {
+          "name": "additional metrics from the same run",
+          "passed": true,
+          "explanation": "macro precision, recall, F1, and one-vs-rest AUC were parsed from artifacts/result.json written by the approved command"
+        }
       ],
       "concerns": [
         "project-owned adapter, not official code",

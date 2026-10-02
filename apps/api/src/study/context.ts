@@ -204,7 +204,7 @@ export type StudyContext = {
    * Trusted code only: the sealed value, used to withhold it from projections
    * and to refuse any agent request that carries it. No tool returns it.
    */
-  sealedForScan: { value: number; unit: SealedTarget["metric"]["unit"] } | null;
+  sealedForScan: Array<{ value: number; unit: SealedTarget["metric"]["unit"] }>;
   pinnedCommit: string | null;
   contract: ClaimContract | null;
   planDigest: string | null;

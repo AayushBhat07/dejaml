@@ -33,7 +33,20 @@ export type Projection = {
   fileCount: number;
 };
 
-type Sealed = { value: number; unit: SealedTarget["metric"]["unit"] } | null;
+type SealedValue = { value: number; unit: SealedTarget["metric"]["unit"] };
+type Sealed = SealedValue | ReadonlyArray<SealedValue> | null;
+
+function sealedValues(sealed: Sealed): ReadonlyArray<SealedValue> {
+  return sealed === null ? [] : Array.isArray(sealed) ? sealed : [sealed as SealedValue];
+}
+
+function withholdAll(sealed: Sealed, text: string): string {
+  return sealedValues(sealed).reduce((current, item) => withholdValue(item.value, item.unit, current), text);
+}
+
+function containsAny(sealed: Sealed, text: string): boolean {
+  return sealedValues(sealed).some((item) => findValue(item.value, item.unit, text) !== null);
+}
 
 type Notebook = { cells?: Array<Record<string, unknown>>; metadata?: Record<string, unknown> };
 
@@ -57,9 +70,9 @@ export function stripNotebook(text: string, sealed: Sealed): { text: string; out
       outputsRemoved += Array.isArray(cell.outputs) ? cell.outputs.length : 0;
       next.outputs = [];
       next.execution_count = null;
-    } else if (cell.cell_type === "markdown" && sealed) {
+    } else if (cell.cell_type === "markdown" && sealedValues(sealed).length) {
       const source = Array.isArray(cell.source) ? (cell.source as string[]).join("") : String(cell.source ?? "");
-      next.source = withholdValue(sealed.value, sealed.unit, source);
+      next.source = withholdAll(sealed, source);
     }
     delete next.attachments;
     return next;
@@ -103,18 +116,18 @@ export async function projectRepository(input: { sourceDir: string; destinationD
           if (stripped) {
             out = Buffer.from(stripped.text, "utf8");
             projection.notebooksStripped.push({ path: rel, outputsRemoved: stripped.outputsRemoved });
-          } else if (sealed) {
+          } else if (sealedValues(sealed).length) {
             // Not a readable notebook: nothing can execute it, so it is withheld like a document.
-            out = Buffer.from(withholdValue(sealed.value, sealed.unit, raw.toString("utf8")), "utf8");
+            out = Buffer.from(withholdAll(sealed, raw.toString("utf8")), "utf8");
           }
-        } else if (!binary && sealed && DOC_EXTENSIONS.some((extension) => lower.endsWith(extension))) {
+        } else if (!binary && sealedValues(sealed).length && DOC_EXTENSIONS.some((extension) => lower.endsWith(extension))) {
           const text = raw.toString("utf8");
-          const withheld = withholdValue(sealed.value, sealed.unit, text);
+          const withheld = withholdAll(sealed, text);
           if (withheld !== text) {
             out = Buffer.from(withheld, "utf8");
             projection.documentsWithheld.push({ path: rel });
           }
-        } else if (!binary && sealed && findValue(sealed.value, sealed.unit, raw.toString("utf8"))) {
+        } else if (!binary && sealedValues(sealed).length && containsAny(sealed, raw.toString("utf8"))) {
           projection.staticFindings.push({ path: rel });
         }
         await writeFile(to, out, { mode: 0o644 });

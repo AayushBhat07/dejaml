@@ -188,6 +188,23 @@ export const ClaimContractSchema = z.object({
     .max(24 * 3_600),
   metricParser: MetricParserSchema,
   tolerance: z.number().nonnegative(),
+  /** Additional paper-reported metrics measured by the same approved command. The primary metric above still determines the headline verdict. */
+  additionalMetrics: z
+    .array(
+      z.object({
+        metric: z.object({ name: z.string().min(1).max(200), unit: z.enum(["fraction", "percent", "score"]) }),
+        reportedValue: z.number().finite(),
+        paperReference: z.object({
+          page: z.number().int().positive(),
+          location: z.string().min(1).max(200),
+          excerpt: z.string().min(1).max(1_000),
+        }),
+        metricParser: MetricParserSchema,
+        tolerance: z.number().nonnegative(),
+      }),
+    )
+    .max(20)
+    .default([]),
   stopConditions: z.array(z.string().min(1).max(300)).min(1).max(10),
 });
 export type ClaimContract = z.infer<typeof ClaimContractSchema>;

@@ -92,6 +92,20 @@ const ClaimTargetFileSchema = z.strictObject({
     })
     .nullable(),
   metricParser: MetricParserSchema,
+  additionalMetrics: z
+    .array(
+      z.strictObject({
+        page: z.number().int().positive(),
+        location: z.string().min(1).max(200),
+        excerpt: z.string().min(1).max(1_000),
+        metric: z.strictObject({ name: z.string().min(1).max(200), unit: z.enum(["fraction", "percent", "score"]) }),
+        reportedValue: z.number().finite(),
+        metricParser: MetricParserSchema,
+        tolerance: z.number().positive().max(100),
+      }),
+    )
+    .max(20)
+    .default([]),
   expectedRuntimeCeilingSeconds: z
     .number()
     .int()
@@ -138,6 +152,11 @@ export async function loadClaimTarget(raw: unknown, root: string): Promise<Claim
   const numbers = file.claim.excerpt.normalize("NFKC").match(/-?\d+(?:\.\d+)?/gu) ?? [];
   if (!numbers.some((item) => Number(item) === value))
     throw new ReviewedTargetError(`${file.caseId}: the excerpt does not contain the reported value`);
+  for (const additional of file.additionalMetrics) {
+    const values = additional.excerpt.normalize("NFKC").match(/-?\d+(?:\.\d+)?/gu) ?? [];
+    if (!values.some((item) => Number(item) === additional.reportedValue))
+      throw new ReviewedTargetError(`${file.caseId}: the ${additional.metric.name} excerpt does not contain its reported value`);
+  }
   let adapter: ClaimTarget["adapter"] = null;
   if (file.adapter) {
     const path = normalize(join(root, file.adapter.file));
@@ -184,7 +203,13 @@ export function checkTargetPaper(
   paper: { sha256: string; pages: ReadonlyArray<{ pageNumber: number; text: string }> },
 ): string | null {
   if (paper.sha256 !== target.paper.sha256) return `the uploaded paper is not the one reviewed for ${target.caseId}`;
-  return checkExcerpt(target.claim, paper.pages);
+  const primary = checkExcerpt(target.claim, paper.pages);
+  if (primary) return primary;
+  for (const item of target.additionalMetrics) {
+    const problem = checkExcerpt({ page: item.page, excerpt: item.excerpt, reportedValue: item.reportedValue }, paper.pages);
+    if (problem) return `${item.metric.name}: ${problem}`;
+  }
+  return null;
 }
 
 /** Why the Paper Analyst's claim is not the reviewed target, or null when it is. */
@@ -246,6 +271,7 @@ export function plannerTarget(target: ClaimTarget): Record<string, unknown> {
     environment: target.environment,
     dataset: target.dataset,
     metricParser: target.metricParser,
+    additionalMetrics: target.additionalMetrics.map(({ metric, metricParser }) => ({ metric, metricParser })),
     expectedRuntimeCeilingSeconds: target.expectedRuntimeCeilingSeconds,
     reviewedAdapter: target.adapter
       ? {
@@ -274,6 +300,7 @@ export function publicTargetSummary(target: ClaimTarget): Record<string, unknown
       dataset: target.claim.dataset,
       split: target.claim.split,
       metric: target.claim.metric,
+      additionalMetrics: target.additionalMetrics.map((item) => item.metric),
     },
     repository: target.repository,
     adapter: target.adapter ? { id: target.adapter.id, path: target.adapter.path, sha256: target.adapter.sha256 } : null,
@@ -300,6 +327,12 @@ export function targetViolations(
       paperReference: { page: number };
       metric: { unit: string };
       metricParser: unknown;
+      additionalMetrics?: Array<{
+        metric: { name: string; unit: string };
+        reportedValue: number;
+        metricParser: unknown;
+        tolerance: number;
+      }>;
       expectedRuntimeSeconds: number;
       dataset: { source: { kind: string; package?: string; url?: string; sha256?: string | null; extract?: boolean } };
       environment: {
@@ -323,6 +356,19 @@ export function targetViolations(
   if (contract.metric.unit !== target.claim.metric.unit) out.push("the plan's metric unit differs from the reviewed claim");
   if (!sameParser(contract.metricParser as MetricParser, target.metricParser, target.claim.metric.unit))
     out.push("the plan's metric parser is not the reviewed parser");
+  const additional = contract.additionalMetrics ?? [];
+  if (additional.length !== target.additionalMetrics.length) out.push("the plan's additional metrics differ from the reviewed target");
+  for (const reviewed of target.additionalMetrics) {
+    const planned = additional.find((item) => item.metric.name.toLowerCase() === reviewed.metric.name.toLowerCase());
+    if (
+      !planned ||
+      planned.metric.unit !== reviewed.metric.unit ||
+      planned.reportedValue !== reviewed.reportedValue ||
+      planned.tolerance !== reviewed.tolerance ||
+      !sameParser(planned.metricParser as MetricParser, reviewed.metricParser, reviewed.metric.unit)
+    )
+      out.push(`the plan's ${reviewed.metric.name} metric is not the reviewed metric`);
+  }
   if (contract.expectedRuntimeSeconds > target.expectedRuntimeCeilingSeconds)
     out.push(`the plan's expected runtime exceeds the reviewed ceiling (${target.expectedRuntimeCeilingSeconds} s)`);
   if (!target.environment.python.includes(contract.environment.platform.python.version as never))

@@ -54,6 +54,8 @@ export function reconcile(input: {
   pages?: ReadonlyArray<{ pageNumber: number; text: string }>;
   /** A reviewed target's tolerance replaces the default for its unit. */
   tolerance?: number;
+  /** Extra metrics are server-reviewed facts, never model-authored expected values. */
+  additionalMetrics?: ClaimTarget["additionalMetrics"];
 }): Reconciled {
   const { claim, plan } = input;
   if (input.pages) {
@@ -83,6 +85,13 @@ export function reconcile(input: {
     expectedRuntimeSeconds: plan.expectedRuntimeSeconds,
     metricParser: plan.metricParser,
     tolerance: input.tolerance ?? TOLERANCE[claim.metric.unit],
+    additionalMetrics: (input.additionalMetrics ?? []).map((item) => ({
+      metric: item.metric,
+      reportedValue: item.reportedValue,
+      paperReference: { page: item.page, location: item.location, excerpt: item.excerpt },
+      metricParser: item.metricParser,
+      tolerance: item.tolerance,
+    })),
     stopConditions: plan.stopConditions,
   };
   const parsed = ClaimContractSchema.safeParse(candidate);
@@ -179,12 +188,20 @@ export function reviewPolicy(input: {
     // Neutral messages: these reach events and the Supervisor before the reveal.
     if (findLiteral(contract.reportedValue, [adapter.content]) || findValue(contract.reportedValue, contract.metric.unit, adapter.content))
       unusable.push("the adapter contains a value it must not know");
+    for (const item of contract.additionalMetrics) {
+      if (findLiteral(item.reportedValue, [adapter.content]) || findValue(item.reportedValue, item.metric.unit, adapter.content))
+        unusable.push(`the adapter contains the sealed ${item.metric.name} value`);
+    }
     const rigged = riggedAdapter(adapter.content);
     if (rigged) unusable.push(rigged);
   }
   const argv = contract.command.argv.join(" ");
   if (findLiteral(contract.reportedValue, [argv]) || findValue(contract.reportedValue, contract.metric.unit, argv)) {
     unusable.push("the command contains a value it must not know");
+  }
+  for (const item of contract.additionalMetrics) {
+    if (findLiteral(item.reportedValue, [argv]) || findValue(item.reportedValue, item.metric.unit, argv))
+      unusable.push(`the command contains the sealed ${item.metric.name} value`);
   }
 
   // Data: repository files, or an allowlisted, checksummed download.
@@ -247,6 +264,12 @@ export function reviewPolicy(input: {
   if (contract.metricParser.source === "stdout") {
     const problem = checkMetricPattern(contract.metricParser.pattern);
     if (problem) unusable.push(problem);
+  }
+  for (const item of contract.additionalMetrics) {
+    if (item.metricParser.source === "stdout") {
+      const problem = checkMetricPattern(item.metricParser.pattern);
+      if (problem) unusable.push(`${item.metric.name}: ${problem}`);
+    }
   }
 
   if (input.target) unusable.push(...targetViolations(input.target, { contract, adapter }));

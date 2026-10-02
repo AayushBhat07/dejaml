@@ -39,6 +39,10 @@ export function localDatasetPort(policy: FetchPolicy): DatasetPort {
           name: input.name,
           url: input.url,
           policy,
+          // Never derive a host filename from an external URL. The destination
+          // directory is fresh per dataset, archive type is detected by magic,
+          // and the original URL remains in the signed download receipt.
+          fileName: "dataset-download.bin",
           ...(input.sha256 ? { expectedSha256: input.sha256 } : {}),
           requireChecksum: true,
           destinationDir: input.destinationDir,

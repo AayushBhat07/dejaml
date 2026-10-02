@@ -236,6 +236,9 @@ export const ROLE_GRANTS: Record<AgentRole, readonly string[]> = {
 /** Every role after the Paper Analyst works blind to the paper's number. */
 const BLIND_PLANNING =
   "The study is blinded: you are not told the value the paper reports, and must not try to find it. Plan to measure the metric faithfully, never to match a number: state no expected, target, or reported value, no tolerance, and no comparison with the paper anywhere in the plan. A plan that does is refused.";
+// Paths are relative to the lab workspace (/workspace/case); see LAB_LAYOUT in context.ts.
+const LAB_PATHS =
+  "Lab layout, relative to the workspace /workspace/case: `repo` (the checkout, read-only), `work/repo` (its writable copy), `work/adapter` (a reviewed adapter), `data/extracted/` (an extracted dataset archive, read-only; a reviewed dataset's `files` are listed relative to it), and `artifacts/` (collected outputs). A metricParser `path` such as `artifacts/result.json` is read from the workspace, so the official run must write it there: from `repo` that is `../artifacts/result.json`, from `work/repo` it is `../../artifacts/result.json`. Likewise a dataset file is `../data/extracted/<file>` from `repo` and `../../data/extracted/<file>` from `work/repo`.";
 const BLIND_EXECUTION =
   "The study is blinded: you are not told the value the paper reports or any tolerance, and must not look for them (saved notebook outputs were removed). Never compare your measurement with a paper value; the lab parses the metric and code compares it only after the result and its review are locked.";
 
@@ -257,11 +260,13 @@ export const INSTRUCTIONS: Record<AgentRole, string> = {
     "Use dependency_check to see whether binary wheels exist for your requirements on the lab platform; nothing is built from source, and GPU packages (CUDA, ROCm) are refused.",
     "Data: prefer files in the repository. A download is allowed only from an administrator-allowed host and needs its SHA-256; otherwise set status blocked.",
     "metricParser must read the number the official code prints (stdout pattern with one capture group) or writes (a JSON file under artifacts/). An adapter is a small wrapper that only calls the official code and captures its metric; it must list every difference. Never plan a rewritten approximation, a changed dataset, a subset, altered filtering, or a replacement metric.",
+    LAB_PATHS,
     BLIND_PLANNING,
   ].join("\n"),
   lab_engineer: [
     "You work alone inside a sealed, offline Linux lab prepared for the approved plan: /workspace/case/repo is the repository (read-only), work/repo is a writable copy when the plan asked for one, data/ holds verified datasets (read-only), and the Python environment is already installed.",
     "Run the approved command with lab_run_official. It runs exactly the plan's argv from the plan's cwd, after the lab checks the checkout and environment are unchanged. When it fails, read its logs, inspect files, and fix what the plan allows (for example create an output directory with lab_run). Use request_debugging when you are stuck.",
+    LAB_PATHS,
     "If the code needs a different or extra package, use dependency_request with the reason and then finish as not_measured: the plan is re-approved and a fresh lab is prepared. Never change the code, the data, the split, or the metric.",
     "When the official run succeeded, finish as measured with its receipt id. The metric is parsed by the lab from that run, not by you. Declare every deviation you know of.",
     BLIND_EXECUTION,
@@ -307,6 +312,7 @@ export const TARGETED_INSTRUCTIONS: Partial<Record<AgentRole, string>> = {
     "Plan only for the reviewed claim: never switch to another method, a variant with a similar name, another library version, another dataset, split, or metric. If the analysts' evidence does not support the reviewed claim, or the repository's code does not produce it, finish blocked or inconclusive with the reason.",
     "Your plan must fit the reviewed limits, which policy enforces: the entry point, a Python version from `environment.python`, requirements only from `environment.requirements`, compatibility constraints only from `environment.allowedCompatibilityConstraints` (copied exactly, and only if also listed in trustedCompatibilityConstraints), the reviewed dataset source, the reviewed `metricParser` exactly, and an expected runtime within the ceiling.",
     "The command runs `python <entrypoint or adapter> [args]` from `repo` (read-only) or `work/repo`. When a reviewed adapter is given, read it; if it is needed, set adapter to {reviewedAdapterId: <its id>} and run it at its path (for example `../work/adapter/<file>.py` from `repo`) with the arguments it expects. Do not write your own adapter for a reviewed claim. Use dependency_check to confirm binary wheels exist for the lab platform.",
+    LAB_PATHS,
     BLIND_PLANNING,
   ].join("\n"),
 };

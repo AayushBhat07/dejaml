@@ -115,9 +115,6 @@ export function LiveRun({
         onCancel={cancel}
         cancelling={cancelRequested || view.cancelling}
       />
-      {view.native || view.blinding.present ? (
-        <BlindingPanel blinding={view.blinding} ended={ended} finalStatus={view.result?.status ?? null} />
-      ) : null}
       {showCompletion ? (
         <Completion
           view={view}
@@ -127,6 +124,9 @@ export function LiveRun({
           onNewStudy={onNewStudy}
           reviewers={reviewers}
         />
+      ) : null}
+      {view.native || view.blinding.present ? (
+        <BlindingPanel blinding={view.blinding} ended={ended} finalStatus={view.result?.status ?? null} />
       ) : null}
       <div className="dashboard-grid">
         <AgentRoster

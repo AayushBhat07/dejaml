@@ -37,9 +37,13 @@ import scipy
 import sklearn
 from scipy.stats import zscore
 from sklearn.ensemble import RandomForestClassifier
-from sklearn.metrics import accuracy_score, precision_recall_fscore_support
+from sklearn.metrics import (
+    accuracy_score,
+    precision_recall_fscore_support,
+    roc_auc_score,
+)
 from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import LabelEncoder
+from sklearn.preprocessing import LabelEncoder, label_binarize
 
 
 def sha256_file(path: Path) -> str:
@@ -112,10 +116,17 @@ def main() -> int:
     )
     model.fit(x_train_scaled, y_train)
     predictions = model.predict(x_test_scaled)
+    probabilities = model.predict_proba(x_test_scaled)
 
     accuracy = accuracy_score(y_test, predictions)
     precision, recall, f1, _ = precision_recall_fscore_support(
         y_test, predictions, average="macro", zero_division=0
+    )
+    y_test_binarized = label_binarize(
+        y_test, classes=np.arange(len(encoder.classes_))
+    )
+    auc = roc_auc_score(
+        y_test_binarized, probabilities, average="macro", multi_class="ovr"
     )
 
     result = {
@@ -141,6 +152,7 @@ def main() -> int:
             "macroPrecision": round(float(precision), 4),
             "macroRecall": round(float(recall), 4),
             "macroF1": round(float(f1), 4),
+            "macroAucOvr": round(float(auc), 4),
         },
         "runtime": {
             "durationSeconds": round(time.monotonic() - started, 3),
@@ -170,4 +182,3 @@ if __name__ == "__main__":
     except Exception as error:  # Keep the lab's terminal failure explicit.
         print(f"DEJAML_ERROR={type(error).__name__}: {error}", file=sys.stderr)
         raise
-

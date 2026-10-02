@@ -62,9 +62,9 @@
     "id": "urban-land-cover-rf-runner",
     "path": "work/adapter/urban_land_cover_runner.py",
     "file": "acceptance/proof/urban_land_cover_runner.py",
-    "sha256": "9156565eb6cac1679f266ee03644dc377fc87934c8ced1a903e167999e591476",
+    "sha256": "7e4dc528f8151b6761b195170aaa74c86a8d6dbe8b42fccda6d12a03f8261e58",
     "why": "The official result lives in a Jupyter notebook that is not runnable as a script and reads differently named CSV files. This project-owned adapter re-implements the notebook's Random Forest cells as a script; it is not official repository code.",
-    "source": "Project-owned re-implementation of the Random Forest cells of the pinned notebook. Arguments: --training <training.csv> --testing <testing.csv> --output <artifacts/result.json>. It writes metrics.accuracyPercent to the output JSON.",
+    "source": "Project-owned re-implementation of the Random Forest cells of the pinned notebook. Arguments: --training <training.csv> --testing <testing.csv> --output <artifacts/result.json>. It writes accuracy, macro precision/recall/F1, and one-vs-rest macro AUC to the output JSON.",
     "differences": [
       "project-owned adapter, not official repository code: the notebook's Random Forest cells re-implemented as a script",
       "the paper states fixed seeds, but the notebook leaves train_test_split random_state unset; the adapter fixes it to 42 (a DejaML choice)",
@@ -78,7 +78,73 @@
     "path": "artifacts/result.json",
     "key": "metrics.accuracyPercent"
   },
+  "additionalMetrics": [
+    {
+      "page": 4,
+      "location": "Table 2, row Random Forest, Precision column",
+      "excerpt": "Random Forest [4] 81.66 0.81 0.83 0.81 0.97",
+      "metric": {
+        "name": "macro precision",
+        "unit": "fraction"
+      },
+      "reportedValue": 0.81,
+      "metricParser": {
+        "source": "json",
+        "path": "artifacts/result.json",
+        "key": "metrics.macroPrecision"
+      },
+      "tolerance": 0.02
+    },
+    {
+      "page": 4,
+      "location": "Table 2, row Random Forest, Recall column",
+      "excerpt": "Random Forest [4] 81.66 0.81 0.83 0.81 0.97",
+      "metric": {
+        "name": "macro recall",
+        "unit": "fraction"
+      },
+      "reportedValue": 0.83,
+      "metricParser": {
+        "source": "json",
+        "path": "artifacts/result.json",
+        "key": "metrics.macroRecall"
+      },
+      "tolerance": 0.02
+    },
+    {
+      "page": 4,
+      "location": "Table 2, row Random Forest, F1 column",
+      "excerpt": "Random Forest [4] 81.66 0.81 0.83 0.81 0.97",
+      "metric": {
+        "name": "macro F1",
+        "unit": "fraction"
+      },
+      "reportedValue": 0.81,
+      "metricParser": {
+        "source": "json",
+        "path": "artifacts/result.json",
+        "key": "metrics.macroF1"
+      },
+      "tolerance": 0.02
+    },
+    {
+      "page": 4,
+      "location": "Table 2, row Random Forest, AUC column",
+      "excerpt": "Random Forest [4] 81.66 0.81 0.83 0.81 0.97",
+      "metric": {
+        "name": "macro AUC-ROC (one-vs-rest)",
+        "unit": "fraction"
+      },
+      "reportedValue": 0.97,
+      "metricParser": {
+        "source": "json",
+        "path": "artifacts/result.json",
+        "key": "metrics.macroAucOvr"
+      },
+      "tolerance": 0.02
+    }
+  ],
   "expectedRuntimeCeilingSeconds": 300,
-  "tolerance": 1.0,
+  "tolerance": 2.0,
   "maximumVerdict": "partially_reproduced"
 }
