@@ -943,9 +943,71 @@ export class LabManager {
     try {
       await rm(lab.hostLabDir, { recursive: true, force: true });
       artifactDirectoryRemoved = true;
-    } catch (error) {
-      if (normalizationError) errors.push(`writable directory normalization: ${normalizationError}`);
-      errors.push(`artifact directory removal: ${errorMessage(error)}`);
+    } catch (firstError) {
+      // Offline preparation can create root-owned venv files inside scratch.
+      // If native-Linux ownership prevents host deletion, use the already
+      // verified immutable lab image as a tightly bounded cleanup helper. It
+      // sees only this lab directory, has no network, cannot pull, and receives
+      // only the two filesystem capabilities needed to traverse/chmod it.
+      const repair = await this.#runtime
+        .docker(
+          [
+            "run",
+            "--rm",
+            "--network",
+            "none",
+            "--read-only",
+            "--pull",
+            "never",
+            "--platform",
+            lab.handle.platform,
+            "--user",
+            "0:0",
+            "--cap-drop",
+            "ALL",
+            "--cap-add",
+            "DAC_OVERRIDE",
+            "--cap-add",
+            "FOWNER",
+            "--security-opt",
+            "no-new-privileges",
+            "--pids-limit",
+            "32",
+            "--memory",
+            "64m",
+            "--memory-swap",
+            "64m",
+            "--cpus",
+            "0.5",
+            "--mount",
+            mountArgument(lab.hostLabDir, "/cleanup", false),
+            "--entrypoint",
+            "python",
+            lab.handle.imageId,
+            "-I",
+            "-S",
+            "-c",
+            NORMALIZE_WRITABLE_DIRS_PY,
+            "/cleanup",
+          ],
+          { maxOutputBytes: 4096 },
+        )
+        .catch((error: unknown) => {
+          errors.push(`cleanup helper: ${errorMessage(error)}`);
+          return null;
+        });
+      if (repair && repair.exitCode === 0) {
+        try {
+          await rm(lab.hostLabDir, { recursive: true, force: true });
+          artifactDirectoryRemoved = true;
+        } catch (retryError) {
+          errors.push(`artifact directory removal: ${errorMessage(firstError)}; retry: ${errorMessage(retryError)}`);
+        }
+      } else {
+        if (repair) errors.push(`cleanup helper: ${repair.stderr.text.trim()}`);
+        if (normalizationError) errors.push(`writable directory normalization: ${normalizationError}`);
+        errors.push(`artifact directory removal: ${errorMessage(firstError)}`);
+      }
     }
 
     const remaining = await this.#listLabContainers(`${LAB_LABEL}=${labId}`).catch((error: unknown) => {
