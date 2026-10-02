@@ -26,7 +26,7 @@ export const BLINDING_ORDER = [
 /** Keys that only the paper's target carries. A blind agent must never receive one. */
 const TARGET_KEYS = /"(reportedValue|paperReference|paperValue)"\s*:\s*(?!null)/u;
 /** Events that carry what the lab measured, which may legitimately equal the paper's value. */
-const OBSERVED_EVENTS = new Set(["lab_output", "observation_locked", "metric_parsed"]);
+const OBSERVED_EVENTS = new Set(["lab_output", "agent_command", "observation_locked", "metric_parsed"]);
 const SEALED_EVENT_KEYS = ["caseId", "commitment", "metric", "sealedAt"];
 
 export function proveBlinding(input: { store: RunStore; runId: string; report: MultiAgentReport }): BlindingProofCheck[] {

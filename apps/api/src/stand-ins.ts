@@ -23,7 +23,6 @@ import type { CuratedCase } from "./cases.js";
 export const STAND_IN_IMAGE_ID = `sha256:${"c".repeat(64)}`;
 export const NOTEBOOK = '{"cells":[],"metadata":{},"nbformat":4,"nbformat_minor":5}\n';
 export const NOTEBOOK_PATH = "Urban Land Cover Classification.ipynb";
-const RESULT = '{"metrics":{"accuracyPercent":79.88}}';
 
 export type ExecMode = "success" | "hang" | "no_metric" | "crash";
 
@@ -45,6 +44,8 @@ const STAND_IN_ENV = ["PATH=/usr/local/bin:/usr/bin:/bin", "LANG=C.UTF-8", "HOME
 
 export class ScriptedRuntime implements ContainerRuntime {
   mode: ExecMode = "success";
+  /** Metric written by a successful scripted experiment. Tests may vary it to exercise exact-match blinding. */
+  resultAccuracyPercent = 79.88;
   /** Spreads the scripted output over this many milliseconds so live views have time to update. */
   execDelayMs = 0;
   readonly containers = new Set<string>();
@@ -187,9 +188,11 @@ export class ScriptedRuntime implements ContainerRuntime {
         options.onOutput?.("stdout", `stand-in progress ${step}/3\n`);
         await new Promise((resolve) => setTimeout(resolve, this.execDelayMs / 3));
       }
-      await writeFile(join(mounts.artifacts, "result.json"), RESULT);
-      options.onOutput?.("stdout", 'DEJAML_RESULT={"accuracyPercent":79.88}\n');
-      return ok('DEJAML_RESULT={"accuracyPercent":79.88}\n');
+      const result = JSON.stringify({ metrics: { accuracyPercent: this.resultAccuracyPercent } });
+      const stdout = `DEJAML_RESULT=${JSON.stringify({ accuracyPercent: this.resultAccuracyPercent })}\n`;
+      await writeFile(join(mounts.artifacts, "result.json"), result);
+      options.onOutput?.("stdout", stdout);
+      return ok(stdout);
     }
     if (command === "stats") {
       while (!options.signal?.aborted) await new Promise((resolve) => setTimeout(resolve, 5));

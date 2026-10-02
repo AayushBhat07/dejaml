@@ -246,14 +246,25 @@ export function createApiServer(options: ApiOptions): ApiServer {
         throw new HttpError(400, "The repository must be a public GitHub repository URL.");
       }
     }
-    // A reviewed claim target is chosen by id only; its contents come from the server's registry, never the request.
-    const caseId = upload.field("reviewedCaseId");
+    // A reviewed claim target is chosen by id, or automatically when exactly
+    // one server-reviewed case matches the uploaded paper byte for byte. The
+    // target contents still come only from the server registry. This keeps an
+    // older or stale browser from accidentally launching an open study for a
+    // paper that already has a reviewed execution contract.
+    const uploadSha256 = createHash("sha256").update(upload.data).digest("hex");
+    let caseId = upload.field("reviewedCaseId");
+    if (caseId === null) {
+      const matches = [...(options.reviewedTargets?.values() ?? [])].filter((item) => item.paper.sha256 === uploadSha256);
+      if (matches.length === 1) caseId = matches[0]!.caseId;
+      if (matches.length > 1) {
+        throw new HttpError(400, "This paper has multiple reviewed cases; choose the claim to run.");
+      }
+    }
     let target: ClaimTarget | undefined;
     if (caseId !== null) {
       target = CASE_ID.test(caseId) ? options.reviewedTargets?.get(caseId) : undefined;
       if (!target) throw new HttpError(400, "There is no reviewed case with that id on this server.");
-      if (createHash("sha256").update(upload.data).digest("hex") !== target.paper.sha256)
-        throw new HttpError(400, "The uploaded paper is not the paper reviewed for this case.");
+      if (uploadSha256 !== target.paper.sha256) throw new HttpError(400, "The uploaded paper is not the paper reviewed for this case.");
       if (repositoryUrl && repositoryUrl !== target.repository.url)
         throw new HttpError(400, "A reviewed case names its own repository; leave the repository empty or use that one.");
     }

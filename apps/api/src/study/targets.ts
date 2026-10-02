@@ -16,7 +16,9 @@ import type { Adapter, PaperClaim } from "./roles.js";
  * lab still runs the official code, and an independent Reviewer still judges
  * the evidence. A target never carries an observed result.
  *
- * Uploaders choose a target by id only; nothing in it can come from a request.
+ * Uploaders may choose a target by id. The server may also select the sole
+ * target whose reviewed paper hash matches the upload; nothing in the target
+ * itself can come from a request.
  */
 
 const Sha256 = z.string().regex(/^[a-f0-9]{64}$/u);

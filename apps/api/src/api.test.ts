@@ -406,7 +406,7 @@ describe("Run API", () => {
     return new Map([[target.caseId, target]]);
   }
 
-  it("studies a reviewed claim target chosen by id, with every agent still independent", async () => {
+  it("automatically binds an exact reviewed-paper hash to its target, with every agent still independent", async () => {
     const paper = await paperPdf(false);
     const targets = await fixtureTarget(paper);
     await startServer({
@@ -415,7 +415,9 @@ describe("Run API", () => {
       commitSha: "7f8b1c4cbe5b4caf2f6cc8bc0d6fc31ce2f6bd71",
       reviewedTargets: targets,
     });
-    const response = await upload(paper, "paper.pdf", { reviewedCaseId: "fixture-rf-accuracy" });
+    // A stale browser may omit reviewedCaseId. The server must not silently
+    // turn an exact reviewed paper into an open study that selects another claim.
+    const response = await upload(paper, "paper.pdf");
     expect(response.status).toBe(202);
     const { runId } = (await response.json()) as { runId: string };
     await api.idle();
@@ -526,6 +528,24 @@ describe("Run API", () => {
     expect(otherRepository.status).toBe(400);
     // A request can name a case, never carry one.
     expect((await upload(paper, "paper.pdf", { reviewedCaseId: "fixture-rf-accuracy", claimContract: "{}" })).status).toBe(400);
+    expect(store.listActiveRuns()).toHaveLength(0);
+  });
+
+  it("requires an explicit claim when one paper has multiple reviewed cases", async () => {
+    const paper = await paperPdf(false);
+    const first = [...(await fixtureTarget(paper)).values()][0]!;
+    const second = [
+      ...(
+        await fixtureTarget(paper, {
+          caseId: "fixture-second-claim",
+        })
+      ).values(),
+    ][0]!;
+    await startServer({ autonomous: true, reviewedTargets: new Map([first, second].map((target) => [target.caseId, target])) });
+
+    const response = await upload(paper);
+    expect(response.status).toBe(400);
+    await expect(response.text()).resolves.toContain("multiple reviewed cases");
     expect(store.listActiveRuns()).toHaveLength(0);
   });
 

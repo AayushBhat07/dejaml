@@ -1421,8 +1421,19 @@ export async function runMultiAgentStudy(
                 : null,
               datasets: prepOut?.datasets ?? [],
               officialReceiptId: engineer.official?.receiptId ?? null,
-              parsedMetric: engineer.metric,
-              valueInPaperUnit: engineer.value,
+              // The Reviewer verifies metric provenance through the locked receipt,
+              // logs, and exported artifact. Do not duplicate the numeric observation
+              // in its initial user message: an honest measurement can equal the
+              // sealed paper value exactly, which is not evidence of target leakage.
+              parsedMetricEvidence:
+                engineer.metric && engineer.metric.ok
+                  ? {
+                      ok: true,
+                      unit: engineer.metric.unit,
+                      source: engineer.metric.source,
+                      matches: engineer.metric.matches,
+                    }
+                  : engineer.metric,
               declaredDeviations: engineer.submission?.deviations ?? [],
               exportedArtifacts: (ctx.exports.get(engineer.engineerAgentId) ?? []).map((item) => ({
                 path: item.path,

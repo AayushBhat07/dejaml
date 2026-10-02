@@ -107,7 +107,7 @@ need a real provider key.
 
 | Requirement | Source | Proof |
 |---|---|---|
-| Server-owned registry, id only from the upload | `config/reviewed-targets/`, `loadReviewedTargets`, `server.ts` (`reviewedCaseId`) | `api.test.ts` "refuses an unknown reviewed case, a different paper, and a different repository" |
+| Server-owned registry, optional case id or unique exact-paper-hash selection | `config/reviewed-targets/`, `loadReviewedTargets`, `server.ts` (`reviewedCaseId`) | `api.test.ts` reviewed-case refusal, exact-hash auto-selection, and ambiguous-paper tests |
 | Paper hash, repository and commit, excerpt on the page with the value | `checkTargetPaper`, `loadClaimTarget`, `targetViolations` | `targets.test.ts` |
 | No observed result to Engineers or Reviewers; analysts and Planner get only their view | `paperAnalystTarget`, `repositoryAnalystTarget`, `plannerTarget` | `targets.test.ts`; `api.test.ts` "studies a reviewed claim target …"; Docker proof check 3 |
 | Agents may reject the target; no silent claim switch | `TARGETED_INSTRUCTIONS`, `claimMismatch` | `api.test.ts` "stops before planning when the Paper Analyst returns a different claim"; `targets.test.ts` BOSSVS listing |

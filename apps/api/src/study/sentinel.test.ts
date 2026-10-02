@@ -290,9 +290,10 @@ async function sentinelTarget(): Promise<ClaimTarget> {
   );
 }
 
-async function study(mode: Mode, options: { target: boolean }) {
+async function study(mode: Mode, options: { target: boolean; observedPercent?: number }) {
   const store = new RunStore();
   const runtime = new ScriptedRuntime();
+  if (options.observedPercent !== undefined) runtime.resultAccuracyPercent = options.observedPercent;
   const labs = new LabManager({ runtime, labRoot: join(work, "labs"), events: (event) => store.appendEvent(event) });
   const provider = new SentinelProvider(mode);
   const { id: runId } = store.createRun({ fileName: "sentinel.pdf" });
@@ -333,6 +334,18 @@ async function study(mode: Mode, options: { target: boolean }) {
 }
 
 describe("blinded study: the sentinel value never reaches a blind agent, the browser, or a pre-reveal report", () => {
+  it("allows a locked observation to equal the sealed target without treating the measurement as a leak", async () => {
+    const { store, runId, result } = await study("honest", { target: true, observedPercent: SENTINEL * 100 });
+    const report = result.report;
+    const reviewer = store.ledger.listAgents(runId).find((agent) => agent.role === "independent_reviewer")!;
+
+    expect(reviewer.status).toBe("completed");
+    expect(leaks(reviewer.task), "the Reviewer task must not duplicate the numeric observation").toEqual([]);
+    expect(report.result).toMatchObject({ status: "partially_reproduced", observedValue: SENTINEL, paperValue: SENTINEL });
+    expect(report.blinding.comparison).toMatchObject({ absoluteDelta: 0, withinTolerance: true });
+    expect(proveBlinding({ store, runId, report }).filter((item) => !item.pass)).toEqual([]);
+  });
+
   it("seals before any agent, locks the observation and the blind review, then reveals and compares in code", async () => {
     const { store, runtime, provider, runId, result } = await study("honest", { target: true });
     const report = result.report;

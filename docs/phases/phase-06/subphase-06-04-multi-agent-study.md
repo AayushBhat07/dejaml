@@ -68,7 +68,9 @@ hold the reported value. Policy review is deterministic and its plan digest
 **Reviewed claim targets** (`apps/api/src/study/targets.ts`,
 `config/reviewed-targets/*.json`): a server-owned registry of claims a person
 checked against a paper and its repository. An upload may name one by
-`reviewedCaseId` and nothing else; a request can never carry a claim,
+`reviewedCaseId` and nothing else. When the browser omits the id, the server
+automatically selects the case only if exactly one registered paper hash
+matches; multiple claims require an explicit choice. A request can never carry a claim,
 command, parser, commit, adapter, dependency set or expected answer. The
 server refuses an unknown id, a paper whose SHA-256 differs from the reviewed
 one, and a different repository; at start-up it refuses a target whose
