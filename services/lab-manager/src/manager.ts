@@ -906,6 +906,16 @@ export class LabManager {
     // and removable by the host before the container disappears. The script
     // never follows symlinks and can touch only the two writable mounts.
     let normalizationError: string | null = null;
+    if (lab.frozen) {
+      const unpause = await this.#runtime
+        .docker(["unpause", lab.handle.containerName], { maxOutputBytes: 4096 })
+        .catch((error: unknown) => {
+          normalizationError = `container unpause failed: ${errorMessage(error)}`;
+          return null;
+        });
+      if (unpause?.exitCode === 0) lab.frozen = false;
+      else if (unpause) normalizationError = `container unpause failed: ${unpause.stderr.text.trim()}`;
+    }
     const writablePaths = [
       posix.join(lab.spec.workdir, lab.spec.artifactsDir),
       ...(lab.spec.scratchDir ? [posix.join(lab.spec.workdir, lab.spec.scratchDir)] : []),

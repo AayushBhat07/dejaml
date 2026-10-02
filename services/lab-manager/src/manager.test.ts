@@ -135,6 +135,7 @@ class FakeRuntime implements ContainerRuntime {
       this.#kill?.();
       return ok();
     }
+    if (command === "pause" || command === "unpause") return ok();
     if (command === "rm") {
       const name = args.at(-1) ?? "";
       return this.containers.delete(name) ? ok() : failed(1, `Error: No such container: ${name}`);
@@ -264,9 +265,13 @@ describe("LabManager", () => {
     expect(JSON.parse(artifact.content.toString("utf8"))).toEqual({ metrics: { accuracyPercent: 79.88 } });
     expect(artifact.sha256).toBe(outcome.attempt.artifactDigests["artifacts/result.json"]);
 
+    await manager.freezeLab(lab.labId);
     const receipt = await manager.destroyLab(lab.labId);
     expect(receipt).toMatchObject({ containerRemoved: true, artifactDirectoryRemoved: true, verifiedAbsent: true });
     expect(runtime.calls.some((call) => call.some((value) => value.includes("DEJAML_CLEANUP_NORMALIZE")))).toBe(true);
+    expect(runtime.calls.findIndex((call) => call[0] === "unpause")).toBeLessThan(
+      runtime.calls.findIndex((call) => call.some((value) => value.includes("DEJAML_CLEANUP_NORMALIZE"))),
+    );
     expect(await readdir(join(workspace, "labs"))).toEqual([]);
     for (const event of events) {
       expect(() => RunEventSchema.parse({ ...event, id: "evt", sequence: 1, timestamp: new Date().toISOString() })).not.toThrow();
