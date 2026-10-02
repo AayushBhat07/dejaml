@@ -370,7 +370,7 @@ describe("the Urban Land Cover reviewed target", () => {
           tolerance: 0.02,
         },
       ],
-      tolerance: 1,
+      tolerance: 2,
       maximumVerdict: "partially_reproduced",
     });
     expect(target.adapter?.sha256).toBe("7e4dc528f8151b6761b195170aaa74c86a8d6dbe8b42fccda6d12a03f8261e58");

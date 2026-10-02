@@ -39,11 +39,12 @@
   },
   "expected": {
     "statuses": ["partially_reproduced", "not_reproduced"],
-    "why": "The notebook is run through a project-owned adapter (status capped at partially_reproduced), and the paper's protocol differs from the notebook in four documented ways. The run is not required to match the paper: not_reproduced, or partially_reproduced within the 1.0 pp tolerance, are both acceptable outcomes. The expected observed value is deliberately not recorded here.",
+    "why": "The notebook is run through a project-owned adapter (status capped at partially_reproduced), and the paper's protocol differs from the notebook in four documented ways. The run is not required to match the paper: not_reproduced, or partially_reproduced within the 2.0 pp tolerance, are both acceptable outcomes. The expected observed value is deliberately not recorded here.",
     "expectedRuntimeSeconds": 60
   },
   "caveats": [
     "The adapter fixes the validation split seed to 42; the notebook leaves it unset, so the authors' exact split is unknown.",
+    "This reviewed target version uses a 2.0 percentage-point primary tolerance because the paper reports a single rounded result, does not disclose its exact seeds, and differs from the published notebook protocol; earlier runs sealed under the 1.0-point policy are not relabeled.",
     "Precision, recall, F1, and one-vs-rest macro AUC are sealed before execution and compared independently; the primary accuracy metric alone determines the headline verdict."
   ],
   "scriptedProof": {

@@ -145,6 +145,6 @@
     }
   ],
   "expectedRuntimeCeilingSeconds": 300,
-  "tolerance": 1.0,
+  "tolerance": 2.0,
   "maximumVerdict": "partially_reproduced"
 }
