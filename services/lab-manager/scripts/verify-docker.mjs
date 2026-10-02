@@ -196,7 +196,11 @@ try {
   // 1. The sealed lab: its effective container configuration, and what a process inside can observe.
   const success = await manager.withLab(spec(60, 512, { tmpfsMb: 48 }), async (lab) => {
     const inspected = JSON.parse(docker(["container", "inspect", "--format", "{{json .}}", lab.containerName]));
-    const imageInfo = JSON.parse(docker(["image", "inspect", "--platform", PLATFORM, "--format", "{{json .}}", PROOF_IMAGE]));
+    // The proof image is built locally for exactly PLATFORM above. Plain
+    // inspection works on both legacy Docker CLIs (including GitHub-hosted
+    // runners) and newer containerd-backed stores; the assertions below still
+    // verify its OS/architecture and the created container's manifest.
+    const imageInfo = JSON.parse(docker(["image", "inspect", "--format", "{{json .}}", PROOF_IMAGE]));
     const outcome = await manager.executeAttempt(lab.labId, { number: 1, label: "baseline", command: command("probe") });
     const artifact = await manager.readArtifact(lab.labId, "artifacts/result.json");
     return { lab, inspected, imageInfo, outcome, result: JSON.parse(artifact.content.toString("utf8")), sha256: artifact.sha256 };
