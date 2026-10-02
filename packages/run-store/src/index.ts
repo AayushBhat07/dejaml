@@ -2,12 +2,15 @@ import { EventEmitter } from "node:events";
 import { randomUUID } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
 
-import {
-  type RunEvent,
-  type RunStatus,
-  RunEventSchema,
-  RunStatusSchema,
-} from "@dejaml/contracts";
+import { type RunEvent, type RunStatus, RunEventSchema, RunStatusSchema } from "@dejaml/contracts";
+
+import { BlindingLedger } from "./blinding.js";
+import { AgentLedger } from "./ledger.js";
+import { StudyStages } from "./stages.js";
+
+export * from "./blinding.js";
+export * from "./ledger.js";
+export * from "./stages.js";
 
 type AppendEventInput = Omit<RunEvent, "id" | "sequence" | "timestamp"> & {
   id?: string;
@@ -22,13 +25,7 @@ export type RunSnapshot = {
   input: Record<string, unknown>;
 };
 
-const TERMINAL_STATUSES = new Set<RunStatus>([
-  "completed",
-  "inconclusive",
-  "failed",
-  "cancelled",
-  "timed_out",
-]);
+const TERMINAL_STATUSES = new Set<RunStatus>(["completed", "inconclusive", "failed", "cancelled", "timed_out"]);
 
 const ALLOWED_TRANSITIONS: Record<RunStatus, readonly RunStatus[]> = {
   queued: ["ingesting", "cancelled", "failed"],
@@ -39,8 +36,9 @@ const ALLOWED_TRANSITIONS: Record<RunStatus, readonly RunStatus[]> = {
   validating_plan: ["preparing_lab", "inconclusive", "cancelled", "failed"],
   preparing_lab: ["running", "cancelled", "failed", "timed_out"],
   running: ["comparing", "cancelled", "failed", "timed_out"],
-  comparing: ["auditing", "completed", "inconclusive", "failed"],
-  auditing: ["completed", "inconclusive", "failed"],
+  // A study is still cancellable while its Reviewers and Supervisor work (the run shows `comparing` then).
+  comparing: ["auditing", "completed", "inconclusive", "cancelled", "failed"],
+  auditing: ["completed", "inconclusive", "cancelled", "failed"],
   completed: [],
   inconclusive: [],
   failed: [],
@@ -51,14 +49,24 @@ const ALLOWED_TRANSITIONS: Record<RunStatus, readonly RunStatus[]> = {
 export class RunStore {
   readonly #database: DatabaseSync;
   readonly #events = new EventEmitter();
+  /** Agent identities, conversations, tool receipts, messages, and the evidence board. */
+  readonly ledger: AgentLedger;
+  /** The persisted study state machine (stages, owners, retries, terminal state). */
+  readonly stages: StudyStages;
+  /** Commitments of blinded studies: the sealed target, the locked observation and review, and the reveal. */
+  readonly blinding: BlindingLedger;
 
   constructor(filename = ":memory:") {
     this.#database = new DatabaseSync(filename);
     this.#database.exec("PRAGMA foreign_keys = ON");
     if (filename !== ":memory:") {
       this.#database.exec("PRAGMA journal_mode = WAL");
+      this.#database.exec("PRAGMA busy_timeout = 5000");
     }
     this.#migrate();
+    this.ledger = new AgentLedger(this.#database);
+    this.stages = new StudyStages(this.#database);
+    this.blinding = new BlindingLedger(this.#database);
   }
 
   #migrate(): void {
@@ -132,9 +140,7 @@ export class RunStore {
 
   /** Runs that have not reached a terminal status, oldest first. */
   listActiveRuns(): RunSnapshot[] {
-    const rows = this.#database
-      .prepare("SELECT id FROM runs ORDER BY created_at ASC, id ASC")
-      .all() as Array<{ id: string }>;
+    const rows = this.#database.prepare("SELECT id FROM runs ORDER BY created_at ASC, id ASC").all() as Array<{ id: string }>;
     return rows.map((row) => this.getRun(row.id)).filter((run) => !TERMINAL_STATUSES.has(run.status));
   }
 
@@ -153,9 +159,7 @@ export class RunStore {
     }
 
     const timestamp = new Date().toISOString();
-    this.#database
-      .prepare("UPDATE runs SET status = ?, updated_at = ? WHERE id = ?")
-      .run(parsedNext, timestamp, runId);
+    this.#database.prepare("UPDATE runs SET status = ?, updated_at = ? WHERE id = ?").run(parsedNext, timestamp, runId);
     return this.getRun(runId);
   }
 
@@ -164,9 +168,7 @@ export class RunStore {
     this.#database.exec("BEGIN IMMEDIATE");
     try {
       const row = this.#database
-        .prepare(
-          "SELECT COALESCE(MAX(sequence), 0) + 1 AS next_sequence FROM events WHERE run_id = ?",
-        )
+        .prepare("SELECT COALESCE(MAX(sequence), 0) + 1 AS next_sequence FROM events WHERE run_id = ?")
         .get(input.runId) as { next_sequence: number };
 
       const event = RunEventSchema.parse({
@@ -259,4 +261,3 @@ export class RunStore {
     return `run:${runId}:event`;
   }
 }
-

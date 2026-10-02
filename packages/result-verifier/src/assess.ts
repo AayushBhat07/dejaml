@@ -1,11 +1,9 @@
 import {
   AssessmentSchema,
   AttemptSchema,
-  ExperimentPlanSchema,
   MetricSchema,
   type Assessment,
   type Attempt,
-  type ExperimentPlan,
   type Metric,
   type RunEvent,
 } from "@dejaml/contracts";
@@ -16,6 +14,8 @@ import {
   MetricExtractionError,
   type ExportedArtifact,
   type MetricUnit,
+  type VerificationPlan,
+  VerificationPlanSchema,
 } from "./extract.js";
 
 export type VerifierEventInput = Omit<RunEvent, "id" | "sequence" | "timestamp">;
@@ -39,14 +39,14 @@ function round(value: number): number {
  * not a statement of statistical equivalence.
  */
 export function assessResult(input: {
-  plan: ExperimentPlan;
+  plan: VerificationPlan;
   attempt: Attempt;
   metric: Metric | null;
   tolerance: number;
   extractionFailure?: string;
   knownDiscrepancies?: string[];
 }): Assessment {
-  const plan = ExperimentPlanSchema.parse(input.plan);
+  const plan = VerificationPlanSchema.parse(input.plan);
   const attempt = AttemptSchema.parse(input.attempt);
   const metric = input.metric ? MetricSchema.parse(input.metric) : null;
   const claim = plan.claim;
@@ -109,9 +109,7 @@ export function assessResult(input: {
     check(
       "split",
       claim.split !== null && metric !== null && normalized(metric.split) === normalized(claim.split),
-      claim.split === null
-        ? "The paper does not identify the evaluation split."
-        : `Both values are on the ${claim.split}.`,
+      claim.split === null ? "The paper does not identify the evaluation split." : `Both values are on the ${claim.split}.`,
     ),
   ];
   // Seed behaviour is reported, not blocking: an unstated seed is a finding.
@@ -124,8 +122,7 @@ export function assessResult(input: {
   );
 
   const comparable = blocking.every(Boolean);
-  const observedValue =
-    comparable && metric ? round(convertMetricValue(metric.value, metric.unit, claim.metric.unit) ?? Number.NaN) : null;
+  const observedValue = comparable && metric ? round(convertMetricValue(metric.value, metric.unit, claim.metric.unit) ?? Number.NaN) : null;
   const paperValue = claim.metric.reportedValue;
   const signedDifference = observedValue === null ? null : round(observedValue - paperValue);
   const absoluteDifference = signedDifference === null ? null : Math.abs(signedDifference);
@@ -139,9 +136,7 @@ export function assessResult(input: {
   const discrepancyHypotheses =
     verdict === "different_result"
       ? [
-          ...(seedKnown
-            ? []
-            : ["The paper's unstated random seed may produce a different split or forest than the seed used here."]),
+          ...(seedKnown ? [] : ["The paper's unstated random seed may produce a different split or forest than the seed used here."]),
           ...(input.knownDiscrepancies ?? []),
         ].map((text) => `Hypothesis: ${text}`)
       : [];
@@ -195,7 +190,7 @@ export function describeAssessment(assessment: Assessment, unit: MetricUnit): st
  */
 export function verifyResult(input: {
   runId: string;
-  plan: ExperimentPlan;
+  plan: VerificationPlan;
   attempt: Attempt;
   artifact?: ExportedArtifact;
   stdout?: string;

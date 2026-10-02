@@ -1,0 +1,164 @@
+{
+  "schemaVersion": 1,
+  "caseId": "pyts-boss-gunpoint",
+  "kind": "positive",
+  "reviewedCaseId": "pyts-boss-gunpoint",
+  "paper": {
+    "title": "pyts: A Python Package for Time Series Classification (JMLR 21(46), 2020)",
+    "file": "acceptance/papers/pyts-jmlr-2020-19-763.pdf",
+    "sha256": "5261f92e14eb07c215b03610477d81330bfc34a89ea004a4a0fb1fa339913ea4",
+    "source": "https://github.com/JmlrOrg/v21/blob/56fb7d7f225c6b30b97a0d620443835b0774bf6e/19-763/19-763.pdf",
+    "license": "CC BY 4.0"
+  },
+  "claim": {
+    "page": 4,
+    "location": "Table 2, row pyts, column GunPoint",
+    "method": "BOSS transformer followed by a one-nearest-neighbor classifier with the BOSS metric",
+    "dataset": "UCR GunPoint (50 train / 150 test series, bundled in the pyts 0.10.0 wheel)",
+    "split": "the fixed UCR train/test split",
+    "metric": "test accuracy",
+    "unit": "fraction",
+    "reportedValue": 1.0
+  },
+  "repository": {
+    "url": "https://github.com/johannfaouzi/pyts-repro",
+    "commitSha": "1f8a8285a70e357274351c0935b5fc332be0e735",
+    "why": "The paper links github.com/johannfaouzi/pyts; its docs at tag v0.10.0 (doc/reproducibility.rst) point to this repository's 0.10.0/BOSS.ipynb, whose saved outputs match Table 2.",
+    "entrypoint": "0.10.0/BOSS.ipynb"
+  },
+  "environment": {
+    "python": "3.11",
+    "wheels": [
+      "pyts==0.10.0",
+      "numpy==1.23.5",
+      "scipy==1.9.3",
+      "scikit-learn==1.1.3",
+      "joblib==1.2.0",
+      "threadpoolctl==3.1.0",
+      "numba==0.57.1",
+      "llvmlite==0.40.1"
+    ],
+    "notes": [
+      "The authors used Python 3.7.3; these are the oldest versions with cp311 wheels. The result is unchanged (manually verified: observed 1.000).",
+      "pyts 0.10.0 has malformed Requires-Dist metadata, so its dependencies must be listed explicitly."
+    ]
+  },
+  "expected": {
+    "statuses": [
+      "reproduced",
+      "partially_reproduced"
+    ],
+    "why": "The notebook needs the other UCR datasets from timeseriesclassification.com, which the offline lab cannot reach, so the faithful plan runs the notebook's cells unchanged through an adapter that keeps only GunPoint. An adapter caps the status at partially_reproduced.",
+    "observedValueManually": 1.0,
+    "observedValue": 1.0,
+    "expectedRuntimeSeconds": 30
+  },
+  "caveats": [
+    "1.000 is a ceiling value on GunPoint; it discriminates little between methods.",
+    "The notebook is linked from the paper's repository docs, not from the PDF itself."
+  ],
+  "scriptedProof": {
+    "paperAnalyst": {
+      "summary": "Table 2 reports BOSS + 1-NN test accuracy per dataset; pyts reaches 1.000 on GunPoint.",
+      "claim": {
+        "method": "BOSS transformer followed by a one-nearest-neighbor classifier with the BOSS metric",
+        "dataset": "UCR GunPoint",
+        "split": "the fixed UCR train/test split (test set)",
+        "preprocessing": "not stated beyond the BOSS transformation",
+        "seedPolicy": "not stated (the method is deterministic)",
+        "metric": {
+          "name": "accuracy",
+          "unit": "fraction"
+        },
+        "reportedValue": 1,
+        "page": 4,
+        "location": "Table 2, row pyts, column GunPoint",
+        "excerpt": "pyts 0.752 0.870 1.000 0.526 1.000",
+        "missingFields": [
+          "hyperparameters (in the notebook, not the PDF)"
+        ]
+      }
+    },
+    "repositoryAnalyst": {
+      "listPath": "0.10.0",
+      "summary": "0.10.0/BOSS.ipynb fits BOSS + 1-NN on each UCR dataset in dataset_params and prints the test accuracy.",
+      "entrypoints": [
+        {
+          "path": "0.10.0/BOSS.ipynb",
+          "why": "the notebook behind Table 2 for pyts 0.10.0"
+        }
+      ],
+      "metricSources": [
+        {
+          "path": "0.10.0/BOSS.ipynb",
+          "description": "prints 'Accuracy on the test set: x.xxx' per dataset"
+        }
+      ],
+      "runInstructions": "Run the notebook's cells in order with pyts 0.10.0 installed.",
+      "warnings": [
+        "datasets other than GunPoint are downloaded from timeseriesclassification.com at run time"
+      ]
+    },
+    "plan": {
+      "summary": "Run the official notebook's code cells unchanged, keeping only GunPoint (the other datasets need downloads the offline lab cannot make).",
+      "entrypoint": "0.10.0/BOSS.ipynb",
+      "command": {
+        "argv": [
+          "python",
+          "../work/adapter/run_boss_notebook.py",
+          "0.10.0/BOSS.ipynb",
+          "GunPoint"
+        ],
+        "cwd": "repo"
+      },
+      "python": "3.11",
+      "compatibilityConstraints": [
+        "pip<24.1"
+      ],
+      "dataset": {
+        "name": "UCR GunPoint",
+        "source": {
+          "kind": "package",
+          "package": "pyts",
+          "path": "datasets/cached_datasets/UCR/GunPoint"
+        }
+      },
+      "metricParser": {
+        "source": "stdout",
+        "pattern": "Accuracy on the test set: (\\d\\.\\d{3})"
+      },
+      "expectedRuntimeSeconds": 60,
+      "stopConditions": [
+        "the command exits non-zero",
+        "no accuracy line is printed"
+      ],
+      "risks": [
+        "newer numpy/scipy/scikit-learn/numba than the authors' Python 3.7 environment"
+      ]
+    },
+    "review": {
+      "equivalence": "partially_equivalent",
+      "summary": "The official notebook cells ran unchanged; the adapter only restricts which datasets are evaluated.",
+      "checks": [
+        {
+          "name": "official code ran",
+          "passed": true,
+          "explanation": "the approved command's receipt exited 0"
+        },
+        {
+          "name": "same dataset and metric",
+          "passed": true,
+          "explanation": "GunPoint test accuracy, as in Table 2"
+        },
+        {
+          "name": "metric from the run",
+          "passed": true,
+          "explanation": "the lab parsed the accuracy line from the official run's stdout"
+        }
+      ],
+      "concerns": [
+        "an adapter selects GunPoint only"
+      ]
+    }
+  }
+}

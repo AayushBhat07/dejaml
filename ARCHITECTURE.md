@@ -261,6 +261,8 @@ Initial policy:
 
 The orchestrator launches Paper Analyst and Code Analyst as independent sessions after the repository is acquired. Their outputs are stored as validated structured records. The Lead Researcher begins only after both records are terminal.
 
+> **Note (2026-09-30):** OpenClaw is not required and not used. The two paragraphs below describe the retired local demo; the orchestrator's model calls now go through DéjàML's native agent runtime and its OpenAI/Anthropic provider adapters (`packages/agent-runtime`), and the OpenClaw adapters were removed.
+
 The orchestration implementation may use OpenClaw internally, but product events expose research roles and evidence—not framework-specific terminology or private reasoning traces.
 
 For the local OAuth-backed demo, the orchestrator targets three dedicated OpenClaw Gateway agents (`dejaml-paper`, `dejaml-code`, and `dejaml-lead`) through the pinned `openclaw agent --json` contract. Each has a separate workspace, no channel bindings, a distinct session per run, and an explicit tool allowlist containing only `session_status`. It never targets the operator's general-purpose agent. API-key and local providers may instead use isolated `openclaw agent exec` runs.

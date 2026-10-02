@@ -54,11 +54,10 @@ ${input.paper.text}
   };
 }
 
-export function buildLeadResearcherPrompt(input: {
-  paperAnalysis: PaperAnalysis;
-  codeAnalysis: CodeAnalysis;
-  policy: ExperimentPolicy;
-}): { systemPrompt: string; prompt: string } {
+export function buildLeadResearcherPrompt(input: { paperAnalysis: PaperAnalysis; codeAnalysis: CodeAnalysis; policy: ExperimentPolicy }): {
+  systemPrompt: string;
+  prompt: string;
+} {
   return {
     systemPrompt: `You are the DéjàML Lead Researcher. Reconcile the two validated analyst reports into exactly one bounded experiment plan. You recommend; deterministic backend policy makes the final authorization decision.${SHARED_RULES}`,
     prompt: `
@@ -87,7 +86,15 @@ export function buildAuditAgentPrompt(input: {
   assessment: Assessment;
   paperClaimedValue: number;
   paperClaimedUnit: string;
+  /** Present when an autonomous Lab Agent chose the commands and wrote its own adapter. */
+  labSession?: Record<string, unknown>;
 }): { systemPrompt: string; prompt: string } {
+  const labSession = input.labSession
+    ? `
+Autonomous lab session (the Lab Agent chose these commands and wrote these files; check that the metric was computed by the experiment rather than written in, and that the agent kept the claimed setup):
+${JSON.stringify(input.labSession, null, 2)}
+`
+    : "";
   return {
     systemPrompt: `You are the DéjàML Audit Agent. Your role is to semantically verify that the measured metric matches what the paper actually claimed — going beyond deterministic tolerance checks. Assess whether the metric name, unit, dataset split, and experimental conditions are genuinely aligned with the paper's claim.${SHARED_RULES}`,
     prompt: `
@@ -102,12 +109,13 @@ ${JSON.stringify(input.assessment, null, 2)}
 
 Paper claimed value: ${input.paperClaimedValue} ${input.paperClaimedUnit}
 Observed value: ${input.metric.value} ${input.metric.unit}
-
+${labSession}
 Assess:
 1. Is this the same metric the paper reported (name, unit, split)?
 2. Are the experimental conditions (model, dataset, split) aligned with the claim?
 3. Is the signed difference meaningful given the paper's reported value?
 4. What are the most likely causes if the values differ?
+5. If an autonomous lab session is shown: did its code compute the metric honestly, on the claimed data and split?
 
 Return "confirmed" if the metric is semantically the right one and conditions match.
 Return "uncertain" if there are ambiguities in metric alignment or conditions.

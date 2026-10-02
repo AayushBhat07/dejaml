@@ -5,7 +5,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { ExperimentPolicySchema } from "@dejaml/contracts";
+import { ExperimentPolicySchema, platformFromEnv } from "@dejaml/contracts";
 import { verifyResult } from "@dejaml/result-verifier";
 import { RunStore } from "@dejaml/run-store";
 
@@ -15,14 +15,17 @@ const projectRoot = fileURLToPath(new URL("../../../", import.meta.url));
 const policy = ExperimentPolicySchema.parse(
   JSON.parse(await readFile(new URL("cases/urban-land-cover/policy.json", `file://${projectRoot}`), "utf8")),
 );
-const caseManifest = JSON.parse(
-  await readFile(new URL("cases/urban-land-cover/case.json", `file://${projectRoot}`), "utf8"),
-);
-const imageLock = JSON.parse(
-  await readFile(new URL("lab-images/python-cpu/image-lock.json", `file://${projectRoot}`), "utf8"),
-);
+const caseManifest = JSON.parse(await readFile(new URL("cases/urban-land-cover/case.json", `file://${projectRoot}`), "utf8"));
+const imageLock = JSON.parse(await readFile(new URL("lab-images/python-cpu/image-lock.json", `file://${projectRoot}`), "utf8"));
+// The lab runs on the configured platform (DEJAML_PLATFORM, default: this host).
+const platform = platformFromEnv(process.env, process.arch).containerPlatform;
 // The lock records the image ID verified on its build platform. Another
 // platform produces a different ID; override only after rebuilding locally.
+if (!process.env.DEJAML_EXPECTED_IMAGE_ID && imageLock.verifiedPlatform !== platform) {
+  throw new Error(
+    `the image lock was verified on ${imageLock.verifiedPlatform}; on ${platform}, rebuild the image and set DEJAML_EXPECTED_IMAGE_ID`,
+  );
+}
 const expectedImageId = process.env.DEJAML_EXPECTED_IMAGE_ID ?? imageLock.verifiedImageId;
 
 const plan = {
@@ -60,6 +63,7 @@ try {
     projectRoot,
     image: imageLock.image,
     expectedImageId,
+    platform,
   });
   const { value, receipt } = await manager.withLab(spec, async (lab) => {
     await manager.prepareLab(lab.labId, plan.preparation);

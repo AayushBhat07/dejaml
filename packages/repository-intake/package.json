@@ -17,6 +17,7 @@
   },
   "dependencies": {
     "@dejaml/contracts": "0.1.0",
-    "zod": "^4.2.1"
+    "zod": "^4.2.1",
+    "@dejaml/net-guard": "0.1.0"
   }
 }

@@ -1,0 +1,162 @@
+{
+  "schemaVersion": 1,
+  "caseId": "rocket-ecg200",
+  "kind": "positive",
+  "reviewedCaseId": "rocket-ecg200",
+  "paper": {
+    "title": "ROCKET: Exceptionally Fast and Accurate Time Series Classification Using Random Convolutional Kernels",
+    "sha256": "b58acd66dbd188978fc379f6949a4ea26c3c97aeaf6a27f5f16ccc182628df7a",
+    "source": "https://arxiv.org/pdf/1910.13051",
+    "license": "arXiv non-exclusive distribution license",
+    "note": "Not committed; pass 02_ROCKET.pdf as the second argument. Its SHA-256 must match."
+  },
+  "claim": {
+    "page": 25,
+    "location": "Table 1, row ECG200, column Rocket",
+    "method": "ROCKET with 10,000 random convolutional kernels and RidgeClassifierCV",
+    "dataset": "UCR ECG200 (100 train / 100 test series)",
+    "split": "the fixed UCR train/test split",
+    "metric": "mean test accuracy across 10 runs",
+    "unit": "fraction",
+    "reportedValue": 0.906
+  },
+  "repository": {
+    "url": "https://github.com/angus924/rocket",
+    "commitSha": "36bd908b4f38e9ea8ca1a3ee6caaf71d405faf86",
+    "why": "The official repository linked by the paper; its reproduction script runs ROCKET over the UCR archive and its committed results contain the ECG200 10-run mean and population standard deviation.",
+    "entrypoint": "code/reproduce_experiments_ucr.py"
+  },
+  "environment": {
+    "python": "3.11",
+    "wheels": [
+      "numpy==1.23.5",
+      "scipy==1.9.3",
+      "scikit-learn==1.1.3",
+      "joblib==1.2.0",
+      "threadpoolctl==3.1.0",
+      "numba==0.57.1",
+      "llvmlite==0.40.1"
+    ],
+    "notes": [
+      "The repository does not pin versions. These versions have Python 3.11 binary wheels and preserve RidgeClassifierCV(normalize=True), which newer scikit-learn releases remove.",
+      "The tolerance is sealed before execution. It is 0.0053: the rounded 95% two-sample mean allowance t(9,0.975) × 0.00516398 × sqrt(1/10 + 1/10), using the official repository's 10-run population SD."
+    ]
+  },
+  "dataset": {
+    "url": "https://timeseriesclassification.com/aeon-toolkit/ECG200.zip",
+    "sha256": "755937ea37849346ea20033666b19d17345bb039971e8fa33458b16b62c09380",
+    "license": "UCR/UEA archive terms; dataset page does not state a separate license",
+    "allowedHost": "timeseriesclassification.com"
+  },
+  "expected": {
+    "statuses": ["partially_reproduced", "not_reproduced"],
+    "why": "A project-owned adapter caps the result at partially_reproduced. The real run may honestly be not_reproduced if its independently sampled 10-run mean falls outside the pre-registered statistical tolerance.",
+    "expectedRuntimeSeconds": 120
+  },
+  "caveats": [
+    "ROCKET is intentionally stochastic; exact equality with the paper is neither required nor expected.",
+    "The official repository records ECG200 mean 0.906 and population SD 0.00516398 for 10 runs; the paper prints the mean in Table 1.",
+    "The one-dataset adapter is project-owned because the upstream script crashes on a one-row dataset-name file; this caps the status at partially_reproduced."
+  ],
+  "scriptedProof": {
+    "paperAnalyst": {
+      "summary": "Table 1 reports ROCKET mean test accuracy 0.9060 on the fixed UCR ECG200 split; the method uses 10,000 random kernels and the experiments use 10 runs.",
+      "claim": {
+        "method": "ROCKET with 10,000 random convolutional kernels and RidgeClassifierCV",
+        "dataset": "UCR ECG200",
+        "split": "the fixed UCR train/test split (100 train, 100 test)",
+        "preprocessing": "the UCR ECG200 text-format split is loaded directly; ROCKET creates 10,000 random convolutional kernels per run",
+        "seedPolicy": "10 independent runs with different random kernels; no fixed seeds are stated",
+        "metric": { "name": "mean test accuracy across 10 runs", "unit": "fraction" },
+        "reportedValue": 0.906,
+        "page": 25,
+        "location": "Table 1, row ECG200, column Rocket",
+        "excerpt": "ECG200                0.9060   0.8700   0.8300   0.8500   0.8740   0.9090   0.8600   0.9100",
+        "missingFields": ["the individual random seeds"]
+      }
+    },
+    "repositoryAnalyst": {
+      "listPath": "code",
+      "summary": "code/reproduce_experiments_ucr.py loads fixed UCR text splits, generates 10,000 random kernels per run, fits RidgeClassifierCV, and writes mean accuracy and population standard deviation.",
+      "entrypoints": [
+        { "path": "code/reproduce_experiments_ucr.py", "why": "the official UCR experiment reproduction script" }
+      ],
+      "metricSources": [
+        { "path": "code/reproduce_experiments_ucr.py", "description": "stores _results.mean() and _results.std() in results_ucr.csv" }
+      ],
+      "runInstructions": "Run reproduce_experiments_ucr.py with the UCR text-format parent directory, a dataset-name file, 10 runs, and 10,000 kernels.",
+      "warnings": [
+        "the repository does not pin dependency versions",
+        "the multi-dataset script receives a scalar from np.loadtxt for a one-row dataset-name file"
+      ]
+    },
+    "plan": {
+      "summary": "Run the reviewed single-dataset adapter using the pinned repository's ROCKET functions on the verified official ECG200 split for 10 runs with 10,000 kernels.",
+      "entrypoint": "code/reproduce_experiments_ucr.py",
+      "command": {
+        "argv": [
+          "python",
+          "../work/adapter/rocket_ecg200_runner.py",
+          "--rocket-functions",
+          "code/rocket_functions.py",
+          "--training",
+          "../data/extracted/ECG200_TRAIN.txt",
+          "--testing",
+          "../data/extracted/ECG200_TEST.txt",
+          "--runs",
+          "10",
+          "--kernels",
+          "10000",
+          "--output",
+          "../artifacts/result.json"
+        ],
+        "cwd": "repo"
+      },
+      "python": "3.11",
+      "requirements": [
+        "numpy==1.23.5",
+        "scipy==1.9.3",
+        "scikit-learn==1.1.3",
+        "joblib==1.2.0",
+        "threadpoolctl==3.1.0",
+        "numba==0.57.1",
+        "llvmlite==0.40.1"
+      ],
+      "compatibilityConstraints": [],
+      "dataset": {
+        "name": "UCR ECG200",
+        "source": {
+          "kind": "download",
+          "url": "https://timeseriesclassification.com/aeon-toolkit/ECG200.zip",
+          "sha256": "755937ea37849346ea20033666b19d17345bb039971e8fa33458b16b62c09380",
+          "extract": true
+        }
+      },
+      "metricParser": { "source": "json", "path": "artifacts/result.json", "key": "metrics.accuracyMean" },
+      "expectedRuntimeSeconds": 120,
+      "stopConditions": [
+        "the command exits non-zero",
+        "artifacts/result.json is not written",
+        "the artifact does not contain exactly 10 per-run accuracies"
+      ],
+      "risks": [
+        "random kernels mean that an independent 10-run mean will not necessarily equal the paper's mean",
+        "the reviewed adapter is project-owned"
+      ],
+      "adapter": { "reviewedAdapterId": "rocket-ecg200-runner" }
+    },
+    "review": {
+      "equivalence": "partially_equivalent",
+      "summary": "The reviewed project-owned adapter imported the pinned repository's ROCKET transform and preserved the official dataset, split, random-kernel count, run count, classifier, and metric.",
+      "checks": [
+        { "name": "approved command ran", "passed": true, "explanation": "the official receipt exited 0" },
+        { "name": "same dataset and split", "passed": true, "explanation": "the verified UCR ECG200 fixed train/test files were used" },
+        { "name": "same stochastic protocol", "passed": true, "explanation": "10 independent runs with 10,000 upstream ROCKET kernels per run" },
+        { "name": "metric from the run", "passed": true, "explanation": "metrics.accuracyMean came from the newly written result artifact" }
+      ],
+      "concerns": [
+        "project-owned single-dataset adapter, not the upstream multi-dataset script"
+      ]
+    }
+  }
+}

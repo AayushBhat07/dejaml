@@ -1,0 +1,28 @@
+{
+  "id": "chatcmpl-fixture-text-001",
+  "object": "chat.completion",
+  "created": 1790000000,
+  "model": "gpt-fixture-1",
+  "choices": [
+    {
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": "The claim reproduces: accuracy 0.913 vs reported 0.915.",
+        "refusal": null,
+        "annotations": []
+      },
+      "logprobs": null,
+      "finish_reason": "stop"
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 1200,
+    "completion_tokens": 40,
+    "total_tokens": 1240,
+    "prompt_tokens_details": { "cached_tokens": 1024, "audio_tokens": 0 },
+    "completion_tokens_details": { "reasoning_tokens": 0, "audio_tokens": 0, "accepted_prediction_tokens": 0, "rejected_prediction_tokens": 0 }
+  },
+  "service_tier": "default",
+  "system_fingerprint": null
+}

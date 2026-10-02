@@ -1,0 +1,24 @@
+{
+  "id": "chatcmpl-fixture-badargs-001",
+  "object": "chat.completion",
+  "created": 1790000002,
+  "model": "gpt-fixture-1",
+  "choices": [
+    {
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": null,
+        "tool_calls": [
+          {
+            "id": "call_fixture_bad",
+            "type": "function",
+            "function": { "name": "run_command", "arguments": "{\"command\": \"ls -la" }
+          }
+        ]
+      },
+      "finish_reason": "tool_calls"
+    }
+  ],
+  "usage": { "prompt_tokens": 300, "completion_tokens": 12, "total_tokens": 312 }
+}

@@ -4,6 +4,8 @@
 **Completed:** `2026-09-28`
 **Owner:** `Claude`
 
+> **Note (2026-09-30):** OpenClaw is not required and not used. No `dejaml-audit` OpenClaw agent needs to be created. DéjàML runs its own native agents (`packages/agent-runtime`) and reaches OpenAI or Anthropic through its own provider adapters; the OpenClaw adapters and scripts referenced below were removed. This historical note is otherwise unchanged.
+
 ## Objective
 
 Add an LLM-based post-run verification step that checks whether the measured metric semantically matches what the paper claimed, going beyond the seven deterministic comparability checks in the Result Verifier.

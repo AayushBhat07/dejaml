@@ -1,12 +1,10 @@
 import { z } from "zod";
 
-export const Sha256Schema = z
-  .string()
-  .regex(/^[a-f0-9]{64}$/, "expected a lowercase SHA-256 digest");
+import { StudyResultStatusSchema } from "./study.js";
 
-export const CommitShaSchema = z
-  .string()
-  .regex(/^[a-f0-9]{40}$/, "expected a full lowercase Git commit SHA");
+export const Sha256Schema = z.string().regex(/^[a-f0-9]{64}$/, "expected a lowercase SHA-256 digest");
+
+export const CommitShaSchema = z.string().regex(/^[a-f0-9]{40}$/, "expected a full lowercase Git commit SHA");
 
 export const GithubRepositoryUrlSchema = z
   .url()
@@ -55,19 +53,23 @@ export const PaperDocumentSchema = z.object({
   warnings: z.array(z.string()),
 });
 
-export const RepositoryCandidateSchema = z.object({
-  repositoryUrl: GithubRepositoryUrlSchema,
-  owner: z.string().min(1),
-  name: z.string().min(1),
-  occurrences: z
-    .array(
+export const RepositoryCandidateSchema = z
+  .object({
+    repositoryUrl: GithubRepositoryUrlSchema,
+    owner: z.string().min(1),
+    name: z.string().min(1),
+    occurrences: z.array(
       z.object({
         pageNumber: z.number().int().positive(),
         rawUrl: z.string().min(1),
       }),
-    )
-    .min(1),
-});
+    ),
+    /** The person starting the study named this repository; it may not appear in the paper. */
+    providedByUser: z.boolean().optional(),
+  })
+  .refine((value) => value.providedByUser === true || value.occurrences.length > 0, {
+    message: "a repository found in the paper needs at least one occurrence",
+  });
 
 export const RepositoryAcquisitionSchema = z.object({
   schemaVersion: z.literal(1),
@@ -308,9 +310,84 @@ export const ActorSchema = z.enum([
   "code_analyst",
   "lead_researcher",
   "lab_engineer",
+  "lab_reviewer",
   "result_verifier",
   "audit_agent",
+  "repository_analyst",
+  "reproduction_planner",
+  "debugger",
+  "independent_reviewer",
+  "supervisor",
 ]);
+
+/**
+ * The outcome of one claim. Only an approved, methodologically equivalent
+ * measurement can be "reproduced"; a toy example, a rewritten approximation,
+ * a changed dataset, a reduced sample, or a replacement metric never can.
+ */
+export const ResultStatusSchema = StudyResultStatusSchema;
+
+export const AdapterRecordSchema = z.object({
+  path: z.string().min(1),
+  sha256: Sha256Schema,
+  why: z.string().min(1),
+  /** The repository file(s) or paper section the adapter's logic comes from. */
+  source: z.string().min(1),
+  differences: z.array(z.string()),
+  changesEvidenceEquivalence: z.boolean(),
+});
+
+export const CommandReceiptSchema = z.object({
+  receiptId: z.string().min(1),
+  agentId: z.string().min(1),
+  argv: z.array(z.string()),
+  cwd: z.string().min(1),
+  exitCode: z.number().int().nullable(),
+  timedOut: z.boolean(),
+  durationMs: z.number().int().nonnegative(),
+  stdoutSha256: Sha256Schema,
+  stderrSha256: Sha256Schema,
+  stdoutExcerpt: z.string(),
+  stderrExcerpt: z.string(),
+  artifacts: z.array(z.object({ path: z.string(), sha256: Sha256Schema, bytes: z.number().int().nonnegative() })),
+});
+
+export const ClaimEvidenceSchema = z.object({
+  claim: z.object({
+    experimentLabel: z.string(),
+    metric: z.string(),
+    unit: z.enum(["fraction", "percent", "score"]),
+    reportedValue: z.number(),
+    paperReferences: z.array(z.string()),
+  }),
+  repository: z.object({ url: z.string(), commitSha: CommitShaSchema, manifestSha256: Sha256Schema.nullable() }),
+  datasets: z.array(
+    z.object({ name: z.string(), source: z.string(), sha256: Sha256Schema, bytes: z.number().int().nonnegative().nullable() }),
+  ),
+  environment: z.object({
+    image: z.string(),
+    imageId: z.string().nullable(),
+    python: z.string().nullable(),
+    manifestSha256: Sha256Schema.nullable(),
+    packages: z.array(z.object({ name: z.string(), version: z.string(), sha256: Sha256Schema })),
+  }),
+  commands: z.array(CommandReceiptSchema),
+  artifacts: z.array(z.object({ path: z.string(), sha256: Sha256Schema, bytes: z.number().int().nonnegative() })),
+  adapters: z.array(AdapterRecordSchema),
+  measuredValue: z.number().nullable(),
+  comparison: z.object({
+    method: z.string(),
+    tolerance: z.number().nullable(),
+    absoluteDifference: z.number().nullable(),
+  }),
+  status: ResultStatusSchema,
+  reasons: z.array(z.string()),
+});
+
+export type ResultStatus = z.infer<typeof ResultStatusSchema>;
+export type AdapterRecord = z.infer<typeof AdapterRecordSchema>;
+export type CommandReceipt = z.infer<typeof CommandReceiptSchema>;
+export type ClaimEvidence = z.infer<typeof ClaimEvidenceSchema>;
 
 export const RunEventSchema = z.object({
   id: z.string().min(1),
@@ -364,11 +441,7 @@ export const AssessmentSchema = z.object({
   signedDifference: z.number().finite().nullable(),
   absoluteDifference: z.number().finite().nonnegative().nullable(),
   tolerance: z.number().finite().nonnegative().nullable(),
-  verdict: z.enum([
-    "reproduced_within_tolerance",
-    "different_result",
-    "inconclusive",
-  ]),
+  verdict: z.enum(["reproduced_within_tolerance", "different_result", "inconclusive"]),
   discrepancyHypotheses: z.array(z.string()),
   evidence: z.array(EvidencePointerSchema),
   limitations: z.array(z.string()),
@@ -402,3 +475,6 @@ export type RunEvent = z.infer<typeof RunEventSchema>;
 export type Attempt = z.infer<typeof AttemptSchema>;
 export type Metric = z.infer<typeof MetricSchema>;
 export type Assessment = z.infer<typeof AssessmentSchema>;
+
+export * from "./platform.js";
+export * from "./study.js";

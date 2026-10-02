@@ -1,0 +1,11 @@
+# Project-owned compatibility constraints (trusted; never read from a repository or a model).
+#
+# A reproduction plan may apply a constraint only if it is listed here, and every
+# constraint it applies is reported with its reason. Adding one is a reviewed
+# change to this repository. Each line needs a reason comment, for example:
+#
+#   numpy<2  # reason: code written for NumPy 1.x uses np.float, removed in NumPy 1.24
+#
+# The list is empty by default.
+
+pip<24.1  # reason: installer only; pip 24.1 and later refuse wheels whose Requires-Dist metadata uses the legacy malformed form (for example pyts 0.10.0), which pip 24.0 installs unchanged

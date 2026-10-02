@@ -1,0 +1,84 @@
+{
+  "schemaVersion": 1,
+  "caseId": "urban-land-cover-random-forest",
+  "paper": {
+    "title": "Tabular Deep Learning vs Classical Machine Learning for Urban Land Cover Classification (arXiv 2609.19010)",
+    "sha256": "13b0c3fb3c2823f78eb650f918aa521493bddd6eccb55a2b9857c37d44d0a6a1"
+  },
+  "claim": {
+    "page": 4,
+    "location": "Table 2, row Random Forest, test accuracy column",
+    "excerpt": "81.66",
+    "method": "Random Forest classifier",
+    "dataset": "UCI Urban Land Cover",
+    "split": "the official UCI test set (testing.csv)",
+    "preprocessing": "z-score feature scaling as described in the paper",
+    "seedPolicy": "the paper states fixed seeds without listing them",
+    "metric": {
+      "name": "test accuracy",
+      "unit": "percent"
+    },
+    "reportedValue": 81.66,
+    "identify": {
+      "methodIncludes": [
+        "Random Forest"
+      ],
+      "methodExcludes": [],
+      "datasetIncludes": [
+        "Urban Land Cover"
+      ]
+    }
+  },
+  "repository": {
+    "url": "https://github.com/mtesha/tdl-vs-ml-urbanlandcover",
+    "commitSha": "49ece7ff4cc43fd4cb258678d44854f1cb2a417d",
+    "entrypoint": "Urban Land Cover Classification.ipynb"
+  },
+  "environment": {
+    "python": [
+      "3.12"
+    ],
+    "requirements": [
+      "numpy==2.5.3",
+      "pandas==3.0.6",
+      "scipy==1.18.1",
+      "scikit-learn==1.9.1"
+    ],
+    "allowedCompatibilityConstraints": []
+  },
+  "dataset": {
+    "source": {
+      "kind": "download",
+      "url": "https://archive.ics.uci.edu/static/public/295/urban%2Bland%2Bcover.zip",
+      "sha256": "277a27000a4a4b593f655595b92904ccb30ece48b8bb2a35cf5d3854d7204f79",
+      "extract": true,
+      "files": [
+        "urban+land+cover/training.csv",
+        "urban+land+cover/testing.csv"
+      ]
+    }
+  },
+  "adapter": {
+    "id": "urban-land-cover-rf-runner",
+    "path": "work/adapter/urban_land_cover_runner.py",
+    "file": "acceptance/proof/urban_land_cover_runner.py",
+    "sha256": "9156565eb6cac1679f266ee03644dc377fc87934c8ced1a903e167999e591476",
+    "why": "The official result lives in a Jupyter notebook that is not runnable as a script and reads differently named CSV files. This project-owned adapter re-implements the notebook's Random Forest cells as a script; it is not official repository code.",
+    "source": "Project-owned re-implementation of the Random Forest cells of the pinned notebook. Arguments: --training <training.csv> --testing <testing.csv> --output <artifacts/result.json>. It writes metrics.accuracyPercent to the output JSON.",
+    "differences": [
+      "project-owned adapter, not official repository code: the notebook's Random Forest cells re-implemented as a script",
+      "the paper states fixed seeds, but the notebook leaves train_test_split random_state unset; the adapter fixes it to 42 (a DejaML choice)",
+      "the paper says the validation split is stratified, but the notebook does not pass stratify; the adapter follows the notebook",
+      "the paper says test features reuse training statistics, but the notebook z-scores the test set independently; the adapter follows the notebook",
+      "the notebook reads urbantraining.csv and urbantesting.csv; the official UCI archive provides training.csv and testing.csv, passed as arguments"
+    ]
+  },
+  "metricParser": {
+    "source": "json",
+    "path": "artifacts/result.json",
+    "key": "metrics.accuracyPercent"
+  },
+  "expectedRuntimeCeilingSeconds": 300,
+  "tolerance": 1.0,
+  "maximumVerdict": "partially_reproduced"
+}

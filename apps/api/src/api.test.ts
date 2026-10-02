@@ -1,10 +1,11 @@
+import { createHash } from "node:crypto";
 import { copyFile, mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { RunEventSchema, type ExperimentPlan, type RunEvent } from "@dejaml/contracts";
+import { buildPlatformSpec, RunEventSchema, type ExperimentPlan, type RunEvent } from "@dejaml/contracts";
 import { LabManager } from "@dejaml/lab-manager";
 import { RunStore } from "@dejaml/run-store";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -12,8 +13,12 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { checkDemoAcceptance } from "./acceptance.js";
 import { loadCases, type CuratedCase } from "./cases.js";
 import type { StudyReport } from "./pipeline.js";
+import { loadProviderConfig } from "@dejaml/agent-runtime";
+
+import { DEFAULT_STUDY_RESOURCES } from "./pipeline.js";
 import { createApiServer, recoverAfterRestart, type ApiServer } from "./server.js";
-import { paperPdf, ScriptedModel, ScriptedRuntime, STAND_IN_IMAGE_ID, standInAcquire } from "./stand-ins.js";
+import { type ClaimTarget, fixedLabImagePort, loadClaimTarget } from "./study/index.js";
+import { paperPdf, ScriptedModel, ScriptedRuntime, ScriptedStudyProvider, STAND_IN_IMAGE_ID, standInAcquire } from "./stand-ins.js";
 
 const repoRoot = fileURLToPath(new URL("../../../", import.meta.url));
 let work: string;
@@ -24,9 +29,27 @@ let serverStarted = false;
 let base: string;
 let checkoutsCreated: string[];
 let curated: CuratedCase;
+let selections: Array<{ providerId: string; model: string }>;
+let studyProvider: ScriptedStudyProvider;
 
 async function startServer(
-  options: { timeoutSeconds?: number; editPlan?: (plan: ExperimentPlan) => ExperimentPlan; commitSha?: string } = {},
+  options: {
+    timeoutSeconds?: number;
+    editPlan?: (plan: ExperimentPlan) => ExperimentPlan;
+    commitSha?: string;
+    labAgentEnabled?: boolean;
+    labActionOverride?: (state: string, action: string) => string;
+    autonomous?: boolean;
+    repositoryUrl?: string;
+    /** Independent Lab Engineers per round in autonomous studies. */
+    engineers?: number;
+    /** Provider settings as the server's environment would carry them. */
+    providerEnv?: Record<string, string>;
+    /** The server's reviewed claim targets. */
+    reviewedTargets?: Map<string, ClaimTarget>;
+    /** Enables the administrator's audit download. */
+    adminToken?: string;
+  } = {},
 ): Promise<void> {
   // A private project root holding the reviewed adapter and placeholder data files.
   const projectRoot = join(work, "project");
@@ -43,15 +66,50 @@ async function startServer(
   store = new RunStore();
   runtime = new ScriptedRuntime();
   const labs = new LabManager({ runtime, labRoot: join(work, "labs"), events: (event) => store.appendEvent(event) });
+  const model = new ScriptedModel(cases[0]!, options.timeoutSeconds ?? 120, 0, options.editPlan, options.labActionOverride);
+  model.repositoryUrl = options.repositoryUrl ?? null;
+  selections = [];
+  studyProvider = new ScriptedStudyProvider(options.repositoryUrl ?? curated.policy.repository.url);
   api = createApiServer({
     store,
     labs,
-    model: new ScriptedModel(cases[0]!, options.timeoutSeconds ?? 120, 0, options.editPlan),
+    providers: loadProviderConfig(
+      options.providerEnv ?? { DEJAML_OPENAI_API_KEY: "sk-server-test-key-0001", DEJAML_OPENAI_MODELS: "default-model" },
+    ),
+    providerFactory: (providerId, modelName) => {
+      selections.push({ providerId, model: modelName });
+      return studyProvider;
+    },
+    structuredModel: () => model,
     cases,
     projectRoot,
     workRoot: join(work, "data"),
     image: { name: "dejaml/python-cpu:0.1.0", expectedImageId: STAND_IN_IMAGE_ID },
     acquire: standInAcquire(cases[0]!, checkoutsCreated, options.commitSha),
+    ...(options.labAgentEnabled ? { labAgentEnabled: true } : {}),
+    ...(options.reviewedTargets ? { reviewedTargets: options.reviewedTargets } : {}),
+    ...(options.adminToken ? { adminToken: options.adminToken } : {}),
+    ...(options.autonomous
+      ? {
+          multiAgent: {
+            enabled: true,
+            dependencies: null,
+            images: fixedLabImagePort({ name: "dejaml/python-cpu:0.1.0", expectedImageId: STAND_IN_IMAGE_ID }),
+            datasets: null,
+            config: {
+              platform: buildPlatformSpec({ architecture: "amd64", python: "3.11" }),
+              resources: DEFAULT_STUDY_RESOURCES,
+              engineers: options.engineers ?? 1,
+              datasetPolicy: { allowedHosts: [], maxRedirects: 3, maxBytes: 1024, timeoutMs: 1000 } as never,
+              maxStudyMs: 60_000,
+              commandTimeoutSeconds: 60,
+              maxReplans: 2,
+              trustedConstraints: [],
+            },
+            leakCheck: async () => ({ containers: [...runtime.containers], networks: [] }),
+          },
+        }
+      : {}),
   });
   await mkdir(join(work, "data"), { recursive: true });
   await new Promise<void>((resolve) => api.server.listen(0, "127.0.0.1", resolve));
@@ -59,9 +117,10 @@ async function startServer(
   base = `http://127.0.0.1:${(api.server.address() as AddressInfo).port}`;
 }
 
-async function upload(data: Uint8Array | string, name = "paper.pdf"): Promise<Response> {
+async function upload(data: Uint8Array | string, name = "paper.pdf", fields: Record<string, string> = {}): Promise<Response> {
   const form = new FormData();
   form.append("paper", new Blob([typeof data === "string" ? data : new Uint8Array(data)]), name);
+  for (const [key, value] of Object.entries(fields)) form.append(key, value);
   return fetch(`${base}/api/runs`, { method: "POST", body: form });
 }
 
@@ -161,6 +220,516 @@ describe("Run API", () => {
     expect(resumed.map((event) => event.sequence)).toEqual([events.length - 2, events.length - 1, events.length]);
   });
 
+  it("lets a bounded Lab Agent call real lab tools and records each decision", async () => {
+    await startServer({ labAgentEnabled: true });
+    const { runId } = (await (await upload(await paperPdf())).json()) as { runId: string };
+    await api.idle();
+    const report = (await (await fetch(`${base}/api/runs/${runId}/report`)).json()) as StudyReport;
+    expect(report.status).toBe("completed");
+    expect(report.metric?.value).toBe(79.88);
+    expect(report.lab?.cleanup?.verifiedAbsent).toBe(true);
+    expect(runtime.containers.size).toBe(0);
+    expect(report.events.filter((event) => event.type === "lab_agent_action").map((event) => event.publicPayload.action)).toEqual([
+      "request_lab",
+      "run_approved_experiment",
+      "inspect_result",
+      "finish",
+    ]);
+    expect(report.events.some((event) => event.type === "lab_agent_finished")).toBe(true);
+  });
+
+  it("rejects an out-of-order Lab Agent action and removes the created lab", async () => {
+    await startServer({
+      labAgentEnabled: true,
+      labActionOverride: (state, action) => (state === "ready" ? "finish" : action),
+    });
+    const { runId } = (await (await upload(await paperPdf())).json()) as { runId: string };
+    await api.idle();
+    const report = (await (await fetch(`${base}/api/runs/${runId}/report`)).json()) as StudyReport;
+    expect(report.status).toBe("failed");
+    expect(report.events.some((event) => event.type === "lab_agent_rejected")).toBe(true);
+    expect(report.events.some((event) => event.type === "lab_cleanup")).toBe(true);
+    expect(runtime.containers.size).toBe(0);
+  });
+
+  it("runs a paper with no reviewed case through the stage machine with separate, independent agents", async () => {
+    await startServer({ autonomous: true, engineers: 2, repositoryUrl: "https://github.com/example/new-paper" });
+    const { runId } = (await (await upload(await paperPdf(true, "https://github.com/example/new-paper"))).json()) as {
+      runId: string;
+    };
+    await api.idle();
+    const report = (await (await fetch(`${base}/api/runs/${runId}/report`)).json()) as StudyReport;
+    const study = report.study!;
+    expect(report.status).toBe("completed");
+    expect(report.caseId).toBeNull();
+    expect(report.repository?.url).toBe("https://github.com/example/new-paper");
+
+    // Every role ran as its own agent instance with its own id, grants, and history.
+    const roles = study.agents.map((agent) => agent.role).sort();
+    expect(roles).toEqual([
+      "independent_reviewer",
+      "independent_reviewer",
+      "lab_engineer",
+      "lab_engineer",
+      "paper_analyst",
+      "repository_analyst",
+      "reproduction_planner",
+      "supervisor",
+    ]);
+    expect(new Set(study.agents.map((agent) => agent.agentId)).size).toBe(study.agents.length);
+    expect(study.agents.every((agent) => agent.status === "completed")).toBe(true);
+    expect(study.agents.find((agent) => agent.role === "independent_reviewer")?.grants).not.toContain("lab_run");
+    expect(study.agents.find((agent) => agent.role === "supervisor")?.grants).toEqual(["board_read"]);
+    const conversations = study.agents.map((agent) => store.ledger.listTurns(agent.agentId));
+    expect(conversations.every((turns) => turns.length > 0)).toBe(true);
+    const firstMessages = conversations.map((turns) => JSON.stringify(turns[0]));
+    expect(new Set(firstMessages).size).toBe(firstMessages.length);
+
+    // Code owns every stage, in order, each run once.
+    expect(study.stages.map((stage) => [stage.stage, stage.status, stage.attempt])).toEqual([
+      ["ingesting", "completed", 1],
+      ["analyzing_paper", "completed", 1],
+      ["analyzing_repository", "completed", 1],
+      ["reconciling", "completed", 1],
+      ["policy_review", "completed", 1],
+      ["preparing", "completed", 1],
+      ["executing", "completed", 1],
+      ["reviewing", "completed", 1],
+      ["deciding", "completed", 1],
+    ]);
+    expect(study.transitions.at(-1)).toMatchObject({ stage: "completed", to: "completed", reason: "reproduced" });
+
+    // One bounded claim, approved by policy, run exactly, metric parsed by code, reviewed.
+    expect(study.contract).toMatchObject({
+      entrypoint: "train.py",
+      command: { argv: ["python", "train.py"], cwd: "work/repo" },
+      reportedValue: 81.66,
+      tolerance: 2,
+    });
+    expect(study.planDigest).toMatch(/^[a-f0-9]{64}$/u);
+    expect(study.policy).toMatchObject({ outcome: "approved", violations: [] });
+    expect(study.engineers.map((item) => [item.label, item.official?.exitCode, item.metric?.ok, item.value, item.review?.verdict])).toEqual(
+      [
+        ["engineer-1", 0, true, 79.88, "approve"],
+        ["engineer-2", 0, true, 79.88, "approve"],
+      ],
+    );
+    expect(study.result).toMatchObject({
+      status: "reproduced",
+      computedStatus: "reproduced",
+      paperValue: 81.66,
+      observedValue: 79.88,
+      tolerance: 2,
+    });
+    expect(study.result.absoluteDifference).toBeCloseTo(1.78);
+    expect(study.board.map((entry) => entry.kind)).toEqual(
+      expect.arrayContaining([
+        "paper_claim",
+        "repository_receipt",
+        "repository_mapping",
+        "plan",
+        "claim_contract",
+        "command_receipt",
+        "metric",
+        "artifact",
+        "submission",
+        "review",
+        "status_decision",
+        "stage",
+      ]),
+    );
+    // The official run went through lab_run_official; nothing typed the number.
+    const official = study.board.filter((entry) => entry.kind === "command_receipt" && entry.payload.official === true);
+    expect(official).toHaveLength(2);
+    expect(official[0]?.payload.argv).toEqual(["/workspace/case/work/.venv/bin/python", "train.py"]);
+    expect(report.metric?.value).toBe(79.88);
+    expect(report.assessment?.verdict).toBe("reproduced_within_tolerance");
+
+    // The Reviewer never saw the Engineer's own words.
+    const reviewer = study.agents.find((agent) => agent.role === "independent_reviewer")!;
+    expect(JSON.stringify(store.ledger.listTurns(reviewer.agentId))).not.toContain("PRIVATE-ENGINEER-NOTE");
+
+    // Labs: one per engineer, offline, repository read-only; all destroyed and verified.
+    expect(report.events.filter((event) => event.type === "lab_create" && event.status === "completed")).toHaveLength(2);
+    const create = runtime.createArgs;
+    expect(create).toContain("none");
+    expect(create.some((arg) => arg.endsWith("dst=/workspace/case/repo,readonly"))).toBe(true);
+    expect(study.cleanup).toMatchObject({ verified: true, workDirRemoved: true, leftoverContainers: [], liveAgents: [] });
+    expect(study.cleanup.labs).toHaveLength(2);
+    expect(runtime.containers.size).toBe(0);
+    expect(checkoutsCreated).toHaveLength(1);
+    expect(selections).toEqual([{ providerId: "openai", model: "default-model" }]);
+    const persisted = [
+      JSON.stringify(report),
+      JSON.stringify(store.ledger.listAgents(runId)),
+      JSON.stringify(store.ledger.listReceipts({ runId })),
+    ].join("\n");
+    expect(persisted).not.toContain("sk-server-test-key-0001");
+  });
+
+  /** A reviewed target for the fixture paper, as the server's registry would hold it. */
+  async function fixtureTarget(paper: Uint8Array, change: Record<string, unknown> = {}): Promise<Map<string, ClaimTarget>> {
+    const target = await loadClaimTarget(
+      {
+        schemaVersion: 1,
+        caseId: "fixture-rf-accuracy",
+        paper: { title: "Fixture paper", sha256: createHash("sha256").update(paper).digest("hex") },
+        claim: {
+          page: 1,
+          location: "Section 4",
+          excerpt: "Random Forest test accuracy of 81.66 percent on the test set.",
+          method: "Random Forest",
+          dataset: "UCI Urban Land Cover",
+          split: "official test set",
+          preprocessing: "not stated",
+          seedPolicy: "not stated",
+          metric: { name: "accuracy", unit: "percent" },
+          reportedValue: 81.66,
+          identify: { methodIncludes: ["Random Forest"], methodExcludes: [], datasetIncludes: ["Urban Land Cover"] },
+        },
+        repository: {
+          url: "https://github.com/example/new-paper",
+          commitSha: "7f8b1c4cbe5b4caf2f6cc8bc0d6fc31ce2f6bd71",
+          entrypoint: "train.py",
+        },
+        environment: { python: ["3.11"], requirements: [], allowedCompatibilityConstraints: [] },
+        dataset: { source: { kind: "repository" } },
+        adapter: null,
+        metricParser: { source: "json", path: "artifacts/result.json", key: "metrics.accuracyPercent" },
+        expectedRuntimeCeilingSeconds: 60,
+        tolerance: 2,
+        maximumVerdict: "reproduced",
+        ...change,
+      },
+      repoRoot,
+    );
+    return new Map([[target.caseId, target]]);
+  }
+
+  it("automatically binds an exact reviewed-paper hash to its target, with every agent still independent", async () => {
+    const paper = await paperPdf(false);
+    const targets = await fixtureTarget(paper);
+    await startServer({
+      autonomous: true,
+      repositoryUrl: "https://github.com/example/new-paper",
+      commitSha: "7f8b1c4cbe5b4caf2f6cc8bc0d6fc31ce2f6bd71",
+      reviewedTargets: targets,
+    });
+    // A stale browser may omit reviewedCaseId. The server must not silently
+    // turn an exact reviewed paper into an open study that selects another claim.
+    const response = await upload(paper, "paper.pdf");
+    expect(response.status).toBe(202);
+    const { runId } = (await response.json()) as { runId: string };
+    await api.idle();
+    const report = (await (await fetch(`${base}/api/runs/${runId}/report`)).json()) as StudyReport;
+    const study = report.study!;
+    expect(report.status).toBe("completed");
+    expect(report.caseId).toBe("fixture-rf-accuracy");
+    expect(study.reviewedTarget).toMatchObject({ caseId: "fixture-rf-accuracy", claim: { method: "Random Forest" } });
+    expect(JSON.stringify(study.reviewedTarget)).not.toMatch(/reportedValue|81\.66/u);
+    expect(study.repository).toMatchObject({ commitSha: "7f8b1c4cbe5b4caf2f6cc8bc0d6fc31ce2f6bd71" });
+    expect(study.result.status).toBe("reproduced");
+    // Sealed before any agent, revealed only after both locks, and the reveal verified its commitment.
+    expect(study.blinding.records.map((item) => item.phase)).toEqual([
+      "target_sealed",
+      "agents_started",
+      "execution_completed",
+      "observation_locked",
+      "blind_review_locked",
+      "target_revealed",
+      "deterministic_comparison",
+      "final_status",
+    ]);
+    expect(study.blinding.reveal).toMatchObject({ verified: true, observationVerified: true });
+    expect(study.result).toMatchObject({ paperValue: 81.66, tolerance: 2 });
+
+    // The target reaches the analysts and the Planner, with targeted instructions; never the Engineers or Reviewers.
+    const firstTurn = (role: string): string => {
+      const agent = study.agents.find((item) => item.role === role)!;
+      return JSON.stringify(store.ledger.listTurns(agent.agentId)[0]);
+    };
+    for (const role of ["paper_analyst", "repository_analyst", "reproduction_planner"]) expect(firstTurn(role)).toContain("reviewedTarget");
+    for (const role of ["lab_engineer", "independent_reviewer", "supervisor"]) expect(firstTurn(role)).not.toContain("reviewedTarget");
+    expect(studyProvider.systems.some((system) => system.includes("do not choose a different claim"))).toBe(true);
+    // Policy review still ran, the lab still ran the official command, and the Reviewer still judged it.
+    expect(study.stages.map((stage) => stage.stage)).toEqual(
+      expect.arrayContaining(["policy_review", "preparing", "executing", "reviewing", "deciding"]),
+    );
+    expect(study.engineers[0]).toMatchObject({ official: { exitCode: 0 }, review: { verdict: "approve" } });
+  });
+
+  it("keeps a policy-blocked study sealed: no paper value in events or the report, and only an administrator's audit download holds it", async () => {
+    const paper = await paperPdf(false);
+    await startServer({
+      autonomous: true,
+      repositoryUrl: "https://github.com/example/new-paper",
+      commitSha: "7f8b1c4cbe5b4caf2f6cc8bc0d6fc31ce2f6bd71",
+      reviewedTargets: await fixtureTarget(paper),
+      adminToken: "admin-test-token-0001",
+    });
+    studyProvider.plan = { status: "blocked", blockedReason: "the official code needs a GPU" };
+    const { runId } = (await (await upload(paper, "paper.pdf", { reviewedCaseId: "fixture-rf-accuracy" })).json()) as { runId: string };
+    const events = await collectEvents(runId);
+    await api.idle();
+    const response = await fetch(`${base}/api/runs/${runId}/report`);
+    const text = await response.text();
+    const report = JSON.parse(text) as StudyReport;
+    expect(report.study?.result.status).toBe("policy_blocked");
+    expect(report.study?.blinding).toMatchObject({ sealed: true, revealed: false, reveal: null, sealedPayload: null });
+    expect(report.study?.blinding.commitment).toMatch(/^[a-f0-9]{64}$/u);
+    expect(report.study?.blinding.records.map((item) => item.phase)).toEqual(["target_sealed", "agents_started", "final_status"]);
+    // Nothing the browser receives carries the paper's value, tolerance, or the nonce.
+    for (const body of [text, JSON.stringify(events), await (await fetch(`${base}/api/config`)).text()]) {
+      expect(body).not.toMatch(/81\.66|0\.8166|"nonce"|reportedValue/u);
+    }
+    // The audit report exists only for an administrator with the token.
+    expect((await fetch(`${base}/api/runs/${runId}/audit`)).status).toBe(404);
+    expect((await fetch(`${base}/api/runs/${runId}/audit`, { headers: { "x-dejaml-admin-token": "wrong" } })).status).toBe(404);
+    const audit = await fetch(`${base}/api/runs/${runId}/audit`, { headers: { "x-dejaml-admin-token": "admin-test-token-0001" } });
+    expect(audit.status).toBe(200);
+    const auditReport = (await audit.json()) as StudyReport;
+    expect(auditReport.study?.blinding.sealedPayload).toMatch(/"reportedValue":81\.66/u);
+    expect(auditReport.study?.blinding.sealedPayload).toMatch(/"nonce":"[a-f0-9]{64}"/u);
+    expect(store.listEvents(runId).some((event) => event.type === "audit_report_downloaded")).toBe(true);
+  });
+
+  it("stops before planning when the Paper Analyst returns a different claim than the reviewed target", async () => {
+    const paper = await paperPdf(false);
+    const original = [...(await fixtureTarget(paper)).values()][0]!;
+    const targets = await fixtureTarget(paper, {
+      claim: { ...original.claim, identify: { methodIncludes: ["Gradient Boosting"], methodExcludes: [], datasetIncludes: ["Urban"] } },
+    });
+    await startServer({
+      autonomous: true,
+      repositoryUrl: "https://github.com/example/new-paper",
+      commitSha: "7f8b1c4cbe5b4caf2f6cc8bc0d6fc31ce2f6bd71",
+      reviewedTargets: targets,
+    });
+    const { runId } = (await (await upload(paper, "paper.pdf", { reviewedCaseId: "fixture-rf-accuracy" })).json()) as { runId: string };
+    await api.idle();
+    const report = (await (await fetch(`${base}/api/runs/${runId}/report`)).json()) as StudyReport;
+    expect(report.study?.result.status).toBe("inconclusive");
+    expect(report.study?.result.reasons.join(" ")).toContain("different claim than the reviewed target");
+    expect(report.study?.agents.map((agent) => agent.role)).not.toContain("reproduction_planner");
+    expect(report.events.some((event) => event.type === "claim_mismatch")).toBe(true);
+    expect(runtime.containers.size).toBe(0);
+  });
+
+  it("refuses an unknown reviewed case, a different paper, and a different repository", async () => {
+    const paper = await paperPdf(false);
+    await startServer({ autonomous: true, reviewedTargets: await fixtureTarget(paper) });
+    expect((await upload(paper, "paper.pdf", { reviewedCaseId: "no-such-case" })).status).toBe(400);
+    expect((await upload(paper, "paper.pdf", { reviewedCaseId: "../../etc" })).status).toBe(400);
+    expect((await upload(await paperPdf(true), "paper.pdf", { reviewedCaseId: "fixture-rf-accuracy" })).status).toBe(400);
+    const otherRepository = await upload(paper, "paper.pdf", {
+      reviewedCaseId: "fixture-rf-accuracy",
+      repositoryUrl: "https://github.com/example/other",
+    });
+    expect(otherRepository.status).toBe(400);
+    // A request can name a case, never carry one.
+    expect((await upload(paper, "paper.pdf", { reviewedCaseId: "fixture-rf-accuracy", claimContract: "{}" })).status).toBe(400);
+    expect(store.listActiveRuns()).toHaveLength(0);
+  });
+
+  it("requires an explicit claim when one paper has multiple reviewed cases", async () => {
+    const paper = await paperPdf(false);
+    const first = [...(await fixtureTarget(paper)).values()][0]!;
+    const second = [
+      ...(
+        await fixtureTarget(paper, {
+          caseId: "fixture-second-claim",
+        })
+      ).values(),
+    ][0]!;
+    await startServer({ autonomous: true, reviewedTargets: new Map([first, second].map((target) => [target.caseId, target])) });
+
+    const response = await upload(paper);
+    expect(response.status).toBe(400);
+    await expect(response.text()).resolves.toContain("multiple reviewed cases");
+    expect(store.listActiveRuns()).toHaveLength(0);
+  });
+
+  it("lists reviewed cases in /api/config with the claim under test and nothing about how a case is run or judged", async () => {
+    const paper = await paperPdf(false);
+    const first = [...(await fixtureTarget(paper)).values()][0]!;
+    const second = [
+      ...(
+        await fixtureTarget(await paperPdf(true), {
+          caseId: "fixture-second-case",
+          paper: { title: "Second fixture paper", sha256: "a".repeat(64) },
+          adapter: null,
+          tolerance: 0.5,
+          maximumVerdict: "partially_reproduced",
+        })
+      ).values(),
+    ][0]!;
+    await startServer({ autonomous: true, reviewedTargets: new Map([first, second].map((target) => [target.caseId, target])) });
+    const config = (await (await fetch(`${base}/api/config`)).json()) as { reviewedCases: Array<Record<string, unknown>> };
+    expect(config.reviewedCases).toEqual([
+      {
+        caseId: "fixture-rf-accuracy",
+        title: "Fixture paper",
+        paperTitle: "Fixture paper",
+        paperSha256: first.paper.sha256,
+        // The claim under test, without its sealed value, tolerance, or paper reference.
+        claim: {
+          method: "Random Forest",
+          dataset: "UCI Urban Land Cover",
+          split: "official test set",
+          metric: { name: "accuracy", unit: "percent" },
+        },
+        repository: { url: "https://github.com/example/new-paper", commitSha: "7f8b1c4cbe5b4caf2f6cc8bc0d6fc31ce2f6bd71" },
+        available: true,
+      },
+      expect.objectContaining({
+        caseId: "fixture-second-case",
+        title: "Second fixture paper",
+        paperSha256: "a".repeat(64),
+        available: true,
+      }),
+    ]);
+    // Nothing that says how a case is run or judged, no observed value, no host path, no key.
+    const text = JSON.stringify(config);
+    for (const forbidden of [
+      "excerpt",
+      "identify",
+      "adapter",
+      "requirements",
+      "metricParser",
+      "tolerance",
+      "maximumVerdict",
+      "entrypoint",
+      "preprocessing",
+      "seedPolicy",
+      "expectedRuntime",
+      "environment",
+      "observed",
+      "accuracyPercent",
+      "artifacts/result.json",
+      first.claim.excerpt,
+      repoRoot,
+      work,
+      "sk-server-test-key-0001",
+    ]) {
+      expect(text).not.toContain(forbidden);
+    }
+    // A server without reviewed cases lists none.
+    await api.close();
+    store.close();
+    serverStarted = false;
+    await startServer();
+    expect(((await (await fetch(`${base}/api/config`)).json()) as { reviewedCases: unknown[] }).reviewedCases).toEqual([]);
+  });
+
+  it("recovers from a failed official run with a separate Debugger agent", async () => {
+    await startServer({ autonomous: true, repositoryUrl: "https://github.com/example/new-paper" });
+    runtime.failFirstRun = true;
+    const { runId } = (await (await upload(await paperPdf(true, "https://github.com/example/new-paper"))).json()) as { runId: string };
+    await api.idle();
+    const report = (await (await fetch(`${base}/api/runs/${runId}/report`)).json()) as StudyReport;
+    const study = report.study!;
+    const debuggers = study.agents.filter((agent) => agent.role === "debugger");
+    expect(debuggers).toHaveLength(1);
+    const engineer = study.agents.find((agent) => agent.role === "lab_engineer")!;
+    expect(debuggers[0]?.parentId).toBe(engineer.agentId);
+    expect(study.board.filter((entry) => entry.kind === "diagnosis")).toHaveLength(1);
+    expect(study.receipts.filter((receipt) => receipt.tool === "lab_run_official").map((receipt) => receipt.status)).toEqual([
+      "error",
+      "ok",
+    ]);
+    expect(study.result.status).toBe("reproduced");
+    expect(runtime.containers.size).toBe(0);
+  });
+
+  it("refuses to run the approved command after the prepared environment changed", async () => {
+    await startServer({ autonomous: true, repositoryUrl: "https://github.com/example/new-paper" });
+    studyProvider.tamper = true;
+    const { runId } = (await (await upload(await paperPdf(true, "https://github.com/example/new-paper"))).json()) as { runId: string };
+    await api.idle();
+    const report = (await (await fetch(`${base}/api/runs/${runId}/report`)).json()) as StudyReport;
+    expect(report.study?.receipts.filter((receipt) => receipt.tool === "lab_run_official").map((receipt) => receipt.status)).toEqual([
+      "denied",
+    ]);
+    expect(report.study?.result.status).toBe("inconclusive");
+    expect(report.metric).toBeNull();
+    expect(runtime.containers.size).toBe(0);
+  });
+
+  it("ends policy_blocked before any lab when the plan needs a GPU package", async () => {
+    await startServer({ autonomous: true, repositoryUrl: "https://github.com/example/new-paper" });
+    studyProvider.plan = { requirements: ["torch==2.4.0"] };
+    const { runId } = (await (await upload(await paperPdf(true, "https://github.com/example/new-paper"))).json()) as { runId: string };
+    await api.idle();
+    const report = (await (await fetch(`${base}/api/runs/${runId}/report`)).json()) as StudyReport;
+    expect(report.study?.result.status).toBe("policy_blocked");
+    expect(report.status).toBe("inconclusive");
+    expect(report.events.some((event) => event.type === "lab_create")).toBe(false);
+    expect(report.study?.stages.find((stage) => stage.stage === "executing")?.status).toBe("skipped");
+  });
+
+  it("ends inconclusive when the Independent Reviewers reject the measurement, and the Supervisor cannot raise it", async () => {
+    await startServer({ autonomous: true, repositoryUrl: "https://github.com/example/new-paper" });
+    studyProvider.review = { equivalence: "not_equivalent" };
+    studyProvider.supervisorProposal = "reproduced";
+    const { runId } = (await (await upload(await paperPdf(true, "https://github.com/example/new-paper"))).json()) as {
+      runId: string;
+    };
+    await api.idle();
+    const report = (await (await fetch(`${base}/api/runs/${runId}/report`)).json()) as StudyReport;
+    expect(report.status).toBe("inconclusive");
+    expect(report.study?.result.status).toBe("inconclusive");
+    expect(report.study?.result.supervisor).toMatchObject({ proposedStatus: "reproduced", applied: false });
+    expect(report.study?.result.reasons.join(" ")).toMatch(/blind Reviewer judged it not equivalent/u);
+    expect(report.metric).toBeNull();
+    expect(runtime.containers.size).toBe(0);
+  });
+
+  it("lets the Supervisor lower a reproduced result", async () => {
+    await startServer({ autonomous: true, repositoryUrl: "https://github.com/example/new-paper" });
+    studyProvider.supervisorProposal = "partially_reproduced";
+    const { runId } = (await (await upload(await paperPdf(true, "https://github.com/example/new-paper"))).json()) as { runId: string };
+    await api.idle();
+    const report = (await (await fetch(`${base}/api/runs/${runId}/report`)).json()) as StudyReport;
+    expect(report.study?.result).toMatchObject({
+      status: "partially_reproduced",
+      computedStatus: "reproduced",
+      supervisor: { applied: true },
+    });
+  });
+
+  it("cancels a multi-agent study mid-run and cleans up every agent and lab", async () => {
+    await startServer({ autonomous: true, repositoryUrl: "https://github.com/example/new-paper" });
+    studyProvider.delayMs = 40;
+    const { runId } = (await (await upload(await paperPdf(true, "https://github.com/example/new-paper"))).json()) as { runId: string };
+    // Cancel while an Engineer is mid-loop inside its lab, so a live agent must be stopped.
+    while (
+      !store.listEvents(runId).some((event) => event.type === "lab_create" && event.status === "completed") ||
+      !store.ledger.listAgents(runId).some((agent) => agent.role === "lab_engineer" && agent.status === "running")
+    ) {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    expect((await fetch(`${base}/api/runs/${runId}/cancel`, { method: "POST" })).status).toBe(202);
+    await api.idle();
+    const report = (await (await fetch(`${base}/api/runs/${runId}/report`)).json()) as StudyReport;
+    expect(report.status).toBe("cancelled");
+    expect(report.study?.result.status).toBe("cancelled");
+    expect(store.stages.state(runId)?.terminal).toBe("cancelled");
+    expect(report.study?.agents.some((agent) => agent.status === "cancelled")).toBe(true);
+    expect(report.study?.agents.every((agent) => !["created", "running", "waiting"].includes(agent.status))).toBe(true);
+    expect(report.study?.cleanup.verified).toBe(true);
+    expect(runtime.containers.size).toBe(0);
+  });
+
+  it("keeps unsupported papers inconclusive when autonomy is off", async () => {
+    await startServer();
+    const { runId } = (await (await upload(await paperPdf(true, "https://github.com/example/new-paper"))).json()) as {
+      runId: string;
+    };
+    await api.idle();
+    expect(store.getRun(runId).status).toBe("inconclusive");
+    expect(checkoutsCreated).toHaveLength(0);
+  });
+
   it("ends as inconclusive without a lab when the paper links no supported repository", async () => {
     await startServer();
     const { runId } = (await (await upload(await paperPdf(false))).json()) as { runId: string };
@@ -188,7 +757,9 @@ describe("Run API", () => {
     const report = (await (await fetch(`${base}/api/runs/${runId}/report`)).json()) as StudyReport;
     expect(report.status).toBe("cancelled");
     expect(report.lab?.attempt).toMatchObject({ cancelled: true });
-    const failed = checkDemoAcceptance(report, curated).checks.filter((check) => !check.passed).map((check) => check.name);
+    const failed = checkDemoAcceptance(report, curated)
+      .checks.filter((check) => !check.passed)
+      .map((check) => check.name);
     expect(failed).toEqual(expect.arrayContaining(["isolated_experiment", "metric_parsed", "comparison", "report_complete"]));
     expect(report.lab?.cleanup?.verifiedAbsent).toBe(true);
     expect(report.assessment).toBeNull();
@@ -261,6 +832,15 @@ describe("Run API", () => {
     expect(report.status).toBe("inconclusive");
   });
 
+  it("serves internal health diagnostics to loopback clients without secrets", async () => {
+    await startServer();
+    const response = await fetch(`${base}/api/health`);
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as Record<string, unknown>;
+    expect(body.ok).toBe(true);
+    expect(JSON.stringify(body)).not.toMatch(/api[_-]?key|authorization|sk-/iu);
+  });
+
   it("rejects bad uploads, a second concurrent study, and unknown runs", async () => {
     await startServer();
     expect((await upload("hello", "notes.txt")).status).toBe(202); // accepted, then rejected by intake
@@ -286,6 +866,18 @@ describe("restart recovery", () => {
     const recoveryStore = new RunStore();
     const run = recoveryStore.createRun({}, "run_interrupted");
     recoveryStore.transitionRun(run.id, "ingesting");
+    const agent = recoveryStore.ledger.createAgent({
+      runId: run.id,
+      role: "lab_engineer",
+      parentId: null,
+      provider: "p",
+      model: "m",
+      task: {},
+      grants: [],
+      limits: {},
+    });
+    recoveryStore.ledger.updateAgent(agent.id, { status: "running" });
+    await mkdir(join(work, "data/study-abc"), { recursive: true });
     const orphanRuntime = new ScriptedRuntime();
     orphanRuntime.containers.add("dejaml-lab-orphan");
     const labs = new LabManager({ runtime: orphanRuntime, labRoot: join(work, "labs") });
@@ -294,7 +886,8 @@ describe("restart recovery", () => {
     await mkdir(join(work, "data/reports"), { recursive: true });
 
     const result = await recoverAfterRestart({ store: recoveryStore, labs, workRoot: join(work, "data") });
-    expect(result).toEqual({ interruptedRuns: ["run_interrupted"], orphanLabs: 1, staleCheckouts: 1 });
+    expect(result).toEqual({ interruptedRuns: ["run_interrupted"], resumableRuns: [], orphanLabs: 1, staleCheckouts: 2 });
+    expect(recoveryStore.ledger.getAgent(agent.id)).toMatchObject({ status: "interrupted", failure: "the service restarted" });
     await expect(readdir(join(work, "data"))).resolves.toEqual(["reports"]);
     expect(orphanRuntime.containers.size).toBe(0);
     expect(recoveryStore.getRun(run.id).status).toBe("failed");

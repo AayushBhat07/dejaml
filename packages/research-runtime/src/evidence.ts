@@ -2,10 +2,7 @@ import { createHash } from "node:crypto";
 import { lstat, readFile, readdir, realpath } from "node:fs/promises";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
 
-import {
-  type PaperDocument,
-  type RepositoryCandidate,
-} from "@dejaml/contracts";
+import { type PaperDocument, type RepositoryCandidate } from "@dejaml/contracts";
 
 export const MAX_PAPER_EVIDENCE_CHARS = 180_000;
 export const MAX_PAPER_PAGE_CHARS = 24_000;
@@ -51,17 +48,11 @@ function pageScore(text: string, hasRepositoryLink: boolean): number {
   return terms.reduce((score, term) => score + (lowered.includes(term) ? 1 : 0), hasRepositoryLink ? 20 : 0);
 }
 
-export function buildPaperEvidenceBundle(
-  document: PaperDocument,
-  candidates: RepositoryCandidate[],
-): PaperEvidenceBundle {
-  const candidatePages = new Set(
-    candidates.flatMap((candidate) => candidate.occurrences.map((item) => item.pageNumber)),
-  );
+export function buildPaperEvidenceBundle(document: PaperDocument, candidates: RepositoryCandidate[]): PaperEvidenceBundle {
+  const candidatePages = new Set(candidates.flatMap((candidate) => candidate.occurrences.map((item) => item.pageNumber)));
   const ranked = [...document.pages].sort((left, right) => {
     const scoreDifference =
-      pageScore(right.text, candidatePages.has(right.pageNumber)) -
-      pageScore(left.text, candidatePages.has(left.pageNumber));
+      pageScore(right.text, candidatePages.has(right.pageNumber)) - pageScore(left.text, candidatePages.has(left.pageNumber));
     return scoreDifference || left.pageNumber - right.pageNumber;
   });
 
@@ -81,9 +72,7 @@ export function buildPaperEvidenceBundle(
   included.sort((left, right) => left.pageNumber - right.pageNumber);
 
   return {
-    text: included
-      .map((page) => `--- PAPER PAGE ${page.pageNumber} ---\n${page.text}`)
-      .join("\n\n"),
+    text: included.map((page) => `--- PAPER PAGE ${page.pageNumber} ---\n${page.text}`).join("\n\n"),
     includedPages: included.map((page) => page.pageNumber),
     omittedPages: omittedPages.sort((left, right) => left - right),
   };
@@ -105,7 +94,8 @@ const EXCLUDED_DIRECTORIES = new Set([
   "venv",
 ]);
 const EXCLUDED_FILES = /(^|\/)(\.env(?:\..*)?|credentials?|secrets?|.*\.(?:key|pem|p12|pfx))$/iu;
-const RELEVANT_FILE = /(^|\/)(readme[^/]*|requirements[^/]*\.txt|pyproject\.toml|setup\.(?:py|cfg)|environment\.ya?ml|conda\.ya?ml|package\.json|dockerfile|[^/]+\.(?:py|ipynb|r|jl|md|toml|ya?ml|json))$/iu;
+const RELEVANT_FILE =
+  /(^|\/)(readme[^/]*|requirements[^/]*\.txt|pyproject\.toml|setup\.(?:py|cfg)|environment\.ya?ml|conda\.ya?ml|package\.json|dockerfile|[^/]+\.(?:py|ipynb|r|jl|md|toml|ya?ml|json))$/iu;
 
 function filePriority(path: string): number {
   const lowered = path.toLowerCase();
@@ -150,9 +140,7 @@ async function assertContainedDirectory(path: string): Promise<string> {
   return resolved;
 }
 
-export async function snapshotRepositoryForAnalysis(
-  repositoryPath: string,
-): Promise<RepositoryEvidenceBundle> {
+export async function snapshotRepositoryForAnalysis(repositoryPath: string): Promise<RepositoryEvidenceBundle> {
   const root = await assertContainedDirectory(repositoryPath);
   const pending = [root];
   const candidates: Array<{ absolutePath: string; path: string; bytes: number }> = [];
@@ -176,9 +164,7 @@ export async function snapshotRepositoryForAnalysis(
         continue;
       }
       const metadata = await lstat(absolutePath);
-      const maximumBytes = relativePath.toLowerCase().endsWith(".ipynb")
-        ? MAX_NOTEBOOK_FILE_BYTES
-        : MAX_REPOSITORY_FILE_BYTES;
+      const maximumBytes = relativePath.toLowerCase().endsWith(".ipynb") ? MAX_NOTEBOOK_FILE_BYTES : MAX_REPOSITORY_FILE_BYTES;
       if (metadata.size > maximumBytes) {
         omittedFiles.push(relativePath);
         continue;
@@ -187,9 +173,7 @@ export async function snapshotRepositoryForAnalysis(
     }
   }
 
-  candidates.sort(
-    (left, right) => filePriority(right.path) - filePriority(left.path) || left.path.localeCompare(right.path),
-  );
+  candidates.sort((left, right) => filePriority(right.path) - filePriority(left.path) || left.path.localeCompare(right.path));
   const files: RepositoryEvidenceFile[] = [];
   let usedCharacters = 0;
   for (const candidate of candidates) {
@@ -204,9 +188,7 @@ export async function snapshotRepositoryForAnalysis(
     }
     const sha256 = createHash("sha256").update(raw).digest("hex");
     const decoded = raw.toString("utf8");
-    const normalized = candidate.path.toLowerCase().endsWith(".ipynb")
-      ? sanitizeNotebook(decoded)
-      : decoded;
+    const normalized = candidate.path.toLowerCase().endsWith(".ipynb") ? sanitizeNotebook(decoded) : decoded;
     const sanitized = redactLikelySecrets(normalized);
     const remaining = MAX_REPOSITORY_EVIDENCE_CHARS - usedCharacters;
     if (remaining <= 0) {
@@ -229,10 +211,7 @@ export async function snapshotRepositoryForAnalysis(
 
 export function formatRepositoryEvidence(bundle: RepositoryEvidenceBundle): string {
   return bundle.files
-    .map(
-      (file) =>
-        `--- REPOSITORY FILE ${file.path} SHA256 ${file.sha256}${file.truncated ? " TRUNCATED" : ""} ---\n${file.content}`,
-    )
+    .map((file) => `--- REPOSITORY FILE ${file.path} SHA256 ${file.sha256}${file.truncated ? " TRUNCATED" : ""} ---\n${file.content}`)
     .join("\n\n");
 }
 

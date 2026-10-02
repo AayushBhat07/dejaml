@@ -1,0 +1,16 @@
+{
+  "id": "msg_fixture_thinking_001",
+  "type": "message",
+  "role": "assistant",
+  "model": "claude-opus-5-5",
+  "content": [
+    { "type": "thinking", "thinking": "", "signature": "EqQBCkYIBxgCKkBFIXTUREsignatureAAAABBBBCCCCDDDD==" },
+    { "type": "redacted_thinking", "data": "EmwKAhgBEgyFIXTUREredactedPayload0123456789==" },
+    { "type": "text", "text": "Checking the seed handling first." },
+    { "type": "tool_use", "id": "toolu_fixture_02A", "name": "read_file", "input": { "path": "train.py" } }
+  ],
+  "stop_reason": "tool_use",
+  "stop_sequence": null,
+  "stop_details": null,
+  "usage": { "input_tokens": 900, "cache_creation_input_tokens": 0, "cache_read_input_tokens": 0, "output_tokens": 210 }
+}

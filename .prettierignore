@@ -1,0 +1,19 @@
+# Code only: documents, data and lockfiles keep their authored layout.
+**/dist/
+**/node_modules/
+.claude/
+artifacts/
+coverage/
+*.md
+*.json
+*.jsonl
+*.yaml
+*.yml
+*.html
+*.pdf
+*.txt
+*.py
+*.ipynb
+fixtures/
+cases/
+lab-images/

@@ -1,15 +1,19 @@
 import { createHash } from "node:crypto";
 
-import {
-  AttemptSchema,
-  ExperimentPlanSchema,
-  MetricSchema,
-  type Attempt,
-  type ExperimentPlan,
-  type Metric,
-} from "@dejaml/contracts";
+import { AttemptSchema, ExperimentPlanSchema, MetricSchema, type Attempt, type Metric, type ExperimentPlan } from "@dejaml/contracts";
 
 export type MetricUnit = Metric["unit"];
+
+/**
+ * The part of a plan the verifier reads. A reviewed ExperimentPlan satisfies
+ * it, and so does the plan an autonomous lab session records for its result.
+ */
+export const VerificationPlanSchema = ExperimentPlanSchema.pick({ claim: true, metricExtraction: true }).extend({
+  dataset: ExperimentPlanSchema.shape.dataset.pick({ name: true }),
+});
+export type VerificationPlan = Pick<ExperimentPlan, "claim" | "metricExtraction"> & {
+  dataset: Pick<ExperimentPlan["dataset"], "name">;
+};
 
 export class MetricExtractionError extends Error {
   readonly code: string;
@@ -39,13 +43,13 @@ const FORBIDDEN_KEYS = new Set(["__proto__", "prototype", "constructor"]);
  * `observedUnit` says otherwise; the reviewed policy pairs each key with a unit.
  */
 export function extractMetric(input: {
-  plan: ExperimentPlan;
+  plan: VerificationPlan;
   attempt: Attempt;
   artifact?: ExportedArtifact;
   stdout?: string;
   observedUnit?: MetricUnit;
 }): Metric {
-  const plan = ExperimentPlanSchema.parse(input.plan);
+  const plan = VerificationPlanSchema.parse(input.plan);
   const attempt = AttemptSchema.parse(input.attempt);
   const rule = plan.metricExtraction;
   const split = plan.claim.split ?? "unspecified";
@@ -125,9 +129,7 @@ function readJsonKey(content: string, key: string): number {
 }
 
 function readCsvColumn(content: string, column: string): number {
-  const rows = content
-    .split(/\r?\n/u)
-    .filter((line) => line.trim() !== "");
+  const rows = content.split(/\r?\n/u).filter((line) => line.trim() !== "");
   const [header, ...data] = rows;
   if (!header || data.length === 0) {
     throw new MetricExtractionError("artifact_invalid", "metric CSV needs a header and at least one row");
@@ -135,7 +137,10 @@ function readCsvColumn(content: string, column: string): number {
   if (content.includes('"')) {
     throw new MetricExtractionError("artifact_invalid", "quoted CSV fields are not supported");
   }
-  const index = header.split(",").map((name) => name.trim()).indexOf(column);
+  const index = header
+    .split(",")
+    .map((name) => name.trim())
+    .indexOf(column);
   if (index < 0) throw new MetricExtractionError("metric_missing", `metric column ${column} is missing`);
   const cell = data.at(-1)?.split(",")[index]?.trim();
   if (cell === undefined || cell === "") {

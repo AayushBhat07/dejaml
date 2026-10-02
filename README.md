@@ -38,21 +38,45 @@ Open <http://localhost:5173>. The replay does not execute a new study; the boots
 
 ### Complete live-agent run
 
-The live research flow additionally requires the pinned OpenClaw CLI (`2026.9.5`), a configured model provider, and dedicated no-binding agents named `dejaml-paper`, `dejaml-code`, and `dejaml-lead`. `dejaml-audit` is optional and adds the semantic audit card. Provider credentials stay in OpenClaw and are never written by the bootstrap.
+The backend creates its own agents. An administrator lists the model providers
+the website may offer in `.env.local` (`DEJAML_ANTHROPIC_MODELS`,
+`DEJAML_OPENAI_MODELS`, or an OpenAI-compatible `DEJAML_CUSTOM_BASE_URL` with
+`DEJAML_CUSTOM_MODELS`) and supplies the matching `DEJAML_*_API_KEY` as a server
+environment secret. The browser only picks a configured provider and model; it
+never sees a key or a base URL, and uploaders cannot bring their own. OpenClaw is not required and not used: the
+backend's agents run on DéjàML's native runtime (`packages/agent-runtime`)
+and reach OpenAI or Anthropic through its own provider adapters. No personal
+agent configuration is needed, and `npm run check:native` fails if OpenClaw
+or a localhost compatibility bridge reappears in production code.
 
-If OpenClaw is installed outside the active shell's `PATH`, rerun the bootstrap once with its absolute path so `.env.local` records it:
-
-```bash
-OPENCLAW_BIN=/absolute/path/to/openclaw npm run bootstrap
-```
-
-Once those agents exist, run:
+Then run:
 
 ```bash
 npm run start:local
 ```
 
-Open <http://127.0.0.1:8787> and upload `artifacts/demo/paper.pdf`. The command reads `.env.local`, verifies the local image identity and required files, and starts the real API. The API is intentionally bound to loopback because it has no authentication.
+Open <http://127.0.0.1:8787> and upload `artifacts/demo/paper.pdf`. A paper without a reviewed case goes to the multi-agent study (see `docs/phases/phase-06/subphase-06-04-multi-agent-study.md`). To check a real-model study end to end against the running API:
+
+```bash
+node apps/api/scripts/accept-real-paper.mjs acceptance/cases/pyts-boss-gunpoint.json
+```
+
+It writes a sanitized report to `artifacts/acceptance/`. On an Apple Silicon Mac
+the labs run as `linux/arm64` and on an Intel Mac as `linux/amd64`
+(`DEJAML_PLATFORM=auto`); wheels, images and caches follow that choice.
+
+The command reads `.env.local`, verifies the local image identity and required files, and starts the real API. The API is intentionally bound to loopback because it has no authentication.
+
+### Lab Agent tool loop
+
+The Lab Agent requests the reviewed disposable lab, runs the approved
+experiment, inspects its output/artifact, and finishes through a bounded four-action
+tool loop. The Lab Manager executes each request and rejects out-of-order actions;
+the model cannot provide its own shell command or Docker arguments.
+
+This path uses the reviewed Urban Land Cover adapter. It is a first
+agent-operated lab slice, **not** hosted deployment, arbitrary-paper
+execution, or environment repair. It does not use OpenClaw.
 
 If the bootstrap stops, fix the first reported prerequisite and rerun the same command. See [Restoration and troubleshooting](docs/runbooks/RESTORE.md) for individual verification commands.
 

@@ -1,6 +1,6 @@
 # DéjàML Web
 
-React + Vite interface for the four product states: New Study, Research Team, Virtual Lab, and Findings.
+React + Vite interface with two screens: **New Study**, and the **Live Run Dashboard**, a single persistent screen that stays up from the moment a study is created until it finishes.
 
 ## Run it
 
@@ -15,20 +15,34 @@ By default the app runs in **replay** mode, labelled by `fixtures/events/urban-l
 VITE_DEJAML_API=live npm run dev --workspace @dejaml/web
 ```
 
-In live mode the run ID is kept in `?run=`, so a refresh resumes the same study, and Findings offers **New study** when the run ends. The API also serves a live build (`VITE_DEJAML_API=live npm run build`) at `http://127.0.0.1:8787`.
+In live mode the run ID is kept in `?run=`, so after a refresh the page follows the same study again: it replays the history from sequence 0, then continues live. The SSE client resumes with `Last-Event-ID` / `?after=`, drops duplicates, and reconnects with backoff. New Study lists the server's reviewed cases (`GET /api/config` → `reviewedCases`). It matches the chosen PDF's SHA-256 to a case, or lets you pick one by hand, shows the claim that will be tested, and sends only `reviewedCaseId`. The API also serves a live build (`VITE_DEJAML_API=live npm run build`) at `http://127.0.0.1:8787`.
+
+## The dashboard
+
+- **Header**: paper title, run ID, provider and model, current stage, the stage strip, overall elapsed time, connection state, and the pause-follow and cancel controls.
+- **Agents**: one card for each agent instance (several Lab Engineers and Reviewers each get their own card). A card shows role, short ID, status, start time, elapsed time, current public activity, tool-call count, tokens, and warnings. A waiting agent says what it is waiting for and is not animated. The panel also says when no Debugger was needed.
+- **Live activity and evidence**: a chronological stream with filters by agent and by event type. It follows live, can be scrolled back without snapping to the bottom, and shows timestamps and clickable evidence.
+- **Virtual Lab**: one tab per lab, showing state, the current command, bounded output (with a truncation notice), CPU, memory, processes, isolation, dependencies, artifacts, the attempt number, and cleanup.
+- **Result**: paper value, observed value, difference, tolerance, the Independent Reviewer verdicts, the final status with its reasons, cleanup verification, and the report download.
+
+The dashboard shows only public data: status transitions, public activity summaries, evidence, tool names, sanitised commands, bounded logs, and usage metadata. Model text in `agent_turn` events is never rendered. Commands and logs pass through `src/lib/redact.ts`.
 
 ## Structure
 
-- `src/lib/run-client.ts`: `RunClient`, with `HttpRunClient` (POST `/api/runs`, SSE `/api/runs/:id/events?after=n`, POST `/api/runs/:id/cancel`) and `ReplayRunClient`. Every event is validated with `RunEventSchema`.
+- `src/lib/run-client.ts`: `RunClient`, with `HttpRunClient` (POST `/api/runs`, SSE `/api/runs/:id/events?after=n`, POST `/api/runs/:id/cancel`, and the report summary) and `ReplayRunClient`. Every event is validated with `RunEventSchema`.
+- `src/lib/event-log.ts`: an ordered, deduplicated, bounded event log (caps on output lines and telemetry samples per lab, and counts of what was dropped).
+- `src/lib/live-run.ts`: derives agent cards, waiting reasons, labs, the stream, and stages from events.
+- `src/lib/lab.ts`: lab views and the legacy findings in recorded replays.
 - `src/lib/paper.ts`: client-side PDF checks (non-empty, at most 20 MB, `%PDF-` header) and the SHA-256 fingerprint. The server remains authoritative.
-- `src/lib/stages.ts`: maps run status and events to the four product stages.
-- `src/components/`: shell, stepper, file drop, badge.
-- `src/lib/lanes.ts`, `src/lib/lab.ts`: derive the Research Team lanes, Virtual Lab view, findings, and JSON report from events.
-- `src/screens/`: New Study, Research Team, Virtual Lab, and Findings.
+- `src/components/live/`: header, agent roster, activity stream, lab panel, and result.
+- `src/screens/`: New Study and Live Run.
+- `scripts/capture-live-run.mjs`: Playwright screenshots of a **live** run at five milestones. It refuses replays and stand-in servers unless given `--stand-in`, in which case every image is stamped STAND-IN.
+- `scripts/stand-in-study-server.mjs`: the real API and study code with scripted stand-ins for the model, GitHub, and Docker. Use it only to look at the layout.
 - `src/styles.css`: design tokens for light and dark schemes, plus the shared component styles.
 
 ## Verification
 
 ```bash
 npm run check    # includes the web typecheck, build, and tests
+node apps/web/scripts/capture-live-run.mjs <baseUrl> <runId> <outDir>   # needs Playwright; PLAYWRIGHT_BROWSERS_PATH
 ```

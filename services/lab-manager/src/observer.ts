@@ -174,13 +174,7 @@ export function parseDockerStats(line: string): LabTelemetry | null {
   const memoryBytes = used ? parseSize(used) : null;
   const memoryLimitBytes = limit ? parseSize(limit) : null;
   const pids = typeof record.PIDs === "string" ? Number.parseInt(record.PIDs, 10) : Number.NaN;
-  if (
-    cpuPercent === null ||
-    memoryPercent === null ||
-    memoryBytes === null ||
-    memoryLimitBytes === null ||
-    !Number.isFinite(pids)
-  ) {
+  if (cpuPercent === null || memoryPercent === null || memoryBytes === null || memoryLimitBytes === null || !Number.isFinite(pids)) {
     return null;
   }
   return { cpuPercent, memoryBytes, memoryLimitBytes, memoryPercent, pids };

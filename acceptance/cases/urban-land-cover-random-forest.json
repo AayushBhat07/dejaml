@@ -1,0 +1,120 @@
+{
+  "schemaVersion": 1,
+  "caseId": "urban-land-cover-random-forest",
+  "kind": "positive",
+  "reviewedCaseId": "urban-land-cover-random-forest",
+  "paper": {
+    "title": "Tabular Deep Learning vs Classical Machine Learning for Urban Land Cover Classification (arXiv 2609.19010)",
+    "sha256": "13b0c3fb3c2823f78eb650f918aa521493bddd6eccb55a2b9857c37d44d0a6a1",
+    "source": "https://arxiv.org/pdf/2609.19010",
+    "note": "Not committed; pass the downloaded PDF as the second argument. Its SHA-256 must match."
+  },
+  "claim": {
+    "page": 4,
+    "location": "Table 2, row Random Forest, test accuracy column",
+    "method": "Random Forest classifier",
+    "dataset": "UCI Urban Land Cover",
+    "split": "the official UCI test set (testing.csv)",
+    "metric": "test accuracy",
+    "unit": "percent",
+    "reportedValue": 81.66,
+    "secondary": { "precision": 0.81, "recall": 0.83, "f1": 0.81, "auc": 0.97 }
+  },
+  "repository": {
+    "url": "https://github.com/mtesha/tdl-vs-ml-urbanlandcover",
+    "commitSha": "49ece7ff4cc43fd4cb258678d44854f1cb2a417d",
+    "why": "The paper's code repository; its notebook trains the Random Forest of Table 2.",
+    "entrypoint": "Urban Land Cover Classification.ipynb"
+  },
+  "environment": {
+    "python": "3.12",
+    "wheels": ["numpy==2.5.3", "pandas==3.0.6", "scipy==1.18.1", "scikit-learn==1.9.1"],
+    "notes": ["The repository's requirements.txt is unpinned; these are the pins of the project's reviewed Urban Land Cover case."]
+  },
+  "dataset": {
+    "url": "https://archive.ics.uci.edu/static/public/295/urban%2Bland%2Bcover.zip",
+    "sha256": "277a27000a4a4b593f655595b92904ccb30ece48b8bb2a35cf5d3854d7204f79",
+    "license": "CC BY 4.0",
+    "allowedHost": "archive.ics.uci.edu"
+  },
+  "expected": {
+    "statuses": ["partially_reproduced", "not_reproduced"],
+    "why": "The notebook is run through a project-owned adapter (status capped at partially_reproduced), and the paper's protocol differs from the notebook in four documented ways. The run is not required to match the paper: not_reproduced, or partially_reproduced within the 1.0 pp tolerance, are both acceptable outcomes. The expected observed value is deliberately not recorded here.",
+    "expectedRuntimeSeconds": 60
+  },
+  "caveats": [
+    "The adapter fixes the validation split seed to 42; the notebook leaves it unset, so the authors' exact split is unknown.",
+    "The secondary metrics (precision, recall, F1, AUC) are recorded by the adapter but not compared."
+  ],
+  "scriptedProof": {
+    "paperAnalyst": {
+      "summary": "Table 2 reports per-model test results on the UCI Urban Land Cover test set; the Random Forest reaches 81.66% accuracy.",
+      "claim": {
+        "method": "Random Forest classifier",
+        "dataset": "UCI Urban Land Cover",
+        "split": "the official UCI test set (testing.csv)",
+        "preprocessing": "z-score scaling using training statistics",
+        "seedPolicy": "fixed seeds, not listed",
+        "metric": { "name": "test accuracy", "unit": "percent" },
+        "reportedValue": 81.66,
+        "page": 4,
+        "location": "Table 2, row Random Forest, test accuracy column",
+        "excerpt": "81.66",
+        "missingFields": ["the seed values"]
+      }
+    },
+    "repositoryAnalyst": {
+      "listPath": "",
+      "summary": "One notebook trains classical models and tabular networks on the UCI Urban Land Cover CSVs and prints test accuracy.",
+      "entrypoints": [{ "path": "Urban Land Cover Classification.ipynb", "why": "the notebook behind Table 2" }],
+      "metricSources": [{ "path": "Urban Land Cover Classification.ipynb", "description": "accuracy_score on the test set per model" }],
+      "runInstructions": "Run the notebook with the UCI CSVs next to it (it reads urbantraining.csv and urbantesting.csv).",
+      "warnings": ["requirements.txt is unpinned", "train_test_split has no random_state"]
+    },
+    "plan": {
+      "summary": "Run the reviewed project-owned adapter, which re-implements the notebook's Random Forest cells, on the official UCI CSVs.",
+      "entrypoint": "Urban Land Cover Classification.ipynb",
+      "command": {
+        "argv": [
+          "python",
+          "../work/adapter/urban_land_cover_runner.py",
+          "--training",
+          "../data/extracted/urban+land+cover/training.csv",
+          "--testing",
+          "../data/extracted/urban+land+cover/testing.csv",
+          "--output",
+          "../artifacts/result.json"
+        ],
+        "cwd": "repo"
+      },
+      "python": "3.12",
+      "compatibilityConstraints": [],
+      "dataset": {
+        "name": "UCI Urban Land Cover",
+        "source": {
+          "kind": "download",
+          "url": "https://archive.ics.uci.edu/static/public/295/urban%2Bland%2Bcover.zip",
+          "sha256": "277a27000a4a4b593f655595b92904ccb30ece48b8bb2a35cf5d3854d7204f79",
+          "extract": true
+        }
+      },
+      "metricParser": { "source": "json", "path": "artifacts/result.json", "key": "metrics.accuracyPercent" },
+      "expectedRuntimeSeconds": 60,
+      "stopConditions": ["the command exits non-zero", "artifacts/result.json is not written"],
+      "risks": ["the authors' seeds are unknown"]
+    },
+    "review": {
+      "equivalence": "partially_equivalent",
+      "summary": "The reviewed project-owned adapter ran the notebook's Random Forest protocol on the official CSVs; the accuracy came from the run's own JSON artifact.",
+      "checks": [
+        { "name": "approved command ran", "passed": true, "explanation": "the receipt exited 0" },
+        { "name": "metric from the run", "passed": true, "explanation": "metrics.accuracyPercent from artifacts/result.json" }
+      ],
+      "concerns": [
+        "project-owned adapter, not official code",
+        "seed fixed to 42 where the notebook leaves it unset",
+        "validation split not stratified and test set z-scored independently, unlike the paper's description"
+      ]
+    }
+  }
+}

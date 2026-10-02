@@ -1,0 +1,77 @@
+{
+  "schemaVersion": 1,
+  "caseId": "rocket-ecg200",
+  "paper": {
+    "title": "ROCKET: Exceptionally Fast and Accurate Time Series Classification Using Random Convolutional Kernels",
+    "sha256": "b58acd66dbd188978fc379f6949a4ea26c3c97aeaf6a27f5f16ccc182628df7a"
+  },
+  "claim": {
+    "page": 25,
+    "location": "Table 1, row ECG200, column Rocket",
+    "excerpt": "ECG200                0.9060   0.8700   0.8300   0.8500   0.8740   0.9090   0.8600   0.9100",
+    "method": "ROCKET with 10,000 random convolutional kernels and RidgeClassifierCV",
+    "dataset": "UCR ECG200 (100 train / 100 test series)",
+    "split": "the fixed UCR train/test split (100 train, 100 test)",
+    "preprocessing": "the UCR ECG200 text-format split is loaded directly; ROCKET creates 10,000 random convolutional kernels per run",
+    "seedPolicy": "10 independent runs with different random kernels; no fixed seeds are stated",
+    "metric": {
+      "name": "mean test accuracy across 10 runs",
+      "unit": "fraction"
+    },
+    "reportedValue": 0.906,
+    "identify": {
+      "methodIncludes": ["ROCKET"],
+      "methodExcludes": ["MiniROCKET", "MultiROCKET"],
+      "datasetIncludes": ["ECG200"]
+    }
+  },
+  "repository": {
+    "url": "https://github.com/angus924/rocket",
+    "commitSha": "36bd908b4f38e9ea8ca1a3ee6caaf71d405faf86",
+    "entrypoint": "code/reproduce_experiments_ucr.py"
+  },
+  "environment": {
+    "python": ["3.11"],
+    "requirements": [
+      "numpy==1.23.5",
+      "scipy==1.9.3",
+      "scikit-learn==1.1.3",
+      "joblib==1.2.0",
+      "threadpoolctl==3.1.0",
+      "numba==0.57.1",
+      "llvmlite==0.40.1"
+    ],
+    "allowedCompatibilityConstraints": []
+  },
+  "dataset": {
+    "source": {
+      "kind": "download",
+      "url": "https://timeseriesclassification.com/aeon-toolkit/ECG200.zip",
+      "sha256": "755937ea37849346ea20033666b19d17345bb039971e8fa33458b16b62c09380",
+      "extract": true,
+      "files": ["ECG200_TRAIN.txt", "ECG200_TEST.txt"]
+    }
+  },
+  "adapter": {
+    "id": "rocket-ecg200-runner",
+    "path": "work/adapter/rocket_ecg200_runner.py",
+    "file": "acceptance/proof/rocket_ecg200_runner.py",
+    "sha256": "68d7f6fe127f8d50ae405b84b934b9932fa529f2a4b684d554e3ac988b7d2fbd",
+    "why": "The upstream multi-dataset script fails when its dataset-name file contains one row because NumPy returns a scalar. This reviewed adapter selects ECG200 explicitly while importing the pinned repository's ROCKET transform.",
+    "source": "Project-owned single-dataset form of the loop in code/reproduce_experiments_ucr.py; it imports code/rocket_functions.py from the pinned repository and writes the 10-run aggregate and per-run accuracies to JSON.",
+    "differences": [
+      "project-owned adapter, not official repository code",
+      "selects ECG200 directly instead of reading a multi-row dataset-name file",
+      "writes per-run accuracy, mean accuracy, and population standard deviation to a JSON artifact",
+      "records runtime and input hashes; these additions do not alter the algorithm, split, kernels, classifier, or metric"
+    ]
+  },
+  "metricParser": {
+    "source": "json",
+    "path": "artifacts/result.json",
+    "key": "metrics.accuracyMean"
+  },
+  "expectedRuntimeCeilingSeconds": 600,
+  "tolerance": 0.0053,
+  "maximumVerdict": "partially_reproduced"
+}

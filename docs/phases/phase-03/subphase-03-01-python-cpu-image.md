@@ -5,6 +5,8 @@
 **Commit:** `dc17654`
 **Owner:** `Codex`
 
+> **Note (2026-09-30):** OpenClaw is not required and not used. The `OPENCLAW_BIN` check mentioned below no longer exists. DéjàML runs its own native agents (`packages/agent-runtime`) and reaches OpenAI or Anthropic through its own provider adapters; the OpenClaw adapters and scripts referenced below were removed. This historical note is otherwise unchanged.
+
 ## Objective
 
 Build and prove a minimal, pinned, non-root Python image capable of running the approved Urban Land Cover experiment under the planned isolation controls.

@@ -5,6 +5,8 @@
 **Commit:** `9b21831`
 **Owner:** `Claude`
 
+> **Note (2026-09-30):** OpenClaw is not required and not used. The real-model run needs no OpenClaw agents. DéjàML runs its own native agents (`packages/agent-runtime`) and reaches OpenAI or Anthropic through its own provider adapters; the OpenClaw adapters and scripts referenced below were removed. This historical note is otherwise unchanged.
+
 ## Objective
 
 Connect the uploaded PDF to real repository discovery, analysis, execution, comparison, and reporting.

@@ -26,7 +26,9 @@ export function checkDemoAcceptance(
   check(
     "repository_discovered",
     found?.publicPayload.repositoryUrl === policy.repository.url && found.evidence.some((item) => item.kind === "paper_page"),
-    found ? `${String(found.publicPayload.repositoryUrl)} (${found.evidence.map((item) => item.reference).join(", ")})` : "no repository_found event",
+    found
+      ? `${String(found.publicPayload.repositoryUrl)} (${found.evidence.map((item) => item.reference).join(", ")})`
+      : "no repository_found event",
   );
   const claim = report.plan?.claim;
   check(

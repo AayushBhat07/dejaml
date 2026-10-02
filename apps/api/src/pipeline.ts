@@ -11,21 +11,38 @@ import type {
   PaperDocument,
   PlanPolicyResult,
   RepositoryAcquisition,
+  RepositoryCandidate,
   RunEvent,
   RunStatus,
 } from "@dejaml/contracts";
-import { type CleanupReceipt, type LabManager, labSpecFromPlan } from "@dejaml/lab-manager";
+import type { ChatProvider } from "@dejaml/agent-runtime";
+import { type ContainerPlatform, containerPlatformFor, hostArchitecture, type ResourceBudgetSchema } from "@dejaml/contracts";
+import { type ArtifactContent, type AttemptOutcome, type CleanupReceipt, type LabManager, labSpecFromPlan } from "@dejaml/lab-manager";
 import { ingestPdf, PaperIntakeError } from "@dejaml/paper-intake";
-import {
-  acquireGithubRepository,
-  cleanupAcquiredRepository,
-  discoverGithubRepositories,
-} from "@dejaml/repository-intake";
-import { runAudit, runLeadResearch, runParallelAnalysis, type StructuredModelClient } from "@dejaml/research-runtime";
+import { acquireGithubRepository, cleanupAcquiredRepository, discoverGithubRepositories } from "@dejaml/repository-intake";
+import { runAudit, runLabAgent, runLeadResearch, runParallelAnalysis, type StructuredModelClient } from "@dejaml/research-runtime";
 import { verifyResult } from "@dejaml/result-verifier";
+import type { z } from "zod";
 import type { RunStore } from "@dejaml/run-store";
 
 import type { CuratedCase } from "./cases.js";
+import {
+  checkTargetPaper,
+  type ClaimTarget,
+  type DatasetPort,
+  type DependencyPort,
+  type BlindingProofCheck,
+  type LabImagePort,
+  type LeakCheck,
+  type MultiAgentReport,
+  type MultiAgentResult,
+  proveBlinding,
+  runMultiAgentStudy,
+  type StudyConfig,
+  publicTargetSummary,
+} from "./study/index.js";
+
+type ResourceBudget = z.infer<typeof ResourceBudgetSchema>;
 
 export type PipelineDependencies = {
   store: RunStore;
@@ -35,8 +52,36 @@ export type PipelineDependencies = {
   projectRoot: string;
   /** Private working directory for repository checkouts and reports. */
   workRoot: string;
-  image: { name: string; expectedImageId: string };
+  /** The curated-path lab image; `platform` defaults to this host's Linux platform. */
+  image: { name: string; expectedImageId: string; platform?: ContainerPlatform };
   acquire?: typeof acquireGithubRepository;
+  /** Experimental tool-driven lab execution; the curated path remains the default. */
+  labAgentEnabled?: boolean;
+  /**
+   * Papers without a reviewed case: separate agents (Supervisor, analysts,
+   * planner, engineers, reviewers) run the study in sealed labs.
+   */
+  multiAgent?: MultiAgentOptions;
+};
+
+export type MultiAgentOptions = {
+  enabled: boolean;
+  /** Trust zone 2; null disables dependency preparation (the plan may then use only the standard library). */
+  dependencies: DependencyPort | null;
+  /** Resolves the lab image for the approved platform and Python. */
+  images: LabImagePort;
+  /** Trust zone 4; null disables dataset downloads. */
+  datasets: DatasetPort | null;
+  config: Omit<StudyConfig, "provider">;
+  leakCheck?: LeakCheck;
+};
+
+export const DEFAULT_STUDY_RESOURCES: ResourceBudget = {
+  cpus: 2,
+  memoryMb: 4096,
+  pids: 256,
+  timeoutSeconds: 1800,
+  networkDuringRun: false,
 };
 
 export type StudyReport = {
@@ -62,6 +107,10 @@ export type StudyReport = {
   metric: Metric | null;
   assessment: Assessment | null;
   audit: AuditDecision | null;
+  /** Present when independent agents ran the study instead of a reviewed plan. */
+  study?: MultiAgentReport;
+  /** The server's re-check of the study's blinding, from its stored ledger, histories and events. */
+  blindingProof?: BlindingProofCheck[];
   failure: string | null;
   events: RunEvent[];
 };
@@ -80,7 +129,22 @@ class StudyCancelled extends Error {
  * a cleanup receipt.
  */
 export async function runStudy(
-  input: { runId: string; fileName: string; data: Uint8Array; signal: AbortSignal },
+  input: {
+    runId: string;
+    fileName: string;
+    data: Uint8Array;
+    signal: AbortSignal;
+    /** A repository the uploader named; it is tried before links found in the paper. */
+    repositoryUrl?: string;
+    /** Whose model key drives the agents; recorded without the key itself. Keys are only ever the server's. */
+    modelSource?: "server";
+    /** Resume a study after a restart from its saved inputs, skipping intake and discovery. */
+    resume?: { paper: PaperDocument; candidates: RepositoryCandidate[]; target?: ClaimTarget | null };
+    /** A reviewed claim target the server resolved from its own registry by case id; never built from the request. */
+    target?: ClaimTarget;
+    /** The configured provider and model the agents use; the key stays inside the provider. */
+    agents?: { provider: ChatProvider; selection: { id: string; model: string } };
+  },
   deps: PipelineDependencies,
 ): Promise<StudyReport> {
   const { runId, signal } = input;
@@ -101,6 +165,8 @@ export async function runStudy(
     audit: null,
     failure: null,
   };
+  // The administrator's audit copy of a blinded study (see finalize); never served without the admin token.
+  let auditStudy = null as MultiAgentResult["auditReport"] | null;
   const event = (
     type: string,
     status: RunEvent["status"],
@@ -132,6 +198,17 @@ export async function runStudy(
   signal.addEventListener("abort", onAbort, { once: true });
 
   try {
+    if (input.resume) {
+      const { paper, candidates } = input.resume;
+      report.paper = { name: paper.file.originalName, bytes: paper.file.bytes, sha256: paper.file.sha256, pages: paper.pageCount };
+      event("run_resumed", "progress", "The service restarted; the study resumes from its saved stages", {});
+      if (!deps.multiAgent?.enabled) {
+        report.failure = "Autonomous studies are disabled on this server, so the interrupted study cannot resume";
+        finish("failed");
+        return await finalize();
+      }
+      return await multiAgentStudy(paper, candidates, deps.multiAgent, input.resume.target ?? null);
+    }
     // 1. Paper intake.
     store.transitionRun(runId, "ingesting");
     let paper: PaperDocument;
@@ -154,12 +231,68 @@ export async function runStudy(
     );
     checkCancelled();
 
+    const target = input.target ?? null;
+    if (target) {
+      // The reviewed target must describe this exact paper, and its excerpt must be on its cited page.
+      const problem = checkTargetPaper(target, { sha256: paper.file.sha256, pages: paper.pages });
+      if (problem) {
+        event("reviewed_target_refused", "failed", `The reviewed target does not fit the paper: ${problem}`, { caseId: target.caseId });
+        report.failure = problem;
+        finish("inconclusive");
+        return await finalize();
+      }
+      event("reviewed_target", "completed", `Investigating the reviewed claim ${target.caseId}`, publicTargetSummary(target));
+    }
+
     // 2. Repository discovery: only a reviewed case may proceed.
     store.transitionRun(runId, "discovering_repository");
-    const candidates = discoverGithubRepositories(paper);
-    const match = deps.cases.find((curated) =>
-      candidates.some((candidate) => candidate.repositoryUrl === curated.policy.repository.url),
-    );
+    const discovered = discoverGithubRepositories(paper);
+    if (target) {
+      // The reviewed repository is the only candidate; agents still acquire and inspect it themselves.
+      const [owner = "", name = ""] = target.repository.url.split("/").slice(3);
+      const found = discovered.find((candidate) => candidate.repositoryUrl === target.repository.url);
+      const candidates: RepositoryCandidate[] = [
+        { repositoryUrl: target.repository.url, owner, name, occurrences: found?.occurrences ?? [], providedByUser: false },
+      ];
+      if (input.modelSource) {
+        event("model_connection", "completed", "Agents use the server's model connection", {
+          source: input.modelSource,
+          ...(input.agents ? { provider: input.agents.selection.id, model: input.agents.selection.model } : {}),
+        });
+      }
+      if (!deps.multiAgent?.enabled) {
+        report.failure = "Autonomous studies are disabled on this server, so the reviewed claim cannot be studied";
+        event("agents_unavailable", "failed", report.failure, {});
+        finish("inconclusive");
+        return await finalize();
+      }
+      return await multiAgentStudy(paper, candidates, deps.multiAgent, target);
+    }
+    const provided = input.repositoryUrl;
+    const candidates: RepositoryCandidate[] = provided
+      ? [
+          {
+            ...(discovered.find((candidate) => candidate.repositoryUrl === provided) ?? {
+              repositoryUrl: provided,
+              owner: provided.split("/")[3] ?? "",
+              name: provided.split("/")[4] ?? "",
+              occurrences: [],
+            }),
+            providedByUser: true,
+          },
+          ...discovered.filter((candidate) => candidate.repositoryUrl !== provided),
+        ]
+      : discovered;
+    if (input.modelSource) {
+      event("model_connection", "completed", "Agents use the server's model connection", {
+        source: input.modelSource,
+        ...(input.agents ? { provider: input.agents.selection.id, model: input.agents.selection.model } : {}),
+      });
+    }
+    const match = deps.cases.find((curated) => candidates.some((candidate) => candidate.repositoryUrl === curated.policy.repository.url));
+    if (!match && deps.multiAgent?.enabled && candidates[0]) {
+      return await multiAgentStudy(paper, candidates, deps.multiAgent, null);
+    }
     if (!match) {
       const summary =
         candidates.length === 0
@@ -246,6 +379,7 @@ export async function runStudy(
       projectRoot: deps.projectRoot,
       image: deps.image.name,
       expectedImageId: deps.image.expectedImageId,
+      platform: deps.image.platform ?? hostContainerPlatform(),
     });
     report.lab = {
       image: deps.image.name,
@@ -257,6 +391,82 @@ export async function runStudy(
       cleanup: null,
     };
     const lab = report.lab;
+    const verifyAndAudit = async (outcome: AttemptOutcome, artifact?: ArtifactContent): Promise<void> => {
+      lab.attempt = outcome.attempt;
+      lab.stdout = outcome.stdout.text;
+      lab.stderr = outcome.stderr.text;
+      lab.logsTruncated = outcome.stdout.truncated || outcome.stderr.truncated;
+      if (outcome.attempt.timedOut) return finish("timed_out");
+      if (outcome.attempt.cancelled) return finish("cancelled");
+
+      store.transitionRun(runId, "comparing");
+      const verification = verifyResult({
+        runId,
+        plan,
+        attempt: outcome.attempt,
+        ...(artifact ? { artifact } : {}),
+        stdout: outcome.stdout.text,
+        tolerance: match.manifest.comparison.tolerance,
+        knownDiscrepancies: match.manifest.knownDiscrepancies,
+        events: (item) => store.appendEvent(item),
+      });
+      report.metric = verification.metric;
+      report.assessment = verification.assessment;
+      if (verification.metric && verification.assessment.verdict !== "inconclusive" && paperAnalysis) {
+        store.transitionRun(runId, "auditing");
+        checkCancelled();
+        try {
+          const auditResult = await runAudit({
+            runId,
+            runStore: store,
+            paperAnalysis,
+            metric: verification.metric,
+            assessment: verification.assessment,
+            plan,
+            modelClient: deps.model,
+            signal,
+          });
+          report.audit = auditResult.decision.value;
+        } catch {
+          // Semantic audit remains optional; deterministic verification is authoritative.
+        }
+      }
+      finish(verification.assessment.verdict === "inconclusive" ? "inconclusive" : "completed");
+    };
+
+    if (deps.labAgentEnabled) {
+      const agent = await runLabAgent({
+        runId,
+        plan,
+        spec,
+        labs: deps.labs,
+        model: deps.model,
+        store,
+        signal,
+        onLabCreated: (id) => {
+          activeLabId = id;
+        },
+        onLabDestroyed: () => {
+          activeLabId = null;
+        },
+      });
+      lab.imageId = agent.imageId;
+      try {
+        const path = plan.metricExtraction.path;
+        const digest = path ? agent.outcome.attempt.artifactDigests[path] : undefined;
+        const artifact =
+          path && digest && agent.metricArtifact
+            ? { path, sha256: digest, bytes: agent.metricArtifact.length, content: agent.metricArtifact }
+            : undefined;
+        await verifyAndAudit(agent.outcome, artifact);
+      } finally {
+        activeLabId = null;
+        lab.cleanup = await deps.labs.destroyLab(agent.labId, `run ${store.getRun(runId).status}`);
+      }
+      if (!lab.cleanup.verifiedAbsent) report.failure = "lab cleanup could not be verified";
+      return await finalize();
+    }
+
     const handle = await deps.labs.createLab(spec);
     activeLabId = handle.labId;
     let labFailure: unknown = null;
@@ -271,57 +481,10 @@ export async function runStudy(
         command: plan.command,
         observe: true,
       });
-      lab.attempt = outcome.attempt;
-      lab.stdout = outcome.stdout.text;
-      lab.stderr = outcome.stderr.text;
-      lab.logsTruncated = outcome.stdout.truncated || outcome.stderr.truncated;
-      if (outcome.attempt.timedOut) {
-        finish("timed_out");
-      } else if (outcome.attempt.cancelled) {
-        finish("cancelled");
-      } else {
-        // 5. Verification from the exported artifact.
-        store.transitionRun(runId, "comparing");
-        const path = plan.metricExtraction.path;
-        const artifact =
-          path && outcome.attempt.artifactDigests[path]
-            ? await deps.labs.readArtifact(handle.labId, path).catch(() => undefined)
-            : undefined;
-        const verification = verifyResult({
-          runId,
-          plan,
-          attempt: outcome.attempt,
-          ...(artifact ? { artifact } : {}),
-          stdout: outcome.stdout.text,
-          tolerance: match.manifest.comparison.tolerance,
-          knownDiscrepancies: match.manifest.knownDiscrepancies,
-          events: (item) => store.appendEvent(item),
-        });
-        report.metric = verification.metric;
-        report.assessment = verification.assessment;
-
-        // 6. Audit Agent: semantic verification of metric alignment.
-        if (verification.metric && verification.assessment.verdict !== "inconclusive" && paperAnalysis) {
-          store.transitionRun(runId, "auditing");
-          checkCancelled();
-          try {
-            const auditResult = await runAudit({
-              runId,
-              runStore: store,
-              paperAnalysis,
-              metric: verification.metric,
-              assessment: verification.assessment,
-              plan,
-              modelClient: deps.model,
-              signal,
-            });
-            report.audit = auditResult.decision.value;
-          } catch {
-            // Audit failure is non-fatal: the run still completes with its deterministic verdict.
-          }
-        }
-        finish(verification.assessment.verdict === "inconclusive" ? "inconclusive" : "completed");
-      }
+      const path = plan.metricExtraction.path;
+      const artifact =
+        path && outcome.attempt.artifactDigests[path] ? await deps.labs.readArtifact(handle.labId, path).catch(() => undefined) : undefined;
+      await verifyAndAudit(outcome, artifact);
     } catch (error) {
       labFailure = error;
     } finally {
@@ -346,11 +509,75 @@ export async function runStudy(
   } finally {
     signal.removeEventListener("abort", onAbort);
     if (acquisition) {
-      await cleanupAcquiredRepository({ destination: acquisition.destination, destinationRoot: acquisitionRoot }).catch(
-        () => undefined,
-      );
+      await cleanupAcquiredRepository({ destination: acquisition.destination, destinationRoot: acquisitionRoot }).catch(() => undefined);
     }
     await rm(acquisitionRoot, { recursive: true, force: true });
+  }
+
+  /**
+   * No reviewed case covers this paper: independent agents run the study
+   * under a Supervisor (see ./study), and the report records their evidence.
+   */
+  async function multiAgentStudy(
+    paper: PaperDocument,
+    candidates: RepositoryCandidate[],
+    options: MultiAgentOptions,
+    target: ClaimTarget | null,
+  ): Promise<StudyReport> {
+    const agents = input.agents;
+    if (!agents) {
+      report.failure = "No model provider was selected for the agents";
+      event("agents_unavailable", "failed", report.failure, {});
+      finish("inconclusive");
+      return await finalize();
+    }
+    event(
+      "repository_found",
+      "completed",
+      target
+        ? "Independent agents will verify and reproduce the reviewed claim"
+        : "Found repository candidates; no reviewed case exists, so independent agents will run the study",
+      {
+        candidates: candidates.map((candidate) => candidate.repositoryUrl),
+        autonomous: true,
+        reviewedTarget: target?.caseId ?? null,
+      },
+    );
+    if (target) report.caseId = target.caseId;
+    const result = await runMultiAgentStudy(
+      { runId, paper, candidates, signal, target },
+      {
+        store,
+        labs: deps.labs,
+        dependencies: options.dependencies,
+        images: options.images,
+        datasets: options.datasets,
+        config: { ...options.config, provider: agents.selection },
+        chatProvider: agents.provider,
+        workRoot: deps.workRoot,
+        ...(deps.acquire ? { acquire: deps.acquire } : {}),
+        ...(options.leakCheck ? { leakCheck: options.leakCheck } : {}),
+      },
+    );
+    report.study = result.report;
+    report.blindingProof = proveBlinding({ store, runId, report: result.report });
+    auditStudy = result.auditReport;
+    report.repository = result.repository;
+    report.metric = result.metric;
+    report.assessment = result.assessment;
+    report.failure = result.failure;
+    report.lab = {
+      image: deps.image.name,
+      imageId: result.imageId,
+      attempt: result.attempt,
+      stdout: result.stdout,
+      stderr: "",
+      logsTruncated: false,
+      cleanup: result.report.cleanup.labs.find((receipt) => !receipt.verifiedAbsent) ?? result.report.cleanup.labs.at(-1) ?? null,
+    };
+    if (!result.report.cleanup.verified)
+      report.failure = [report.failure, "study cleanup could not be verified"].filter(Boolean).join("; ");
+    return await finalize();
   }
 
   async function finalize(): Promise<StudyReport> {
@@ -368,6 +595,18 @@ export async function runStudy(
     const reportsDir = join(deps.workRoot, "reports");
     await mkdir(reportsDir, { recursive: true });
     await writeFile(join(reportsDir, `${runId}.json`), `${JSON.stringify(complete, null, 2)}\n`);
+    if (auditStudy) {
+      // Server-only: the full study, including a sealed target that was never revealed. Readable by the service account alone.
+      await writeFile(join(reportsDir, `${runId}.audit.json`), `${JSON.stringify({ ...complete, study: auditStudy }, null, 2)}\n`, {
+        mode: 0o600,
+      });
+    }
     return complete;
   }
+}
+
+function hostContainerPlatform(): ContainerPlatform {
+  const architecture = hostArchitecture(process.arch);
+  if (!architecture) throw new Error(`unsupported host architecture ${process.arch}; set the lab image platform explicitly`);
+  return containerPlatformFor(architecture);
 }

@@ -3,6 +3,8 @@
 **Status:** Accepted  
 **Date:** 2026-09-28
 
+> **Note (2026-09-30):** OpenClaw is not required and not used. This decision's OpenClaw adapters are superseded. DéjàML runs its own native agents (`packages/agent-runtime`) and reaches OpenAI or Anthropic through its own provider adapters; the OpenClaw adapters and scripts referenced below were removed. This historical note is otherwise unchanged.
+
 ## Context
 
 Paper analysis and repository analysis are independent until reconciliation. The demo must show both working at the same time without granting a model general host, repository, browser, messaging, or execution access. The operator's available OpenAI credential is an OAuth profile intentionally unavailable to isolated `agent exec` temporary state.

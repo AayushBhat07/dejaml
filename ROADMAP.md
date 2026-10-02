@@ -121,6 +121,8 @@ Add an LLM-based post-run step that checks whether the measured metric semantica
 
 The agent is non-fatal: a model or network error does not abort the run. The `dejaml-audit` OpenClaw agent must be created on the Mac before production runs can call a real model.
 
+> **Note (2026-09-30):** No longer applies. OpenClaw is not required and not used; the Audit Agent's model calls go through DéjàML's native provider adapters.
+
 See `docs/phases/phase-06/subphase-06-01-audit-agent.md`.
 
 ### 6.2 Auto-execution (host preparation) — `REGRESSED / BLOCKED`
@@ -130,6 +132,22 @@ Allow reviewed dependency installation and notebook conversion before the offlin
 The initial unproven plumbing was removed in commit `0b4168a`: model-proposed steps bypassed the deterministic policy, referenced a checkout after it was deleted, and required tools intentionally absent from the locked lab image. Reimplementation requires a separately pinned preparation image, exact allowlisted inputs and paths, resource limits, network policy, tests, and a real end-to-end case.
 
 See `docs/phases/phase-06/subphase-06-02-auto-execution.md`.
+
+The dependency trust zone in 6.4 (egress-restricted wheel downloads and an offline install in the lab) meets these requirements for Python wheels.
+
+### 6.3 Autonomous multi-agent lab (offline) — `SUPERSEDED`
+
+An autonomous Lab Agent with a Planner, Engineer and Debugger inside each offline lab, three replicas and a Lab Reviewer. Superseded by 6.4 in the same pull request: the API now runs separate agents through the bounded agent runtime. The 6.3 library code and its Docker proof remain in `packages/research-runtime`, but the API no longer calls them.
+
+See `docs/phases/phase-06/subphase-06-03-autonomous-lab-agent.md`.
+
+### 6.4 Secure multi-agent study — `IN PROGRESS`
+
+Seven separate agents (Paper Analyst, Repository Analyst, Reproduction Planner, Lab Engineers, Debugger, Independent Reviewer, Supervisor) coordinate through a typed evidence board. Four trust zones handle repository acquisition, Python wheels, datasets and offline execution, and the final status is decided from evidence. Real OpenAI, Anthropic and custom-endpoint providers have server-side keys.
+
+The stage machine is persisted and resumes after a restart, the claim contract and policy review are deterministic, and the PlatformSpec keeps images, wheels and labs on the host platform (Apple Silicon arm64, Intel and AWS amd64). Infrastructure is verified with real Docker, GitHub and PyPI, including the whole study on the pyts paper with a scripted model. The real-model acceptance run (`acceptance/cases/pyts-boss-gunpoint.json`) needs a provider key and is pending.
+
+See `docs/phases/phase-06/subphase-06-04-multi-agent-study.md`.
 
 ## Change rule
 

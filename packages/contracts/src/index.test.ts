@@ -1,10 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import {
-  AssessmentSchema,
-  ExperimentPlanSchema,
-  RunEventSchema,
-} from "./index.js";
+import { AssessmentSchema, ExperimentPlanSchema, RunEventSchema } from "./index.js";
 
 const claim = {
   experimentLabel: "Random Forest on UCI Urban Land Cover",
@@ -30,10 +26,8 @@ describe("ExperimentPlanSchema", () => {
       claim,
       dataset: {
         name: "UCI Urban Land Cover",
-        sourceUrl:
-          "https://archive.ics.uci.edu/static/public/295/urban%2Bland%2Bcover.zip",
-        sha256:
-          "277a27000a4a4b593f655595b92904ccb30ece48b8bb2a35cf5d3854d7204f79",
+        sourceUrl: "https://archive.ics.uci.edu/static/public/295/urban%2Bland%2Bcover.zip",
+        sha256: "277a27000a4a4b593f655595b92904ccb30ece48b8bb2a35cf5d3854d7204f79",
         expectedPaths: ["data/training.csv", "data/testing.csv"],
       },
       preparation: [],
@@ -130,9 +124,7 @@ describe("AssessmentSchema", () => {
   it("represents a different comparable result", () => {
     const assessment = AssessmentSchema.parse({
       comparable: true,
-      checks: [
-        { name: "metric", passed: true, explanation: "accuracy in percent" },
-      ],
+      checks: [{ name: "metric", passed: true, explanation: "accuracy in percent" }],
       paperValue: 81.66,
       observedValue: 79.88,
       signedDifference: -1.78,

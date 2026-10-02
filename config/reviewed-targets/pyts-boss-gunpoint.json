@@ -1,0 +1,57 @@
+{
+  "schemaVersion": 1,
+  "caseId": "pyts-boss-gunpoint",
+  "paper": {
+    "title": "pyts: A Python Package for Time Series Classification (JMLR 21(46), 2020)",
+    "sha256": "5261f92e14eb07c215b03610477d81330bfc34a89ea004a4a0fb1fa339913ea4"
+  },
+  "claim": {
+    "page": 4,
+    "location": "Table 2, row pyts, column GunPoint",
+    "excerpt": "pyts 0.752 0.870 1.000 0.526 1.000 Table 2: Accuracy scores on the test set for the BOSS transformer followed by a one-nearest neighbor classifier with the BOSS metric on several data sets.",
+    "method": "BOSS transformer followed by a one-nearest-neighbor classifier with the BOSS metric",
+    "dataset": "UCR GunPoint (50 train / 150 test series)",
+    "split": "the fixed UCR train/test split (50 train, 150 test)",
+    "preprocessing": "not stated beyond the BOSS transformation",
+    "seedPolicy": "not stated (BOSS and 1-NN are deterministic)",
+    "metric": { "name": "test accuracy", "unit": "fraction" },
+    "reportedValue": 1.0,
+    "identify": { "methodIncludes": ["BOSS"], "methodExcludes": ["BOSSVS", "BOSS-VS", "BOSS VS"], "datasetIncludes": ["GunPoint"] }
+  },
+  "repository": {
+    "url": "https://github.com/johannfaouzi/pyts-repro",
+    "commitSha": "1f8a8285a70e357274351c0935b5fc332be0e735",
+    "entrypoint": "0.10.0/BOSS.ipynb"
+  },
+  "environment": {
+    "python": ["3.11"],
+    "requirements": [
+      "pyts==0.10.0",
+      "numpy==1.23.5",
+      "scipy==1.9.3",
+      "scikit-learn==1.1.3",
+      "joblib==1.2.0",
+      "threadpoolctl==3.1.0",
+      "numba==0.57.1",
+      "llvmlite==0.40.1"
+    ],
+    "allowedCompatibilityConstraints": ["pip<24.1"]
+  },
+  "dataset": { "source": { "kind": "package", "package": "pyts" } },
+  "adapter": {
+    "id": "pyts-boss-notebook-runner",
+    "path": "work/adapter/run_boss_notebook.py",
+    "file": "acceptance/proof/pyts_run_boss_notebook.py",
+    "sha256": "ea45927ff109d029d25f70c84a2dc368fc5ffb9c735e39471710be46f1189d80",
+    "why": "The official result is a notebook, not a script, and its other UCR datasets are downloaded at run time, which the offline lab cannot do.",
+    "source": "Executes the code cells of the pinned 0.10.0/BOSS.ipynb unchanged and in order; arguments: the notebook path, then the datasets to keep (GunPoint).",
+    "differences": [
+      "dataset_params is filtered to the datasets named on the command line (GunPoint) right after the cell that defines it; per-dataset computation is independent",
+      "it prints wall time and peak memory after the notebook's own output"
+    ]
+  },
+  "metricParser": { "source": "stdout", "pattern": "Accuracy on the test set: (\\d\\.\\d{3})" },
+  "expectedRuntimeCeilingSeconds": 600,
+  "tolerance": 0.02,
+  "maximumVerdict": "partially_reproduced"
+}

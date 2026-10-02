@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -11,7 +11,7 @@ import {
   type RepositoryCandidate,
 } from "@dejaml/contracts";
 import { RunStore } from "@dejaml/run-store";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 
 import { type StructuredCompletionRequest, type StructuredModelClient } from "./model.js";
 import { ParallelAnalysisError, runParallelAnalysis } from "./orchestrator.js";
@@ -73,7 +73,7 @@ async function repositoryFixture(): Promise<{
   readmeSha: string;
   notebookSha: string;
 }> {
-  const destination = await mkdtemp(join(tmpdir(), "dejaml-parallel-analysis-test-"));
+  const destination = await tempRoot("dejaml-parallel-analysis-test-");
   const readme = "Run the Urban Land Cover notebook.";
   const notebook = JSON.stringify({
     cells: [
@@ -129,6 +129,15 @@ function preparedRun(store: RunStore, runId: string): void {
   store.transitionRun(runId, "discovering_repository");
 }
 
+const tempRoots: string[] = [];
+async function tempRoot(prefix: string): Promise<string> {
+  const root = await mkdtemp(join(tmpdir(), prefix));
+  tempRoots.push(root);
+  return root;
+}
+afterEach(async () => {
+  await Promise.all(tempRoots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
+});
 describe("parallel research analysis", () => {
   it("runs independent analysts concurrently and publishes completion events", async () => {
     const fixture = await repositoryFixture();
@@ -146,10 +155,7 @@ describe("parallel research analysis", () => {
         maxActive = Math.max(maxActive, active);
         if (calls === 2) release?.();
         await barrier;
-        const value =
-          request.role === "paper_analyst"
-            ? paperAnalysis()
-            : codeAnalysis(fixture.readmeSha, fixture.notebookSha);
+        const value = request.role === "paper_analyst" ? paperAnalysis() : codeAnalysis(fixture.readmeSha, fixture.notebookSha);
         active -= 1;
         return { value: request.schema.parse(value), provider: "test", model: "test-model" };
       },

@@ -1,0 +1,8 @@
+{
+  "error": {
+    "message": "Rate limit reached for gpt-fixture-1 in organization org-fixture on requests per min (RPM): Limit 500, Used 500, Requested 1. Please try again in 1s.",
+    "type": "requests",
+    "param": null,
+    "code": "rate_limit_exceeded"
+  }
+}

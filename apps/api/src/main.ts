@@ -3,12 +3,18 @@ import { mkdir, readFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { LabManager } from "@dejaml/lab-manager";
-import { OpenClawGatewayStructuredClient } from "@dejaml/research-runtime";
+import { platformFromEnv } from "@dejaml/contracts";
+import { ImageReadiness, LabManager, loadBaseImageLock } from "@dejaml/lab-manager";
+import { loadProviderConfig, ProviderConfigError, providerRoute, publicProviders } from "@dejaml/agent-runtime";
+import { DEFAULT_DATASET_POLICY, parseAllowedHosts } from "@dejaml/net-guard";
+import { DependencyPreparer, loadCompatibilityConstraints, loadPrepPolicy } from "@dejaml/prep";
 import { RunStore } from "@dejaml/run-store";
 
 import { loadCases } from "./cases.js";
+import { DEFAULT_STUDY_RESOURCES } from "./pipeline.js";
+import { environmentSecrets, withSecrets } from "./boundaries.js";
 import { createApiServer, recoverAfterRestart } from "./server.js";
+import { loadReviewedTargets, localDatasetPort, preparerPort, readinessLabImagePort } from "./study/index.js";
 
 const projectRoot = resolve(fileURLToPath(new URL("../../../", import.meta.url)));
 const dataDir = resolve(process.env.DEJAML_DATA_DIR ?? join(projectRoot, "artifacts", "api"));
@@ -22,23 +28,56 @@ const imageLock = JSON.parse(await readFile(join(projectRoot, "lab-images/python
 };
 const store = new RunStore(join(dataDir, "runs.sqlite"));
 const labs = new LabManager({ labRoot: join(dataDir, "labs"), events: (event) => store.appendEvent(event) });
-const model = new OpenClawGatewayStructuredClient({
-  binaryPath: process.env.OPENCLAW_BIN ?? "openclaw",
-  analystAgents: {
-    paper_analyst: process.env.DEJAML_PAPER_AGENT ?? "dejaml-paper",
-    code_analyst: process.env.DEJAML_CODE_AGENT ?? "dejaml-code",
-    lead_researcher: process.env.DEJAML_LEAD_AGENT ?? "dejaml-lead",
-    audit_agent: process.env.DEJAML_AUDIT_AGENT ?? "dejaml-audit",
-  },
-  timeoutSeconds: 180,
-  thinking: "low",
-});
+// Providers and models come only from the server's environment; the browser picks among them.
+let providers;
+try {
+  // Keys come through the secret boundary (the environment here; a secret manager in a deployment).
+  providers = loadProviderConfig(withSecrets(process.env, environmentSecrets(process.env)));
+} catch (error) {
+  process.stderr.write(
+    `Model provider configuration is invalid:\n${error instanceof ProviderConfigError ? error.problems.join("\n") : String(error)}\n`,
+  );
+  process.exit(1);
+}
+// The lab platform: Apple Silicon → linux/arm64, Intel Mac or an AWS x86 host → linux/amd64 (or DEJAML_PLATFORM).
+let platform;
+try {
+  platform = platformFromEnv(process.env, process.arch);
+} catch (error) {
+  process.stderr.write(`Platform configuration is invalid: ${error instanceof Error ? error.message : String(error)}\n`);
+  process.exit(1);
+}
+// Lab images are found by identity, pulled by digest, or built from a digest-pinned base; never substituted.
+const readiness = new ImageReadiness();
+const baseImages = await loadBaseImageLock(join(projectRoot, "lab-images/python-base/bases.lock.json"));
+// Trust zone 3: Python wheels are downloaded by short-lived, egress-restricted containers.
+const prep =
+  process.env.DEJAML_PREP_ENABLED === "0"
+    ? null
+    : new DependencyPreparer({
+        cacheDir: join(dataDir, "prep-cache"),
+        policy: loadPrepPolicy(process.env),
+        workRoot: join(dataDir, "prep-tmp"),
+        imageProvider: readiness,
+      });
+const prepOrphans = await prep?.cleanupOrphans().catch(() => null);
+const trustedConstraints = (
+  await loadCompatibilityConstraints(join(projectRoot, "config/compatibility-constraints.txt"), "config/compatibility-constraints.txt")
+).map((item) => ({ requirement: item.spec, reason: item.reason }));
+// Reviewed claim targets are server-owned files; each adapter is checked against its reviewed hash here.
+const reviewedTargets = await loadReviewedTargets(join(projectRoot, "config/reviewed-targets"), projectRoot);
+const datasetHosts = parseAllowedHosts(process.env.DEJAML_DATASET_ALLOWED_HOSTS ?? "");
+const number = (name: string, fallback: number): number => {
+  const value = Number(process.env[name] ?? "");
+  return Number.isFinite(value) && value > 0 ? value : fallback;
+};
 
-const recovery = await recoverAfterRestart({ store, labs, workRoot: dataDir });
+const recovery = await recoverAfterRestart({ store, labs, workRoot: dataDir, resumeStudies: process.env.DEJAML_AUTONOMOUS !== "0" });
 const api = createApiServer({
   store,
+  adminToken: process.env.DEJAML_ADMIN_TOKEN?.trim() || null,
   labs,
-  model,
+  providers,
   cases: await loadCases(projectRoot),
   projectRoot,
   workRoot: dataDir,
@@ -47,13 +86,60 @@ const api = createApiServer({
     // The lock's ID was verified on linux/arm64; other platforms must rebuild and override.
     expectedImageId: process.env.DEJAML_EXPECTED_IMAGE_ID ?? imageLock.verifiedImageId,
   },
+  labAgentEnabled: process.env.DEJAML_LAB_AGENT_ENABLED !== "0",
+  multiAgent: {
+    enabled: process.env.DEJAML_AUTONOMOUS !== "0",
+    dependencies: prep ? preparerPort(prep) : null,
+    images: readinessLabImagePort({ readiness, lock: baseImages, contextDir: join(projectRoot, "lab-images/python-base") }),
+    datasets: datasetHosts.length ? localDatasetPort({ ...DEFAULT_DATASET_POLICY, allowedHosts: datasetHosts }) : null,
+    config: {
+      platform,
+      resources: {
+        ...DEFAULT_STUDY_RESOURCES,
+        timeoutSeconds: number("DEJAML_LAB_TIMEOUT_SECONDS", DEFAULT_STUDY_RESOURCES.timeoutSeconds),
+      },
+      engineers: Math.min(3, Math.floor(number("DEJAML_LAB_ENGINEERS", 1))),
+      datasetPolicy: { ...DEFAULT_DATASET_POLICY, allowedHosts: datasetHosts },
+      maxStudyMs: number("DEJAML_STUDY_MAX_MINUTES", 180) * 60_000,
+      commandTimeoutSeconds: number("DEJAML_COMMAND_TIMEOUT_SECONDS", 900),
+      maxReplans: Math.min(4, Math.floor(number("DEJAML_MAX_REPLANS", 2))),
+      trustedConstraints,
+    },
+  },
   webRoot: join(projectRoot, "apps/web/dist"),
+  reviewedTargets,
+  health: () => ({
+    platform: platform.containerPlatform,
+    python: platform.python.version,
+    images: readiness.status().map((item) => ({
+      key: item.key,
+      reference: item.reference,
+      platform: item.platform,
+      state: item.state,
+      imageId: item.image?.imageId ?? null,
+      digest: item.image?.digest ?? null,
+      error: item.error?.code ?? null,
+    })),
+    dependencyPreparation: prep ? "enabled" : "disabled",
+    reviewedTargets: [...reviewedTargets.keys()],
+    // The administrator's dataset allowlist (host names only), so a client can tell why a download would be refused.
+    datasetHosts,
+    // Where each available provider's calls go (host only, never a key): `official` means the vendor's own API, not a bridge;
+    // `route` is "official", "trusted_gateway" (the fixed Cheaper Inference endpoint, a third party) or "custom".
+    providers: providers.providers.filter((item) => item.available).map(providerRoute),
+  }),
 });
 
 api.server.listen(port, host, () => {
   process.stdout.write(
-    `DéjàML API on http://${host}:${port} (data: ${dataDir}; recovered ${recovery.interruptedRuns.length} interrupted run(s), ${recovery.orphanLabs} orphan lab(s))\n`,
+    `DéjàML API on http://${host}:${port} (data: ${dataDir}; platform ${platform.containerPlatform}; recovered ${recovery.interruptedRuns.length} interrupted run(s), resuming ${recovery.resumableRuns.length} study(ies), ${recovery.orphanLabs} orphan lab(s), ${prepOrphans?.containersRemoved.length ?? 0} orphan prep container(s); providers: ${
+      publicProviders(providers)
+        .map((item) => item.id)
+        .join(", ") || "none"
+    })\n`,
   );
+  // Studies that were mid-flight resume from their last completed stage.
+  void api.resume(recovery.resumableRuns);
 });
 
 const shutdown = (): void => {
