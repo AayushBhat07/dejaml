@@ -31,6 +31,13 @@ export type EngineerOutcome = {
   metric: ParsedMetric | null;
   /** The parsed value in the paper's unit. */
   value: number | null;
+  /** Additional measurements from the same approved command; they do not determine the headline verdict. */
+  additionalMetrics?: Array<{
+    name: string;
+    unit: "fraction" | "percent" | "score";
+    metric: ParsedMetric;
+    value: number | null;
+  }>;
   review: Review | null;
   reviewerAgentId: string | null;
   dependencyRequest: { requirements: string[]; reason: string } | null;

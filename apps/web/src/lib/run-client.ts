@@ -82,6 +82,18 @@ export type ReportBlinding = {
  * the study finished. `paperValue`, `tolerance` and `signedDifference` are null
  * unless the report says the sealed target was revealed.
  */
+export type ReportMetric = {
+  name: string;
+  unit: "fraction" | "percent" | "score";
+  primary: boolean;
+  paperValue: number | null;
+  observedValue: number | null;
+  signedDifference: number | null;
+  tolerance: number | null;
+  withinTolerance: boolean | null;
+  status: "within_tolerance" | "outside_tolerance" | "not_measured" | "sealed";
+};
+
 export type ReportSummary = {
   /** The sealed target was revealed (and so the paper value may be shown). */
   revealed: boolean;
@@ -91,6 +103,8 @@ export type ReportSummary = {
   signedDifference: number | null;
   tolerance: number | null;
   unit: "fraction" | "percent" | "score" | null;
+  /** Optional for older recorded reports; current reports always provide it. */
+  metrics?: ReportMetric[];
   verdict: string | null;
   checks: Array<{ name: string; passed: boolean; explanation: string }>;
   hypotheses: string[];
@@ -186,6 +200,32 @@ export function summarizeReport(raw: unknown): ReportSummary | null {
   const revealed = blinding?.revealed === true;
   const paperValue = revealed ? (num(result.paperValue) ?? num(assessment.paperValue) ?? blinding.comparison?.reported ?? null) : null;
   const observedValue = num(result.observedValue) ?? num(assessment.observedValue);
+  const reportedMetrics: ReportMetric[] = (Array.isArray(result.metrics) ? result.metrics.map(record) : []).flatMap<ReportMetric>(
+    (item) => {
+      const name = text(item.name);
+      const metricUnit = text(item.unit);
+      const status = text(item.status);
+      if (
+        !name ||
+        (metricUnit !== "fraction" && metricUnit !== "percent" && metricUnit !== "score") ||
+        (status !== "within_tolerance" && status !== "outside_tolerance" && status !== "not_measured" && status !== "sealed")
+      )
+        return [];
+      return [
+        {
+          name,
+          unit: metricUnit as ReportMetric["unit"],
+          primary: item.primary === true,
+          paperValue: revealed ? num(item.paperValue) : null,
+          observedValue: num(item.observedValue),
+          signedDifference: revealed ? num(item.signedDifference) : null,
+          tolerance: revealed ? num(item.tolerance) : null,
+          withinTolerance: revealed ? bool(item.withinTolerance) : null,
+          status: revealed ? (status as ReportMetric["status"]) : "sealed",
+        },
+      ];
+    },
+  );
   return {
     revealed,
     blinding,
@@ -197,6 +237,7 @@ export function summarizeReport(raw: unknown): ReportSummary | null {
         : (num(assessment.signedDifference) ?? (observedValue !== null ? Math.round((observedValue - paperValue) * 1e6) / 1e6 : null)),
     tolerance: revealed ? (num(result.tolerance) ?? num(assessment.tolerance) ?? blinding.comparison?.tolerance ?? null) : null,
     unit: unit === "fraction" || unit === "percent" || unit === "score" ? unit : null,
+    metrics: reportedMetrics,
     verdict: text(assessment.verdict),
     checks: (Array.isArray(assessment.checks) ? assessment.checks.map(record) : []).map((check) => ({
       name: String(check.name ?? ""),

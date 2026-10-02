@@ -184,7 +184,36 @@ describe("summarizeReport", () => {
       },
       study: {
         contract: { metric: { unit: "percent" } },
-        result: { paperValue: 81.66, observedValue: 79.88, tolerance: 2, absoluteDifference: 1.78 },
+        result: {
+          paperValue: 81.66,
+          observedValue: 79.88,
+          tolerance: 2,
+          absoluteDifference: 1.78,
+          metrics: [
+            {
+              name: "accuracy",
+              unit: "percent",
+              primary: true,
+              paperValue: 81.66,
+              observedValue: 79.88,
+              signedDifference: -1.78,
+              tolerance: 2,
+              withinTolerance: true,
+              status: "within_tolerance",
+            },
+            {
+              name: "macro F1",
+              unit: "percent",
+              primary: false,
+              paperValue: 80,
+              observedValue: 79.5,
+              signedDifference: -0.5,
+              tolerance: 1,
+              withinTolerance: true,
+              status: "within_tolerance",
+            },
+          ],
+        },
         blinding: blinding(true),
         engineers: [
           { label: "engineer-1", review: { verdict: "approve", equivalence: "partially_equivalent", summary: "ok", concerns: [] } },
@@ -218,6 +247,30 @@ describe("summarizeReport", () => {
       signedDifference: -1.78,
       tolerance: 2,
       unit: "percent",
+      metrics: [
+        {
+          name: "accuracy",
+          unit: "percent",
+          primary: true,
+          paperValue: 81.66,
+          observedValue: 79.88,
+          signedDifference: -1.78,
+          tolerance: 2,
+          withinTolerance: true,
+          status: "within_tolerance",
+        },
+        {
+          name: "macro F1",
+          unit: "percent",
+          primary: false,
+          paperValue: 80,
+          observedValue: 79.5,
+          signedDifference: -0.5,
+          tolerance: 1,
+          withinTolerance: true,
+          status: "within_tolerance",
+        },
+      ],
       verdict: "reproduced_within_tolerance",
       checks: [{ name: "approved command", passed: true, explanation: "ran" }],
       hypotheses: [],
@@ -232,13 +285,41 @@ describe("summarizeReport", () => {
       assessment: { paperValue: null, observedValue: 79.88, signedDifference: null, tolerance: null, verdict: null },
       study: {
         contract: { metric: { name: "accuracy", unit: "percent" } },
-        result: { paperValue: null, observedValue: 79.88, tolerance: null, absoluteDifference: null },
+        result: {
+          paperValue: null,
+          observedValue: 79.88,
+          tolerance: null,
+          absoluteDifference: null,
+          metrics: [
+            {
+              name: "macro F1",
+              unit: "percent",
+              primary: false,
+              paperValue: 80,
+              observedValue: 79.5,
+              signedDifference: -0.5,
+              tolerance: 1,
+              withinTolerance: true,
+              status: "within_tolerance",
+            },
+          ],
+        },
         blinding: blinding(false),
         engineers: [],
       },
     })!;
     expect(summary).toMatchObject({ revealed: false, paperValue: null, tolerance: null, signedDifference: null, observedValue: 79.88 });
     expect(summary.blinding).toMatchObject({ sealed: true, revealed: false, commitment, verified: null, comparison: null });
+    expect(summary.metrics).toEqual([
+      expect.objectContaining({
+        name: "macro F1",
+        paperValue: null,
+        observedValue: 79.5,
+        tolerance: null,
+        signedDifference: null,
+        status: "sealed",
+      }),
+    ]);
   });
 
   it("never computes a difference from a report without a revealed blinding section", () => {

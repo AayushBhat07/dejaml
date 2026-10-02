@@ -33,6 +33,41 @@ const finalReport: ReportSummary = {
   signedDifference: -1.78,
   tolerance: 2,
   unit: "percent",
+  metrics: [
+    {
+      name: "accuracy",
+      unit: "percent",
+      primary: true,
+      paperValue: 81.66,
+      observedValue: 79.88,
+      signedDifference: -1.78,
+      tolerance: 2,
+      withinTolerance: true,
+      status: "within_tolerance",
+    },
+    {
+      name: "macro F1",
+      unit: "percent",
+      primary: false,
+      paperValue: 80,
+      observedValue: 79.5,
+      signedDifference: -0.5,
+      tolerance: 1,
+      withinTolerance: true,
+      status: "within_tolerance",
+    },
+    {
+      name: "recall",
+      unit: "percent",
+      primary: false,
+      paperValue: 78,
+      observedValue: null,
+      signedDifference: null,
+      tolerance: 1,
+      withinTolerance: null,
+      status: "not_measured",
+    },
+  ],
   verdict: "reproduced_within_tolerance",
   checks: [{ name: "approved command", passed: true, explanation: "The approved official command ran in the sealed lab and exited 0." }],
   hypotheses: [],
@@ -228,6 +263,10 @@ describe("Live Run Dashboard", () => {
     expect(screen.getByTestId("observed-value").textContent).toBe("79.88%");
     expect(screen.getByTestId("delta-value").textContent).toBe("-1.78 points");
     expect(screen.getByTestId("tolerance-value").textContent).toBe("±2 points");
+    expect(within(result).getByRole("heading", { name: "Additional paper metrics" })).toBeTruthy();
+    expect(screen.getByTestId("metric-row-macro-f1").textContent).toContain("Paper80%Observed79.5%Difference-0.5Tolerance±1");
+    expect(screen.getByTestId("metric-row-macro-f1").textContent).toContain("Within tolerance");
+    expect(screen.getByTestId("metric-row-recall").textContent).toContain("Not measured");
     expect(within(screen.getByLabelText("Result confidence")).getByText("Commitment verified")).toBeTruthy();
     expect(within(screen.getByLabelText("Result confidence")).getByText("2 approved")).toBeTruthy();
     const audit = within(result).getByText("Method and audit details").closest("details")!;

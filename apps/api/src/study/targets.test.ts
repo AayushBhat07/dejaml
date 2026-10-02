@@ -94,6 +94,7 @@ async function review(changes: Partial<Plan> = {}, trusted = [{ requirement: "pi
     repository: { url: target.repository.url, commitSha: COMMIT },
     platform: buildPlatformSpec({ architecture: "arm64", python: "3.11" }),
     tolerance: target.tolerance,
+    additionalMetrics: target.additionalMetrics,
   });
   if (!reconciled.ok) throw new Error(reconciled.reasons.join("; "));
   return reviewPolicy({
@@ -143,6 +144,30 @@ describe("reviewed claim targets", () => {
     // A target never carries an observed result, a command, or anything else unreviewed.
     await expect(loadClaimTarget({ ...raw, observedValue: 1 }, root)).rejects.toBeInstanceOf(ReviewedTargetError);
     await expect(loadClaimTarget({ ...raw, command: ["python", "x.py"] }, root)).rejects.toBeInstanceOf(ReviewedTargetError);
+  });
+
+  it("loads reviewed additional metrics without exposing their values to the Planner or public target", async () => {
+    const raw = await rawPyts();
+    const additionalMetrics = [
+      {
+        page: 4,
+        location: "Table 2, macro F1",
+        excerpt: "macro F1 0.950",
+        metric: { name: "macro F1", unit: "fraction" },
+        reportedValue: 0.95,
+        metricParser: { source: "json", path: "artifacts/result.json", key: "metrics.macroF1" },
+        tolerance: 0.02,
+      },
+    ];
+    const target = await loadClaimTarget({ ...raw, additionalMetrics }, root);
+    expect(target.additionalMetrics).toEqual(additionalMetrics);
+    const planner = JSON.stringify(plannerTarget(target));
+    const publicView = JSON.stringify(publicTargetSummary(target));
+    expect(planner).toContain("macro F1");
+    expect(planner).toContain("metrics.macroF1");
+    expect(planner).not.toContain("0.95");
+    expect(publicView).toContain("macro F1");
+    expect(publicView).not.toContain("0.95");
   });
 
   it("matches only the reviewed paper, whose cited page holds the reviewed excerpt", async () => {

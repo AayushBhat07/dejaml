@@ -250,6 +250,18 @@ export type MultiAgentReport = {
     observedValue: number | null;
     absoluteDifference: number | null;
     tolerance: number | null;
+    metrics: Array<{
+      name: string;
+      unit: "fraction" | "percent" | "score";
+      primary: boolean;
+      paperValue: number | null;
+      observedValue: number | null;
+      signedDifference: number | null;
+      absoluteDifference: number | null;
+      tolerance: number | null;
+      withinTolerance: boolean | null;
+      status: "within_tolerance" | "outside_tolerance" | "not_measured" | "sealed";
+    }>;
   };
   usage: { inputTokens: number; outputTokens: number; costUsd: number | null; providerAttempts: number; toolCalls: number };
   cleanup: {
@@ -468,7 +480,7 @@ export async function runMultiAgentStudy(
     // A reviewed target pins the repository to its reviewed commit from the first acquisition.
     pinnedCommit: target?.repository.commitSha ?? null,
     projection: null,
-    sealedForScan: null,
+    sealedForScan: [],
     contract: null,
     planDigest: null,
     prepared: null,
@@ -487,8 +499,8 @@ export async function runMultiAgentStudy(
     resultSchema: resultSchemaFor,
     // Before the reveal, no request of any agent but the Paper Analyst may carry the sealed value.
     requestGuard: (agent, text) => {
-      if (agent.role === "paper_analyst" || revealed || !ctx.sealedForScan) return null;
-      return findValue(ctx.sealedForScan.value, ctx.sealedForScan.unit, text) ? "it carries the sealed paper value" : null;
+      if (agent.role === "paper_analyst" || revealed || ctx.sealedForScan.length === 0) return null;
+      return ctx.sealedForScan.some((item) => findValue(item.value, item.unit, text)) ? "it carries a sealed paper value" : null;
     },
   });
   ctx.runtime = runtime;
@@ -520,10 +532,17 @@ export async function runMultiAgentStudy(
     const row = blinding.sealedTarget(runId);
     if (!row) return;
     const sealed = JSON.parse(row.canonical) as SealedTarget;
-    ctx.sealedForScan = { value: sealed.reportedValue, unit: sealed.metric.unit };
+    ctx.sealedForScan = [
+      { value: sealed.reportedValue, unit: sealed.metric.unit },
+      ...sealed.additionalMetrics.map((item) => ({ value: item.reportedValue, unit: item.metric.unit })),
+    ];
   }
 
-  function seal(input: Omit<SealedTarget, "schemaVersion" | "comparisonRule" | "nonce">): void {
+  function seal(
+    input: Omit<SealedTarget, "schemaVersion" | "comparisonRule" | "nonce" | "additionalMetrics"> & {
+      additionalMetrics?: SealedTarget["additionalMetrics"];
+    },
+  ): void {
     if (blinding.sealedTarget(runId)) return loadSealed();
     const sealed = sealTarget(input);
     const record = blinding.seal(runId, {
@@ -563,7 +582,7 @@ export async function runMultiAgentStudy(
   }
 
   /** The sealed value for withholding, when one is sealed. */
-  const sealedView = (): { value: number; unit: SealedTarget["metric"]["unit"] } | null => ctx.sealedForScan;
+  const sealedView = (): { value: number; unit: SealedTarget["metric"]["unit"] } | null => ctx.sealedForScan[0] ?? null;
   const isSealed = (): boolean => blinding.sealedTarget(runId) !== null;
 
   /** The observation of one execution round: everything the measurement depends on, and nothing about the target. */
@@ -603,12 +622,21 @@ export async function runMultiAgentStudy(
         rawValue: item.metric?.ok ? item.metric.value : null,
         observedValue: item.value,
         problem: item.metric && !item.metric.ok ? item.metric.reason : null,
+        additionalMetrics: (item.additionalMetrics ?? []).map((additional) => ({
+          name: additional.name,
+          unit: additional.unit,
+          metricOk: additional.metric.ok,
+          metricSource: additional.metric.ok ? additional.metric.source : null,
+          rawValue: additional.metric.ok ? additional.metric.value : null,
+          observedValue: additional.value,
+          problem: additional.metric.ok ? null : additional.metric.reason,
+        })),
       })),
     };
   }
 
   /** Any JSON with every form of the sealed value withheld (unchanged when nothing is sealed). */
-  const withhold = <T>(json: T): T => (ctx.sealedForScan ? withholdInJson(ctx.sealedForScan.value, ctx.sealedForScan.unit, json) : json);
+  const withhold = <T>(json: T): T => ctx.sealedForScan.reduce((current, item) => withholdInJson(item.value, item.unit, current), json);
 
   // ---------------------------------------------------------------------------
   // Stage and agent helpers.
@@ -962,7 +990,7 @@ export async function runMultiAgentStudy(
         };
       }),
     ]);
-    if (ctx.sealedForScan && ctx.repository && !ctx.projection?.documentsWithheld.length && !target) {
+    if (ctx.sealedForScan.length && ctx.repository && !ctx.projection?.documentsWithheld.length && !target) {
       // The projection was built before the claim was sealed: rebuild it so documentation withholds the value too.
       await refreshProjection(ctx);
     }
@@ -975,7 +1003,7 @@ export async function runMultiAgentStudy(
         payload: forwardableMapping(repoOut.result, sealedView()),
       });
     }
-    if (ctx.sealedForScan) agentsStarted();
+    if (ctx.sealedForScan.length) agentsStarted();
   }
 
   async function plan(): Promise<boolean> {
@@ -1062,7 +1090,7 @@ export async function runMultiAgentStudy(
           repository,
           platform: config.platform,
           pages: ctx.paper.pages,
-          ...(target ? { tolerance: target.tolerance } : {}),
+          ...(target ? { tolerance: target.tolerance, additionalMetrics: target.additionalMetrics } : {}),
         });
         if (reconciled.ok) contract = reconciled.contract;
         else reconcileErrors = reconciled.reasons;
@@ -1622,6 +1650,7 @@ export async function runMultiAgentStudy(
       : null;
     let metric = null;
     let value: number | null = null;
+    const additionalMetrics: NonNullable<EngineerOutcome["additionalMetrics"]> = [];
     if (lab.official && lab.official.exitCode === 0 && !lab.official.timedOut) {
       // Only artifacts exactly as the official run wrote them count.
       const producedBy = new Map(lab.official.artifacts.map((item) => [item.path, item.sha256]));
@@ -1633,6 +1662,16 @@ export async function runMultiAgentStudy(
       if (implausible) {
         metric = { ok: false as const, reason: implausible };
         value = null;
+      }
+      for (const additional of contract.additionalMetrics) {
+        let parsed = await parseMetric(additional.metricParser, { stdout: lab.official.stdoutFull ?? "", artifacts });
+        let converted: number | null = parsed.ok ? convertUnit(parsed.value, parsed.unit, additional.metric.unit) : null;
+        const problem = parsed.ok && converted !== null ? implausibleValue(converted, additional.metric.unit) : null;
+        if (problem) {
+          parsed = { ok: false, reason: problem };
+          converted = null;
+        }
+        additionalMetrics.push({ name: additional.metric.name, unit: additional.metric.unit, metric: parsed, value: converted });
       }
       board.post({
         kind: "metric",
@@ -1683,6 +1722,7 @@ export async function runMultiAgentStudy(
       official,
       metric,
       value,
+      additionalMetrics,
       review: null,
       reviewerAgentId: null,
       dependencyRequest: lab.dependencyRequest,
@@ -1810,6 +1850,12 @@ export async function runMultiAgentStudy(
         metric: target.claim.metric,
         reportedValue: target.claim.reportedValue,
         tolerance: target.tolerance,
+        additionalMetrics: target.additionalMetrics.map((item) => ({
+          metric: item.metric,
+          reportedValue: item.reportedValue,
+          tolerance: item.tolerance,
+          claimLocator: { page: item.page, location: item.location },
+        })),
       });
       agentsStarted();
     } else {
@@ -2286,10 +2332,73 @@ export async function runMultiAgentStudy(
         observedValue: representative?.value ?? null,
         absoluteDifference: revealed ? decision!.absoluteDifference : null,
         tolerance: revealed ? revealed.tolerance : open ? (ctx.contract?.tolerance ?? null) : null,
+        metrics: metricReports(open, representative, ctx.contract, revealed),
       },
       usage,
       cleanup,
     };
+  }
+
+  function metricReports(
+    open: boolean,
+    representative: EngineerOutcome | null,
+    contract: ClaimContract | null,
+    target: SealedTarget | null,
+  ): MultiAgentReport["result"]["metrics"] {
+    if (!contract) return [];
+    const report = (
+      name: string,
+      unit: "fraction" | "percent" | "score",
+      primary: boolean,
+      observedValue: number | null,
+      paperValue: number | null,
+      tolerance: number | null,
+    ): MultiAgentReport["result"]["metrics"][number] => {
+      const signedDifference = observedValue === null || paperValue === null ? null : Math.round((observedValue - paperValue) * 1e9) / 1e9;
+      const absoluteDifference = signedDifference === null ? null : Math.abs(signedDifference);
+      const withinTolerance = absoluteDifference === null || tolerance === null ? null : absoluteDifference <= tolerance + 1e-9;
+      return {
+        name,
+        unit,
+        primary,
+        paperValue,
+        observedValue,
+        signedDifference,
+        absoluteDifference,
+        tolerance,
+        withinTolerance,
+        status: !open ? "sealed" : observedValue === null ? "not_measured" : withinTolerance ? "within_tolerance" : "outside_tolerance",
+      };
+    };
+    const primaryTarget = target ?? (open ? { reportedValue: contract.reportedValue, tolerance: contract.tolerance } : null);
+    const metrics = [
+      report(
+        contract.metric.name,
+        contract.metric.unit,
+        true,
+        representative?.value ?? null,
+        primaryTarget?.reportedValue ?? null,
+        primaryTarget?.tolerance ?? null,
+      ),
+    ];
+    for (const item of contract.additionalMetrics) {
+      const observed =
+        representative?.additionalMetrics?.find((metric) => metric.name.toLowerCase() === item.metric.name.toLowerCase())?.value ?? null;
+      const revealedMetric = target?.additionalMetrics.find(
+        (metric) => metric.metric.name.toLowerCase() === item.metric.name.toLowerCase(),
+      );
+      metrics.push(
+        report(
+          item.metric.name,
+          item.metric.unit,
+          false,
+          observed,
+          revealedMetric?.reportedValue ?? (open ? item.reportedValue : null),
+          revealedMetric?.tolerance ?? (open ? item.tolerance : null),
+        ),
+      );
+    }
+    return metrics;
   }
 }
 

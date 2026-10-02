@@ -121,7 +121,7 @@ beforeEach(async () => {
       staticFindings: [],
       fileCount: 0,
     },
-    sealedForScan: null,
+    sealedForScan: [],
     pinnedCommit: null,
     contract: {
       schemaVersion: 1,
@@ -144,6 +144,7 @@ beforeEach(async () => {
       expectedRuntimeSeconds: 10,
       metricParser: { source: "stdout", pattern: "accuracy: ([0-9.]+)" },
       tolerance: 0.02,
+      additionalMetrics: [],
       stopConditions: ["exit non-zero"],
     },
     planDigest: "c".repeat(64),

@@ -1,6 +1,6 @@
 import { Badge, type Tone } from "../Badge";
 import { equivalenceLabel, type AgentCard, type CleanupSummary, type LabCard, type RunView } from "../../lib/live-run";
-import type { ReportSummary } from "../../lib/run-client";
+import type { ReportMetric, ReportSummary } from "../../lib/run-client";
 import { formatMetricValue } from "./format";
 
 const RESULTS: Record<string, { label: string; tone: Tone; explanation: string }> = {
@@ -75,6 +75,44 @@ function metricLabel(value: string | null): string {
   return value.replaceAll("_", " ").replace(/\b\w/gu, (character) => character.toUpperCase());
 }
 
+function MetricRow({ metric }: { metric: ReportMetric }) {
+  const difference = metric.signedDifference;
+  const status =
+    metric.status === "within_tolerance"
+      ? { label: "Within tolerance", tone: "positive" as Tone }
+      : metric.status === "outside_tolerance"
+        ? { label: "Outside tolerance", tone: "warning" as Tone }
+        : metric.status === "sealed"
+          ? { label: "Sealed", tone: "neutral" as Tone }
+          : { label: "Not measured", tone: "neutral" as Tone };
+  return (
+    <li className="metric-row" data-testid={`metric-row-${metric.name.toLowerCase().replace(/[^a-z0-9]+/gu, "-")}`}>
+      <div className="metric-row-name">
+        <strong>{metricLabel(metric.name)}</strong>
+        <Badge tone={status.tone}>{status.label}</Badge>
+      </div>
+      <dl className="metric-row-values">
+        <div>
+          <dt>Paper</dt>
+          <dd>{formatMetricValue(metric.paperValue, metric.unit)}</dd>
+        </div>
+        <div>
+          <dt>Observed</dt>
+          <dd>{formatMetricValue(metric.observedValue, metric.unit)}</dd>
+        </div>
+        <div>
+          <dt>Difference</dt>
+          <dd>{difference === null ? "–" : `${difference > 0 ? "+" : ""}${Math.round(difference * 10_000) / 10_000}`}</dd>
+        </div>
+        <div>
+          <dt>Tolerance</dt>
+          <dd>{metric.tolerance === null ? "–" : `±${metric.tolerance}`}</dd>
+        </div>
+      </dl>
+    </li>
+  );
+}
+
 function CleanupLine({ cleanup, labs }: { cleanup: CleanupSummary | null; labs: readonly LabCard[] }) {
   if (cleanup) {
     const items = [
@@ -143,6 +181,7 @@ export function Completion({
   const sealed = paperValue === null && view.blinding.sealed !== null;
   const unitWord = unit === "percent" ? "points" : "";
   const metricName = metricLabel(reveal?.metric?.name ?? observation?.metric?.name ?? view.claim?.metric ?? null);
+  const additionalMetrics = report?.metrics?.filter((metric) => !metric.primary) ?? [];
   const withinTolerance =
     comparison?.withinTolerance ??
     report?.blinding?.comparison?.withinTolerance ??
@@ -203,6 +242,19 @@ export function Completion({
           testId="tolerance-value"
         />
       </div>
+      {additionalMetrics.length ? (
+        <section className="additional-metrics" aria-labelledby="additional-metrics-title">
+          <div className="additional-metrics-heading">
+            <h3 id="additional-metrics-title">Additional paper metrics</h3>
+            <span className="muted small">Measured by the same approved run</span>
+          </div>
+          <ul className="metric-list">
+            {additionalMetrics.map((metric) => (
+              <MetricRow key={`${metric.name}:${metric.unit}`} metric={metric} />
+            ))}
+          </ul>
+        </section>
+      ) : null}
       <div className="summary-signals" aria-label="Result confidence">
         <SummarySignal
           label="Target proof"

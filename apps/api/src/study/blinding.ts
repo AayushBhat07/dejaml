@@ -34,6 +34,12 @@ export type SealedTarget = {
   metric: { name: string; unit: "fraction" | "percent" | "score" };
   reportedValue: number;
   tolerance: number;
+  additionalMetrics: Array<{
+    metric: { name: string; unit: "fraction" | "percent" | "score" };
+    reportedValue: number;
+    tolerance: number;
+    claimLocator: { page: number; location: string };
+  }>;
   comparisonRule: typeof COMPARISON_RULE;
   /** 32 random bytes, hex: the commitment cannot be found by guessing the value. */
   nonce: string;
@@ -42,10 +48,18 @@ export type SealedTarget = {
 export type Sealed = { target: SealedTarget; canonical: string; commitment: string };
 
 export function sealTarget(
-  input: Omit<SealedTarget, "schemaVersion" | "comparisonRule" | "nonce">,
+  input: Omit<SealedTarget, "schemaVersion" | "comparisonRule" | "nonce" | "additionalMetrics"> & {
+    additionalMetrics?: SealedTarget["additionalMetrics"];
+  },
   nonce = randomBytes(32).toString("hex"),
 ): Sealed {
-  const target: SealedTarget = { schemaVersion: 1, ...input, comparisonRule: COMPARISON_RULE, nonce };
+  const target: SealedTarget = {
+    schemaVersion: 1,
+    ...input,
+    additionalMetrics: input.additionalMetrics ?? [],
+    comparisonRule: COMPARISON_RULE,
+    nonce,
+  };
   const canonical = canonicalJson(target);
   return { target, canonical, commitment: sha256Hex(canonical) };
 }
@@ -219,14 +233,25 @@ export function executionClaim(claim: PaperClaim, sealed: { value: number; unit:
   return sealed ? withholdInJson(sealed.value, sealed.unit, view) : view;
 }
 
-export type ExecutionContract = Omit<ClaimContract, "reportedValue" | "tolerance" | "paperReference" | "metric"> & {
+export type ExecutionContract = Omit<ClaimContract, "reportedValue" | "tolerance" | "paperReference" | "metric" | "additionalMetrics"> & {
   metric: { name: string; unit: ClaimContract["metric"]["unit"]; direction: MetricDirection };
+  additionalMetrics: Array<{
+    metric: { name: string; unit: ClaimContract["metric"]["unit"]; direction: MetricDirection };
+    metricParser: ClaimContract["metricParser"];
+  }>;
 };
 
 /** The approved contract as execution agents and the blind Reviewer see it. */
 export function executionContract(contract: ClaimContract): ExecutionContract {
-  const { reportedValue: _value, tolerance: _tolerance, paperReference: _reference, metric, ...rest } = contract;
-  return { ...rest, metric: { name: metric.name, unit: metric.unit, direction: metricDirection(metric.name) } };
+  const { reportedValue: _value, tolerance: _tolerance, paperReference: _reference, metric, additionalMetrics, ...rest } = contract;
+  return {
+    ...rest,
+    metric: { name: metric.name, unit: metric.unit, direction: metricDirection(metric.name) },
+    additionalMetrics: additionalMetrics.map((item) => ({
+      metric: { ...item.metric, direction: metricDirection(item.metric.name) },
+      metricParser: item.metricParser,
+    })),
+  };
 }
 
 /** A repository mapping with every form of the sealed value withheld, before it is forwarded. */
@@ -251,6 +276,15 @@ export type ObservationEngineer = {
   rawValue: number | null;
   observedValue: number | null;
   problem: string | null;
+  additionalMetrics?: Array<{
+    name: string;
+    unit: string;
+    metricOk: boolean;
+    metricSource: string | null;
+    rawValue: number | null;
+    observedValue: number | null;
+    problem: string | null;
+  }>;
 };
 
 export type Observation = {
