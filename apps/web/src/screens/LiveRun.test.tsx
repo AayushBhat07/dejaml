@@ -221,12 +221,19 @@ describe("Live Run Dashboard", () => {
   it("shows the final result: values, delta, reviewer verdicts, deterministic status, report, and cleanup", () => {
     const onNewStudy = vi.fn();
     render(<LiveRun {...props} connection="closed" log={logOf(studyEvents)} report={finalReport} onNewStudy={onNewStudy} />);
-    const result = screen.getByRole("region", { name: /Result/u });
+    const result = screen.getByRole("region", { name: "Reproduced" });
     expect(within(result).getByText("Reproduced")).toBeTruthy();
+    expect(within(result).getByText("Accuracy")).toBeTruthy();
     expect(screen.getByTestId("paper-value").textContent).toBe("81.66%");
     expect(screen.getByTestId("observed-value").textContent).toBe("79.88%");
     expect(screen.getByTestId("delta-value").textContent).toBe("-1.78 points");
     expect(screen.getByTestId("tolerance-value").textContent).toBe("±2 points");
+    expect(within(screen.getByLabelText("Result confidence")).getByText("Commitment verified")).toBeTruthy();
+    expect(within(screen.getByLabelText("Result confidence")).getByText("2 approved")).toBeTruthy();
+    const audit = within(result).getByText("Method and audit details").closest("details")!;
+    expect(audit.open).toBe(false);
+    fireEvent.click(within(result).getByText("Method and audit details"));
+    expect(audit.open).toBe(true);
     expect(within(screen.getByTestId("review-verdicts")).getAllByText("Approved")).toHaveLength(2);
     expect(screen.getByTestId("result-reasons").textContent).toContain("within tolerance");
     const cleanup = screen.getByTestId("cleanup-verification");
@@ -297,7 +304,7 @@ describe("Live Run Dashboard", () => {
       }),
     ];
     rerender(<LiveRun {...props} connection="closed" log={logOf([...running, ...tail])} onCancel={onCancel} />);
-    expect(within(screen.getByRole("region", { name: /Result/u })).getByText("Cancelled")).toBeTruthy();
+    expect(within(screen.getByRole("region", { name: "Cancelled" })).getByText("Cancelled")).toBeTruthy();
     expect(screen.getByTestId("current-stage").textContent).toBe("Finished: cancelled");
     expect(within(screen.getByTestId("cleanup-verification")).getByText("Cleanup verified")).toBeTruthy();
   });
@@ -412,7 +419,7 @@ describe("Live Run Dashboard: blinding", () => {
     expect(screen.queryByTestId("value-hidden")).toBeNull();
     expect(screen.queryByTestId("blinding-reveal")).toBeNull();
     expect(screen.getByTestId("paper-value").textContent).toBe("Sealed");
-    expect(screen.getByTestId("tolerance-value").textContent).toBe("–");
+    expect(screen.getByTestId("tolerance-value").textContent).toBe("-");
     expect(screen.getByTestId("blinding-final-status").textContent).toBe("Final status: failed");
     expect(panel().querySelector('[data-state="current"]')).toBeNull();
     expect(phaseState("target_revealed")).toBe("pending");
@@ -451,8 +458,6 @@ describe("Live Run Dashboard: blinding", () => {
         .getAllByText(/./u, { selector: ".badge" })
         .map((badge) => badge.textContent),
     ).toEqual(labels);
-    expect(screen.getAllByTestId("review-equivalence").map((item) => item.textContent?.replace(/^\s*·\s*/u, ""))).toEqual(
-      labels.slice(0, 4),
-    );
+    expect(screen.getAllByTestId("review-equivalence").map((item) => item.textContent?.trim())).toEqual(labels.slice(0, 4));
   });
 });
