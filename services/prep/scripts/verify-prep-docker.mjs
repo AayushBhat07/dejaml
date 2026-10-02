@@ -93,6 +93,14 @@ const host = buildPlatformSpec({ architecture, python: PYTHON });
 const foreign = buildPlatformSpec({ architecture: other, python: PYTHON });
 const pinned = parsePinnedReference(DEFAULT_PREP_IMAGES[PYTHON]);
 
+// A developer machine normally has this operator-managed image already. An
+// ephemeral CI runner may bootstrap the exact digest explicitly; production
+// preparation still never pulls unless its caller opts in.
+if (process.env.DEJAML_PREP_PROOF_PULL === "1") {
+  const pulled = docker(["pull", "--platform", host.containerPlatform, pinned.digestReference]);
+  if (pulled.code !== 0) throw new Error(`could not bootstrap the pinned preparation image: ${pulled.stderr}`);
+}
+
 const env = {};
 if (existsSync(CA_BUNDLE)) env.DEJAML_PREP_CA_BUNDLE = CA_BUNDLE;
 const policy = loadPrepPolicy(env);

@@ -40,5 +40,7 @@ jobs:
       - run: npm run build
       - run: npm run verify:docker -w @dejaml/lab-manager
       - run: npm run verify:docker -w @dejaml/prep
+        env:
+          DEJAML_PREP_PROOF_PULL: "1"
       - run: npm run verify:failures -w @dejaml/api
       - run: node apps/api/scripts/verify-study-docker.mjs
