@@ -85,6 +85,19 @@ const FORBIDDEN_ENV_PREFIXES = ["LD_", "DYLD_"];
 const FORBIDDEN_ENV_KEYS = new Set(["PATH", "HOME", "PYTHONPATH", "PYTHONSTARTUP", "PYTHONHOME"]);
 /** Grace period for the Docker CLI to return after the container has been killed. */
 const KILL_GRACE_MS = 10_000;
+const NORMALIZE_WRITABLE_DIRS_PY = String.raw`
+# DEJAML_CLEANUP_NORMALIZE
+import os,sys
+for base in sys.argv[1:]:
+    if not os.path.isdir(base) or os.path.islink(base):
+        continue
+    os.chmod(base, 0o777)
+    for current, directories, _files in os.walk(base, topdown=True, followlinks=False):
+        for name in directories:
+            path = os.path.join(current, name)
+            if not os.path.islink(path):
+                os.chmod(path, 0o777)
+`;
 
 export type LabEventInput = Omit<RunEvent, "id" | "sequence" | "timestamp">;
 export type LabEventSink = (event: LabEventInput) => unknown;
@@ -887,6 +900,26 @@ export class LabManager {
     if (lab.activeAbort) await this.#kill(lab, "cancelled");
 
     const errors: string[] = [];
+    // Files created in writable bind mounts belong to the verified non-root
+    // image user (uid 10001 in the standard image). Native Linux preserves
+    // that ownership, unlike Docker Desktop, so make directories traversable
+    // and removable by the host before the container disappears. The script
+    // never follows symlinks and can touch only the two writable mounts.
+    let normalizationError: string | null = null;
+    const writablePaths = [
+      posix.join(lab.spec.workdir, lab.spec.artifactsDir),
+      ...(lab.spec.scratchDir ? [posix.join(lab.spec.workdir, lab.spec.scratchDir)] : []),
+    ];
+    const normalization = await this.#runtime
+      .docker(["exec", lab.handle.containerName, "python", "-c", NORMALIZE_WRITABLE_DIRS_PY, ...writablePaths], {
+        maxOutputBytes: 4096,
+      })
+      .catch((error: unknown) => {
+        normalizationError = errorMessage(error);
+        return null;
+      });
+    if (normalization && normalization.exitCode !== 0) normalizationError = normalization.stderr.text.trim();
+
     const removal = await this.#runtime
       .docker(["rm", "--force", "--volumes", lab.handle.containerName], { maxOutputBytes: 4096 })
       .catch((error: unknown) => {
@@ -901,6 +934,7 @@ export class LabManager {
       await rm(lab.hostLabDir, { recursive: true, force: true });
       artifactDirectoryRemoved = true;
     } catch (error) {
+      if (normalizationError) errors.push(`writable directory normalization: ${normalizationError}`);
       errors.push(`artifact directory removal: ${errorMessage(error)}`);
     }
 

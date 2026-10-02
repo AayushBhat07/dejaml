@@ -115,6 +115,7 @@ export class ScriptedRuntime implements ContainerRuntime {
       const mounts = this.#mounts.get(args[name] ?? "") ?? { artifacts: "", scratch: "", runs: 0, tampered: false };
       const argv = args.slice(name + 1);
       this.execs.push(argv);
+      if (argv.some((value) => value.includes("DEJAML_CLEANUP_NORMALIZE"))) return ok();
       if (argv[0] === "python" && argv[1] === "-c" && argv[2]?.startsWith("import base64")) {
         // The Lab Manager's in-container file writer for agent-authored scripts.
         const target = argv[3] ?? "";
