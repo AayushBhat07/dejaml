@@ -590,6 +590,35 @@ await step("9. cleanup", async () => {
 });
 
 // Remove the proof's own cache and wheelhouses (wheelhouses are 0555/0444).
+// On a native Linux bind mount, the offline install container owns parts of
+// the venv as uid 10001. Restore ownership with the already verified pinned
+// image so the unprivileged CI runner can remove the proof root. Docker
+// Desktop does not need this for correctness, but supports the same cleanup.
+const hostUid = process.getuid?.();
+const hostGid = process.getgid?.();
+if (process.platform === "linux" && hostUid !== undefined && hostGid !== undefined && hostUid !== 0) {
+  const ownership = docker([
+    "run",
+    "--rm",
+    "--network",
+    "none",
+    "--platform",
+    host.containerPlatform,
+    "--pull",
+    "never",
+    "--user",
+    "0:0",
+    "--volume",
+    `${root}:/proof`,
+    pinned.digestReference,
+    "chown",
+    "-R",
+    `${hostUid}:${hostGid}`,
+    "/proof",
+  ]);
+  if (ownership.code !== 0) throw new Error(`could not restore proof-directory ownership: ${ownership.stderr}`);
+}
+
 async function unlock(dir) {
   for (const entry of await readdir(dir, { withFileTypes: true }).catch(() => [])) {
     if (entry.isDirectory()) {
