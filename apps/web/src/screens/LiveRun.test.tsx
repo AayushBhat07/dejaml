@@ -14,7 +14,13 @@ afterEach(() => {
 });
 
 const logOf = (events: readonly RunEvent[]) => appendEvents(EMPTY_LOG, events);
-const props = { runId: studyEvents[0]!.runId, connection: "live" as const, reportHref: "/api/runs/r/report", onDownload: () => undefined };
+const props = {
+  runId: studyEvents[0]!.runId,
+  connection: "live" as const,
+  reportHref: "/api/runs/r/report",
+  onDownload: () => undefined,
+  initialLayout: "dashboard" as const,
+};
 const cards = (role: string) => screen.getAllByTestId("agent-card").filter((card) => card.getAttribute("data-role") === role);
 const finalReport: ReportSummary = {
   revealed: true,
