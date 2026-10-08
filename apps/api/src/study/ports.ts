@@ -247,11 +247,26 @@ export function readinessLabImagePort(input: { readiness: ImageReadiness; lock: 
           python: ready.python ?? platform.python.version,
         };
       } catch (error) {
-        if (error instanceof ImageNotReadyError) throw new PreparationFailure(`lab_image_${error.code}`, error.message, "failed");
+        if (error instanceof ImageNotReadyError) {
+          // Docker's own error (an unreachable engine, a failed base pull) is the actionable part; keep it.
+          if (error.detail) console.error(`[lab image] ${error.message}\n${error.detail}`);
+          const cause = dockerErrorLine(error.detail);
+          throw new PreparationFailure(`lab_image_${error.code}`, cause ? `${error.message}: ${cause}` : error.message, "failed");
+        }
         throw error;
       }
     },
   };
+}
+
+/** The line of Docker's stderr that names the failure, such as `ERROR: failed to solve: …`, else its last line. */
+export function dockerErrorLine(stderr: string | undefined): string | null {
+  const lines = (stderr ?? "")
+    .split(/\r?\n/u)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const line = lines.findLast((item) => /^(error|fatal)\b/iu.test(item)) ?? lines.at(-1);
+  return line ? line.slice(0, 400) : null;
 }
 
 /**

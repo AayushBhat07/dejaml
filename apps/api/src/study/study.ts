@@ -1263,8 +1263,9 @@ export async function runMultiAgentStudy(
           authorRole: "system",
           payload: { preparationFailure: error.code, message: error.message, requirement: error.requirement },
         });
-        event("preparation_failed", "warning", `Preparation failed: ${error.code}`, {
+        event("preparation_failed", "warning", `Preparation failed: ${error.code} (${error.message})`, {
           code: error.code,
+          message: error.message,
           requirement: error.requirement,
           outcome: error.outcome,
         });

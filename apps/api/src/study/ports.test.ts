@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { buildPlatformSpec } from "@dejaml/contracts";
 import { ImageNotReadyError, type ImageReadiness } from "@dejaml/lab-manager";
 import { type DependencyManifest, type DependencyPreparer, PrepError } from "@dejaml/prep";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { PreparationFailure } from "./context.js";
 import { preparerPort, readinessLabImagePort, screenRequirements } from "./ports.js";
@@ -166,6 +166,23 @@ describe("lab image port", () => {
       code: "lab_image_platform_mismatch",
       outcome: "failed",
     });
+  });
+
+  it("carries Docker's own error into the failure message", async () => {
+    const readiness = {
+      ensure: async () => {
+        throw new ImageNotReadyError("build_failed", "building dejaml/python-base failed", {
+          detail:
+            "#1 [internal] load build definition\nERROR: failed to solve: failed to resolve source metadata for docker.io/library/python\n",
+        });
+      },
+    } as unknown as ImageReadiness;
+    const error = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    await expect(readinessLabImagePort({ readiness, lock, contextDir: "/ctx" }).ensure({ platform, signal })).rejects.toMatchObject({
+      code: "lab_image_build_failed",
+      message: "building dejaml/python-base failed: ERROR: failed to solve: failed to resolve source metadata for docker.io/library/python",
+    });
+    error.mockRestore();
   });
 });
 
