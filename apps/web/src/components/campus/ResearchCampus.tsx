@@ -1,4 +1,4 @@
-import { useEffect, useRef, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 
 import type { Tone as BadgeTone } from "../Badge";
 import type { CampusAgentState, CampusModel } from "../../lib/campus";
@@ -65,18 +65,24 @@ function Kpi({
  * derived from the same events and report as the dashboard.
  */
 export function ResearchCampus({ model }: { model: CampusModel }) {
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const rootRef = useRef<HTMLElement | null>(null);
+  const viewportRef = useRef<HTMLDivElement | null>(null);
   const sceneRef = useRef<CampusScene | null>(null);
+  const [webgl, setWebgl] = useState(true);
+  const [fullScreen, setFullScreen] = useState(false);
 
   useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const scene = CampusScene.create(canvas, { statusLabel });
-    if (!scene) return;
+    const viewport = viewportRef.current;
+    if (!viewport) return;
+    const scene = CampusScene.create(viewport, { statusLabel });
+    if (!scene) {
+      setWebgl(false);
+      return;
+    }
     sceneRef.current = scene;
     scene.start();
     const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(() => scene.resize());
-    observer?.observe(canvas);
+    observer?.observe(viewport);
     return () => {
       observer?.disconnect();
       scene.stop();
@@ -88,6 +94,37 @@ export function ResearchCampus({ model }: { model: CampusModel }) {
     sceneRef.current?.setModel(model);
   }, [model]);
 
+  // Full screen uses the browser's own mode where it is allowed, and otherwise fills the window.
+  useEffect(() => {
+    const sync = () => {
+      if (!document.fullscreenElement) setFullScreen(false);
+    };
+    document.addEventListener("fullscreenchange", sync);
+    return () => document.removeEventListener("fullscreenchange", sync);
+  }, []);
+  useEffect(() => {
+    if (!fullScreen) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setFullScreen(false);
+    };
+    document.addEventListener("keydown", onKey);
+    document.body.dataset.campusFull = "true";
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      delete document.body.dataset.campusFull;
+    };
+  }, [fullScreen]);
+  const toggleFullScreen = () => {
+    if (fullScreen) {
+      if (document.fullscreenElement) void document.exitFullscreen().catch(() => undefined);
+      setFullScreen(false);
+      return;
+    }
+    setFullScreen(true);
+    const root = rootRef.current;
+    if (root?.requestFullscreen) void root.requestFullscreen().catch(() => undefined);
+  };
+
   const { lab } = model;
   const total = model.steps.length || 1;
   const chips = {
@@ -98,13 +135,28 @@ export function ResearchCampus({ model }: { model: CampusModel }) {
   const working = model.agents.filter((agent) => agent.state === "working").length;
 
   return (
-    <section className="campus" aria-label="Research campus" data-testid="research-campus">
-      <canvas
-        ref={canvasRef}
-        className="campus-scene"
-        role="img"
-        aria-label="Isometric research campus: the study's agents read the paper, map the code, plan, run the experiment in a disposable lab, and verify the result"
-      />
+    <section className="campus" aria-label="Research campus" data-testid="research-campus" data-full={fullScreen} ref={rootRef}>
+      <div className="campus-viewport" ref={viewportRef}>
+        {webgl ? null : (
+          <p className="campus-nowebgl">The 3D campus needs WebGL, which this browser has turned off. The panels still follow the study.</p>
+        )}
+      </div>
+
+      <div className="campus-controls" role="toolbar" aria-label="Campus view">
+        <button type="button" onClick={() => sceneRef.current?.zoom(0.8)} aria-label="Zoom in" title="Zoom in">
+          +
+        </button>
+        <button type="button" onClick={() => sceneRef.current?.zoom(1.25)} aria-label="Zoom out" title="Zoom out">
+          −
+        </button>
+        <button type="button" onClick={() => sceneRef.current?.resetView()}>
+          Reset view
+        </button>
+        <button type="button" onClick={toggleFullScreen} aria-pressed={fullScreen}>
+          {fullScreen ? "Exit full screen" : "Full screen"}
+        </button>
+        <span className="campus-hint">Drag to rotate · right-drag to pan · scroll to zoom</span>
+      </div>
 
       <div className="campus-kpis">
         <Kpi icon="P" tone="paper" label="Paper claim" value={model.paper.value} foot={model.paper.foot} testId="campus-paper">

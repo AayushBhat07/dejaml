@@ -19,7 +19,7 @@ In live mode the run ID is kept in `?run=`, so after a refresh the page follows 
 
 ## The Research Campus
 
-A study opens on the **Campus** layout: an isometric research campus (Reading Room, Repo Room, Planning Room, the Disposable Lab, the Verification Desk, and the Run Store) with the study's numbers floating at its corners. The **Dashboard** button switches to the classic panels below, and the browser remembers the choice.
+A study opens on the **Campus** layout: a 3D research campus (Reading Room, Repo Room, Planning Room, the Disposable Lab, the Verification Desk, and the Run Store) with the study's numbers floating at its corners. The **Dashboard** button switches to the classic panels below, and the browser remembers the choice.
 
 Everything on the campus comes from the same events as the dashboard (`src/lib/campus.ts` derives it from `analyzeRun` and the report), in live and replay mode alike:
 
@@ -28,7 +28,7 @@ Everything on the campus comes from the same events as the dashboard (`src/lib/c
 - **Paper claim** stays _Sealed_ (with the commitment) until `target_revealed`; **Observed** fills in when the observation is locked; **Δ vs claim** and the verdict appear only after the reveal, with the API's status wording. Older recordings, made before blinding, show the paper value once their comparison arrives.
 - The pipeline is the dashboard's stage strip, and the evidence stream is the latest six public stream rows.
 
-The scene is drawn on a canvas (`src/components/campus/scene.ts`) in light and dark schemes, honours reduced motion, and stacks under the panels below 1100 px.
+The campus is a three.js scene (`src/components/campus/scene.ts`, floor plan in `layout.ts`): drag to rotate, right-drag or two fingers to pan, scroll or pinch to zoom, and use the on-screen zoom, Reset view, and Full screen buttons (the browser's full-screen mode where it is allowed, otherwise the campus fills the window; Escape leaves). Hovering an agent shows its role and current activity. It follows the light and dark schemes, honours reduced motion, says so when WebGL is unavailable, and stacks the panels under the scene below 1100 px.
 
 ## The dashboard
 
