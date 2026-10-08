@@ -1,6 +1,6 @@
 # DéjàML Web
 
-React + Vite interface with two screens: **New Study**, and the **Live Run Dashboard**, a single persistent screen that stays up from the moment a study is created until it finishes.
+React + Vite interface with two screens: **New Study**, and the **Live Run Dashboard** (shown as the Research Campus or as classic panels), a single persistent screen that stays up from the moment a study is created until it finishes.
 
 ## Run it
 
@@ -16,6 +16,19 @@ VITE_DEJAML_API=live npm run dev --workspace @dejaml/web
 ```
 
 In live mode the run ID is kept in `?run=`, so after a refresh the page follows the same study again: it replays the history from sequence 0, then continues live. The SSE client resumes with `Last-Event-ID` / `?after=`, drops duplicates, and reconnects with backoff. New Study lists the server's reviewed cases (`GET /api/config` → `reviewedCases`). It matches the chosen PDF's SHA-256 to a case, or lets you pick one by hand, shows the claim that will be tested, and sends only `reviewedCaseId`. The API also serves a live build (`VITE_DEJAML_API=live npm run build`) at `http://127.0.0.1:8787`.
+
+## The Research Campus
+
+A study opens on the **Campus** layout: an isometric research campus (Reading Room, Repo Room, Planning Room, the Disposable Lab, the Verification Desk, and the Run Store) with the study's numbers floating at its corners. The **Dashboard** button switches to the classic panels below, and the browser remembers the choice.
+
+Everything on the campus comes from the same events as the dashboard (`src/lib/campus.ts` derives it from `analyzeRun` and the report), in live and replay mode alike:
+
+- Each agent instance stands in its role's room, so two Lab Engineers are two figures in the lab. It walks work to the next room only when an event hands it on: the paper analysis and repository analysis finishing, `plan_approved`, an engineer finishing, the final status. Walks already in the history when the page loads are not replayed.
+- The lab's glass room appears when a lab is created, its racks blink while a command runs (an elapsed clock, never a guessed percentage), and it dissolves when the lab is removed.
+- **Paper claim** stays _Sealed_ (with the commitment) until `target_revealed`; **Observed** fills in when the observation is locked; **Δ vs claim** and the verdict appear only after the reveal, with the API's status wording. Older recordings, made before blinding, show the paper value once their comparison arrives.
+- The pipeline is the dashboard's stage strip, and the evidence stream is the latest six public stream rows.
+
+The scene is drawn on a canvas (`src/components/campus/scene.ts`) in light and dark schemes, honours reduced motion, and stacks under the panels below 1100 px.
 
 ## The dashboard
 
@@ -35,6 +48,7 @@ The dashboard shows only public data: status transitions, public activity summar
 - `src/lib/lab.ts`: lab views and the legacy findings in recorded replays.
 - `src/lib/paper.ts`: client-side PDF checks (non-empty, at most 20 MB, `%PDF-` header) and the SHA-256 fingerprint. The server remains authoritative.
 - `src/components/live/`: header, agent roster, activity stream, lab panel, and result.
+- `src/lib/campus.ts` and `src/components/campus/`: the Research Campus model, canvas scene, and overlay panels.
 - `src/screens/`: New Study and Live Run.
 - `scripts/capture-live-run.mjs`: Playwright screenshots of a **live** run at five milestones. It refuses replays and stand-in servers unless given `--stand-in`, in which case every image is stamped STAND-IN.
 - `scripts/stand-in-study-server.mjs`: the real API and study code with scripted stand-ins for the model, GitHub, and Docker. Use it only to look at the layout.

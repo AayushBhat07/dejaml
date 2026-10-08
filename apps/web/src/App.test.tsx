@@ -1,6 +1,6 @@
 import type { RunEvent } from "@dejaml/contracts";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { App } from "./App";
 import recordedRun from "../../../fixtures/events/urban-land-cover-success.json";
@@ -17,7 +17,13 @@ import {
 } from "./lib/run-client";
 import { blindedStream, SENTINEL_TEXT, studyEvents } from "./test/stream";
 
+// These tests read the classic dashboard; the campus layout has its own tests (src/components/campus).
+beforeEach(() => {
+  window.localStorage.setItem("dejaml.liveRunLayout", "dashboard");
+});
+
 afterEach(() => {
+  window.localStorage.clear();
   document.body.innerHTML = "";
   window.history.replaceState(null, "", "/");
 });

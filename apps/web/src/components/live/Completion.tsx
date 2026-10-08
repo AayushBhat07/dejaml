@@ -3,7 +3,7 @@ import { equivalenceLabel, type AgentCard, type CleanupSummary, type LabCard, ty
 import type { ReportSummary } from "../../lib/run-client";
 import { formatMetricValue } from "./format";
 
-const RESULTS: Record<string, { label: string; tone: Tone; explanation: string }> = {
+export const RESULTS: Record<string, { label: string; tone: Tone; explanation: string }> = {
   reproduced: {
     label: "Reproduced",
     tone: "positive",

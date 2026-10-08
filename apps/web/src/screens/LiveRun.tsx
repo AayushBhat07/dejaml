@@ -1,6 +1,7 @@
 import type { RunEvent } from "@dejaml/contracts";
 import { useMemo, useState } from "react";
 
+import { ResearchCampus } from "../components/campus/ResearchCampus";
 import { ActivityStream } from "../components/live/ActivityStream";
 import { AgentRoster } from "../components/live/AgentRoster";
 import { BlindingPanel } from "../components/live/BlindingPanel";
@@ -9,6 +10,7 @@ import { useNow } from "../components/live/format";
 import { LabPanel } from "../components/live/LabPanel";
 import { RunHeader } from "../components/live/RunHeader";
 import type { EventLog } from "../lib/event-log";
+import { campusModel } from "../lib/campus";
 import { findingsFor } from "../lib/lab";
 import { analyzeRun } from "../lib/live-run";
 import type { ConnectionState, ReportSummary, ReviewedCase, RunInfo } from "../lib/run-client";
@@ -37,6 +39,19 @@ function recordedSummary(events: readonly RunEvent[]): ReportSummary | null {
   };
 }
 
+export type LiveRunLayout = "campus" | "dashboard";
+
+const LAYOUT_KEY = "dejaml.liveRunLayout";
+
+/** The layout this browser last chose; the campus when nothing (or no storage) remembers one. */
+function rememberedLayout(): LiveRunLayout {
+  try {
+    return window.localStorage.getItem(LAYOUT_KEY) === "dashboard" ? "dashboard" : "campus";
+  } catch {
+    return "campus";
+  }
+}
+
 /**
  * The Live Run Dashboard: one persistent screen from the moment a study is
  * created until it ends. Earlier agents, evidence, and labs stay visible as
@@ -54,6 +69,7 @@ export function LiveRun({
   onDownload,
   onCancel,
   onNewStudy,
+  initialLayout,
 }: {
   runId: string;
   log: EventLog;
@@ -66,10 +82,21 @@ export function LiveRun({
   onDownload: () => void;
   onCancel?: () => void;
   onNewStudy?: (() => void) | undefined;
+  initialLayout?: LiveRunLayout;
 }) {
   const view = useMemo(() => analyzeRun(log.events), [log.events]);
   const legacy = useMemo(() => (view.native ? null : recordedSummary(log.events)), [view.native, log.events]);
   const summary = report ?? legacy;
+  const campus = useMemo(() => campusModel(view, summary), [view, summary]);
+  const [layout, setLayout] = useState<LiveRunLayout>(() => initialLayout ?? rememberedLayout());
+  const chooseLayout = (next: LiveRunLayout) => {
+    setLayout(next);
+    try {
+      window.localStorage.setItem(LAYOUT_KEY, next);
+    } catch {
+      // Storage is a convenience: without it the choice lasts for this page.
+    }
+  };
   const ended = view.finished || view.result !== null;
   const now = useNow(!ended);
   const [following, setFollowing] = useState(true);
@@ -115,7 +142,16 @@ export function LiveRun({
         onCancel={cancel}
         cancelling={cancelRequested || view.cancelling}
       />
-      {view.native || view.blinding.present ? (
+      <div className="view-switch" role="group" aria-label="Layout">
+        <button type="button" aria-pressed={layout === "campus"} onClick={() => chooseLayout("campus")}>
+          Campus
+        </button>
+        <button type="button" aria-pressed={layout === "dashboard"} onClick={() => chooseLayout("dashboard")}>
+          Dashboard
+        </button>
+      </div>
+      {layout === "campus" ? <ResearchCampus model={campus} /> : null}
+      {layout === "dashboard" && (view.native || view.blinding.present) ? (
         <BlindingPanel blinding={view.blinding} ended={ended} finalStatus={view.result?.status ?? null} />
       ) : null}
       {showCompletion ? (
@@ -128,42 +164,44 @@ export function LiveRun({
           reviewers={reviewers}
         />
       ) : null}
-      <div className="dashboard-grid">
-        <AgentRoster
-          cards={view.cards}
-          debuggerNote={view.debuggerNote}
-          now={now}
-          selectedKey={agentFilter}
-          onSelect={(key) => setAgentFilter((current) => (current === key ? null : key))}
-        />
-        <ActivityStream
-          items={view.stream}
-          cards={view.cards}
-          agentFilter={agentFilter}
-          onAgentFilter={setAgentFilter}
-          following={following}
-          onFollowChange={setFollowing}
-          onShowInLab={(labId, reference) => {
-            setChosenLab(labId);
-            setHighlight(reference);
-          }}
-        />
-        <LabPanel
-          labs={view.labs}
-          now={now}
-          selectedLabId={chosenLab}
-          onSelectLab={(labId) => {
-            setChosenLab(labId);
-            setHighlight(null);
-          }}
-          droppedOutputLines={log.droppedOutputLines}
-          highlight={highlight}
-          preparation={view.preparation}
-          waitingText={labWaiting}
-          onCancel={cancel}
-          cancellable={!ended && !cancelRequested && view.labs.some((lab) => lab.state !== "removed" && lab.state !== "cleanup_failed")}
-        />
-      </div>
+      {layout === "dashboard" ? (
+        <div className="dashboard-grid">
+          <AgentRoster
+            cards={view.cards}
+            debuggerNote={view.debuggerNote}
+            now={now}
+            selectedKey={agentFilter}
+            onSelect={(key) => setAgentFilter((current) => (current === key ? null : key))}
+          />
+          <ActivityStream
+            items={view.stream}
+            cards={view.cards}
+            agentFilter={agentFilter}
+            onAgentFilter={setAgentFilter}
+            following={following}
+            onFollowChange={setFollowing}
+            onShowInLab={(labId, reference) => {
+              setChosenLab(labId);
+              setHighlight(reference);
+            }}
+          />
+          <LabPanel
+            labs={view.labs}
+            now={now}
+            selectedLabId={chosenLab}
+            onSelectLab={(labId) => {
+              setChosenLab(labId);
+              setHighlight(null);
+            }}
+            droppedOutputLines={log.droppedOutputLines}
+            highlight={highlight}
+            preparation={view.preparation}
+            waitingText={labWaiting}
+            onCancel={cancel}
+            cancellable={!ended && !cancelRequested && view.labs.some((lab) => lab.state !== "removed" && lab.state !== "cleanup_failed")}
+          />
+        </div>
+      ) : null}
     </div>
   );
 }
