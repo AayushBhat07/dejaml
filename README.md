@@ -1,13 +1,15 @@
 <div align="center">
 
-# DéjàML
+# DéjàML (DejaML): AI agents that reproduce machine-learning papers
 
 **Same claim. One more run.**
 
 _Reproduce. Verify. Know._
 
-DéjàML takes a machine-learning paper, re-runs the experiment behind one of its
-published numbers in a sealed, offline lab, and tells you honestly whether the
+DéjàML (also written DejaML or Deja ML) is an open-source tool for **ML paper
+reproducibility**. It takes a machine-learning research paper, finds its GitHub
+code, re-runs the experiment behind one of its published numbers in a sealed,
+offline Docker lab with blinded AI agents, and tells you honestly whether the
 result came back.
 
 [GitHub](https://github.com/AayushBhat07/dejaml) ·
