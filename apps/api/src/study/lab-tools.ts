@@ -3,6 +3,7 @@ import { mkdir } from "node:fs/promises";
 import { join, posix } from "node:path";
 
 import { defineTool, sha256, type ToolContext, type ToolDefinition, ToolDenied } from "@dejaml/agent-runtime";
+import { DEFAULT_R_VERSION } from "@dejaml/contracts";
 import { type CommandOutcome, LabError } from "@dejaml/lab-manager";
 import { inspectEnvironmentCommand } from "@dejaml/prep";
 import { z } from "zod";
@@ -138,7 +139,7 @@ export async function runInLab(
 const INTEGRITY_SCRIPT = [
   "import hashlib, json, os, sys",
   "root, venv, data, adapter = sys.argv[1], sys.argv[2], json.loads(sys.argv[3]), sys.argv[4]",
-  "CODE = ('.py', '.pyx', '.pxd', '.pth', '.so', '.c', '.cc', '.cpp', '.h', '.sh', '.cfg', '.ini', '.toml', '.yaml', '.yml', '.ipynb')",
+  "CODE = ('.py', '.pyx', '.pxd', '.pth', '.so', '.c', '.cc', '.cpp', '.h', '.sh', '.cfg', '.ini', '.toml', '.yaml', '.yml', '.ipynb', '.R', '.r', '.Rmd', '.Rprofile', '.Renviron')",
   "def digest(base, keep):",
   "    if not os.path.isdir(base): return None",
   "    total, count = hashlib.sha256(), 0",
@@ -190,6 +191,22 @@ export async function measureIntegrity(ctx: StudyContext, lab: EngineerLab, data
 const MAX_DATASET_PROBES = 6;
 
 export function labTools(ctx: StudyContext): ToolDefinition[] {
+  async function checkRPackages(packages: string[], signal: AbortSignal) {
+    if (!ctx.rPackages) throw new ToolDenied("R package preparation is disabled on this server");
+    const refused = ctx.rPackages.screen(packages);
+    if (refused.length) return failed("Some packages are refused by policy", refused, { refused: refused.length });
+    try {
+      const result = await ctx.rPackages.check({ packages, r: DEFAULT_R_VERSION, platform: ctx.config.platform.containerPlatform, signal });
+      return result.ok
+        ? ok("Prebuilt R binaries exist for every package and its dependencies", result.detail)
+        : failed("Some packages have no prebuilt R binary", result.detail);
+    } catch (error) {
+      if (error instanceof PreparationFailure)
+        return failed(`Check failed: ${error.code}`, { code: error.code, message: error.message, requirement: error.requirement });
+      throw error;
+    }
+  }
+
   let probes = 0;
   const inspect = async (agentId: string, request: Parameters<StudyContext["labs"]["inspectFiles"]>[1]) => {
     const lab = requireLab(ctx, agentId);
@@ -303,7 +320,7 @@ export function labTools(ctx: StudyContext): ToolDefinition[] {
     defineTool({
       name: "lab_run_official",
       description:
-        "Run the approved command exactly as the claim contract states it (the plan's argv with the prepared Python, from the plan's cwd). The lab first checks that the code, the plan's data files, and the Python environment are unchanged since setup, and refuses otherwise. The metric is parsed from this run by the lab.",
+        "Run the approved command exactly as the claim contract states it (the plan's argv with the prepared Python, or Rscript --no-init-file for an R plan, from the plan's cwd). The lab first checks that the code, the plan's data files, and the Python environment are unchanged since setup, and refuses otherwise. The metric is parsed from this run by the lab.",
       input: z.object({}),
       async run(_input, context) {
         const lab = ownLab(context);
@@ -328,12 +345,15 @@ export function labTools(ctx: StudyContext): ToolDefinition[] {
           };
         }
         const [, ...args] = approved.command.argv;
+        // Python runs from the prepared venv. R runs from the image with the prebuilt library on R_LIBS_SITE, and
+        // without the project's .Rprofile, which in renv projects would try to bootstrap packages from the network.
+        const runner = approved.environment.r ? ["Rscript", "--no-init-file"] : [`${LAB_LAYOUT.venv}/bin/python`];
         const timeout = Math.min(ctx.config.commandTimeoutSeconds, Math.max(120, approved.expectedRuntimeSeconds * 4));
         const record = await runInLab(
           ctx,
           lab,
           context,
-          [`${LAB_LAYOUT.venv}/bin/python`, ...args],
+          [...runner, ...args],
           posix.join(LAB_LAYOUT.workdir, approved.command.cwd),
           {},
           timeout,
@@ -466,12 +486,15 @@ export function labTools(ctx: StudyContext): ToolDefinition[] {
     defineTool({
       name: "dependency_check",
       description:
-        "Check, without installing anything, whether binary wheels exist for these requirements on the lab platform and the Python version you plan to use. GPU packages (CUDA, ROCm) and source builds are refused.",
+        "Check, without installing anything, whether binary wheels exist for these requirements on the lab platform and the Python version you plan to use. GPU packages (CUDA, ROCm) and source builds are refused. With language `r`, requirements are CRAN package names and the check is whether prebuilt R binaries exist for them and their dependencies.",
       input: z.object({
         requirements: z.array(z.string().min(1).max(200)).min(1).max(100),
-        python: z.enum(["3.10", "3.11", "3.12", "3.13"]),
+        language: z.enum(["python", "r"]).default("python"),
+        python: z.enum(["3.10", "3.11", "3.12", "3.13"]).optional().describe("Required for Python; ignored for R."),
       }),
       async run(input, context) {
+        if (input.language === "r") return checkRPackages(input.requirements, context.signal);
+        if (!input.python) throw new ToolDenied("name the Python version to check against");
         if (!ctx.dependencies) throw new ToolDenied("dependency preparation is disabled on this server");
         const platform = {
           ...ctx.config.platform,

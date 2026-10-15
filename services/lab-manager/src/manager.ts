@@ -48,6 +48,12 @@ export const LAB_ENV_ALLOWLIST: ReadonlySet<string> = new Set([
   "PIP_NO_CACHE_DIR",
   "PIP_NO_INDEX",
   "PIP_ROOT_USER_ACTION",
+  // The R lab images (rocker/r-ver bases): no credentials, and CRAN is an unreachable URL in an offline lab.
+  "R_VERSION",
+  "R_HOME",
+  "CRAN",
+  "R_LIBS_SITE",
+  "R_LIBS_USER",
   "OMP_NUM_THREADS",
   "OPENBLAS_NUM_THREADS",
   "MKL_NUM_THREADS",

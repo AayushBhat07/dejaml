@@ -158,8 +158,10 @@ export class ScriptedRuntime implements ContainerRuntime {
         mounts.tampered = true;
         return ok();
       }
+      if (program === "Rscript" && inner[1] === "-e" && inner[2]?.includes("R.version")) return ok("4.5.3");
+      if (program === "Rscript" && inner[1] === "-e" && inner[2]?.includes("loadNamespace")) return ok();
       // Exploration such as `find` or `ls` inside an autonomous lab.
-      if (!program.endsWith("python")) return ok("repo/train.py\n");
+      if (!program.endsWith("python") && program !== "Rscript") return ok("repo/train.py\n");
       mounts.runs += 1;
       if (this.failFirstRun && mounts.runs === 1) {
         options.onOutput?.(
@@ -420,7 +422,12 @@ export async function paperPdf(withLink = true, repositoryUrl = "https://github.
 }
 
 /** Creates a checkout containing the curated notebook and a training script, pinned to the reviewed commit. */
-export function standInAcquire(curated: CuratedCase, created: string[] = [], commitSha = curated.policy.repository.commitSha) {
+export function standInAcquire(
+  curated: CuratedCase,
+  created: string[] = [],
+  commitSha = curated.policy.repository.commitSha,
+  extraFiles: Record<string, string> = {},
+) {
   return async (input: { repositoryUrl: string; destinationRoot: string }): Promise<RepositoryReceipt> => {
     await mkdir(input.destinationRoot, { recursive: true });
     const destination = await mkdtemp(join(input.destinationRoot, "dejaml-repo-"));
@@ -428,6 +435,7 @@ export function standInAcquire(curated: CuratedCase, created: string[] = [], com
     await writeFile(join(destination, NOTEBOOK_PATH), NOTEBOOK);
     await writeFile(join(destination, "train.py"), "print('training')\n");
     await writeFile(join(destination, "requirements.txt"), "scikit-learn==1.9.1\n");
+    for (const [path, content] of Object.entries(extraFiles)) await writeFile(join(destination, path), content);
     const manifest = await buildRepositoryManifest(destination);
     return {
       schemaVersion: 1,

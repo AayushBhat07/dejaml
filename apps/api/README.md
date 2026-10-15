@@ -32,6 +32,8 @@ pinned `dejaml/python-cpu:0.1.0` image, and the case dataset in
 | `DEJAML_PREP_ENABLED`, `DEJAML_PREP_IMAGES`, `DEJAML_PREP_PULL`, `DEJAML_PREP_RESOLVER_MODE`, `DEJAML_PREP_MAX_*_MB`, `DEJAML_PREP_MIN_FREE_MB`, `DEJAML_PREP_ALLOWED_HOSTS`, `DEJAML_PREP_CA_BUNDLE` | enabled | The egress-restricted, CPU-only, digest-pinned wheel download zone and its disk bounds. Compatibility constraints come only from `config/compatibility-constraints.txt`. |
 | `DEJAML_DATASET_ALLOWED_HOSTS` | empty | Dataset hosts the study may download from over HTTPS. Empty allows the common public dataset hosts, `none` refuses every download, and a list allows exactly those hosts. |
 | `DEJAML_DATASET_MAX_MB` | `2048` | Largest dataset download. The download time limit grows with it, and archives are unpacked from disk up to 4 GiB. |
+| `DEJAML_R_ENABLED` | enabled | Offers R studies: the `lab-images/r-base` image (R 4.5, digest-pinned rocker base) and prebuilt CRAN binaries downloaded from `packagemanager.posit.co`, verified, and mounted read-only. `0` offers Python studies only. |
+| `DEJAML_R_SNAPSHOT` | `2026-10-01` | The dated CRAN snapshot R packages come from, so a study gets the same package versions every time. |
 
 `GET /api/health` (loopback clients only) reports the platform and lab image readiness, and for each available
 provider its `id`, `kind`, `endpointHost`, `official`, `https` and `route`: `official` (the default

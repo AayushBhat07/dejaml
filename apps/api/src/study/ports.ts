@@ -1,7 +1,14 @@
 import { chmod, readFile, rename, rm, stat } from "node:fs/promises";
 import { join } from "node:path";
 
-import { type BaseImageLock, type ImageReadiness, ImageNotReadyError, pythonBaseImageRequest } from "@dejaml/lab-manager";
+import {
+  type BaseImageLock,
+  type ImageReadiness,
+  ImageNotReadyError,
+  pythonBaseImageRequest,
+  type RBaseImageLock,
+  rBaseImageRequest,
+} from "@dejaml/lab-manager";
 import {
   acquireLabDataset,
   cleanupDataset,
@@ -20,8 +27,11 @@ import {
   type ParsedRequirement,
   PrepError,
   type PrepErrorCode,
+  chmodTree,
+  RPackagePreparer,
   sha256File,
 } from "@dejaml/prep";
+import type { RVersion } from "@dejaml/contracts";
 
 import {
   type DatasetPort,
@@ -31,6 +41,7 @@ import {
   type LabImagePort,
   PreparationFailure,
   type PreparedDependencies,
+  type RPackagePort,
 } from "./context.js";
 
 /**
@@ -222,6 +233,8 @@ export function localDatasetPort(policy: FetchPolicy): DatasetPort {
 const PREP_OUTCOMES: Record<PrepErrorCode, PreparationFailure["outcome"]> = {
   // The plan can change: another Python version or a trusted constraint may resolve.
   no_compatible_wheel: "replan",
+  // An R package with no prebuilt binary: another package or version may have one.
+  no_compatible_binary: "replan",
   resolution_conflict: "replan",
   // Refused by policy: never retried with broader access.
   accelerator_package_refused: "policy_blocked",
@@ -328,6 +341,57 @@ export function preparerPort(preparer: DependencyPreparer): DependencyPort {
   };
 }
 
+/** Trust zone 3 for R: prebuilt CRAN binaries from a dated snapshot, unpacked by the host; nothing is compiled. */
+export function rPackagePort(preparer: RPackagePreparer, lock: RBaseImageLock): RPackagePort {
+  // The full R version of each lab image, for `Depends: R (>= …)`.
+  const full = (r: RVersion): string => lock.bases[r]?.rVersion ?? `${r}.0`;
+  return {
+    snapshot: preparer.snapshot,
+    screen: (packages) => RPackagePreparer.screen(packages),
+    async check({ packages, r, platform, signal }) {
+      try {
+        const { order, provided } = await preparer.check({ packages, r, rVersion: full(r), platform, signal });
+        return {
+          ok: true,
+          detail: { packages: order.map((item) => `${item.name} ${item.version}`), provided, snapshot: preparer.snapshot },
+        };
+      } catch (error) {
+        if (error instanceof PrepError && error.code === "no_compatible_binary") {
+          return { ok: false, detail: { code: error.code, requirement: error.requirement ?? null, message: error.message } };
+        }
+        throw prepFailure(error);
+      }
+    },
+    async prepare({ runId, packages, r, platform, signal }) {
+      try {
+        const prepared = await preparer.prepare({ runId, packages, r, rVersion: full(r), platform, signal });
+        return {
+          manifestSha256: prepared.manifestSha256,
+          libraryDir: prepared.libraryDir,
+          snapshot: prepared.manifest.snapshot,
+          packages: prepared.manifest.packages.map((item) => ({
+            name: item.name,
+            version: item.version,
+            sha256: item.sha256,
+            requested: item.requested,
+          })),
+        };
+      } catch (error) {
+        throw prepFailure(error);
+      }
+    },
+    async release(prepared) {
+      await chmodTree(prepared.libraryDir).catch(() => undefined);
+      await rm(prepared.libraryDir, { recursive: true, force: true });
+      const removed = await stat(prepared.libraryDir).then(
+        () => false,
+        () => true,
+      );
+      return { removed };
+    },
+  };
+}
+
 export function preparedFromManifest(manifest: DependencyManifest, manifestSha256: string): PreparedDependencies {
   return {
     prepId: manifest.prepId,
@@ -367,16 +431,28 @@ export function preparedFromManifest(manifest: DependencyManifest, manifestSha25
  * digest, or built from `lab-images/python-base` with its base pinned by the
  * lock. It never falls back to another image or platform.
  */
-export function readinessLabImagePort(input: { readiness: ImageReadiness; lock: BaseImageLock; contextDir: string }): LabImagePort {
+export function readinessLabImagePort(input: {
+  readiness: ImageReadiness;
+  lock: BaseImageLock;
+  contextDir: string;
+  /** The R lab images, when this server offers R studies. */
+  r?: { lock: RBaseImageLock; contextDir: string } | null;
+}): LabImagePort {
+  const rLock = input.r?.lock ?? null;
   return {
-    async ensure({ platform, signal }) {
+    rVersions: rLock ? (Object.keys(rLock.bases) as RVersion[]) : [],
+    async ensure({ platform, r, signal }) {
       try {
-        const request = pythonBaseImageRequest({
-          lock: input.lock,
-          python: platform.python.version,
-          platform: platform.containerPlatform,
-          contextDir: input.contextDir,
-        });
+        if (r && !input.r) throw new PreparationFailure("lab_image_r_unavailable", "this server has no R lab image", "policy_blocked");
+        const request =
+          r && input.r
+            ? rBaseImageRequest({ lock: input.r.lock, r, platform: platform.containerPlatform, contextDir: input.r.contextDir })
+            : pythonBaseImageRequest({
+                lock: input.lock,
+                python: platform.python.version,
+                platform: platform.containerPlatform,
+                contextDir: input.contextDir,
+              });
         const ready = await input.readiness.ensure(request, signal);
         return {
           name: ready.reference,
@@ -384,6 +460,7 @@ export function readinessLabImagePort(input: { readiness: ImageReadiness; lock: 
           digest: ready.digest,
           containerPlatform: ready.platform,
           python: ready.python ?? platform.python.version,
+          ...(r && rLock?.bases[r] ? { r: rLock.bases[r].rVersion } : {}),
         };
       } catch (error) {
         if (error instanceof ImageNotReadyError) {

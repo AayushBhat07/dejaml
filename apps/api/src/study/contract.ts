@@ -1,12 +1,21 @@
 import { createHash } from "node:crypto";
 import { posix } from "node:path";
 
-import { buildPlatformSpec, type ClaimContract, ClaimContractSchema, type PlatformSpec } from "@dejaml/contracts";
+import {
+  buildPlatformSpec,
+  type ClaimContract,
+  ClaimContractSchema,
+  type PlatformSpec,
+  R_IMAGE_GLIBC,
+  R_IMAGE_PYTHON,
+  type RVersion,
+  DEFAULT_R_VERSION,
+} from "@dejaml/contracts";
 import { type FetchPolicy, hostMatchesAllowlist } from "@dejaml/net-guard";
 import { findLiteral } from "@dejaml/research-runtime";
 
 import { executionContract, findValue, riggedAdapter } from "./blinding.js";
-import type { DependencyPort } from "./context.js";
+import type { DependencyPort, RPackagePort } from "./context.js";
 import type { PaperClaim, Plan } from "./roles.js";
 import { type ClaimTarget, targetViolations } from "./targets.js";
 
@@ -54,18 +63,25 @@ export function reconcile(input: {
   pages?: ReadonlyArray<{ pageNumber: number; text: string }>;
   /** A reviewed target's tolerance replaces the default for its unit. */
   tolerance?: number;
+  /** The R version and CRAN snapshot an R plan runs with. */
+  r?: { version: RVersion; snapshot: string };
 }): Reconciled {
   const { claim, plan } = input;
   if (input.pages) {
     const problem = checkExcerpt(claim, input.pages);
     if (problem) return { ok: false, reasons: [problem] };
   }
+  const isR = plan.language === "r";
+  // An R plan runs in the R lab image, whose Python only serves the lab's own tools.
   const platform = buildPlatformSpec({
     architecture: input.platform.architecture,
-    python: plan.python,
+    python: isR ? R_IMAGE_PYTHON : plan.python,
     packageIndex: input.platform.packageIndex,
-    glibc: input.platform.libc.version,
+    glibc: isR ? R_IMAGE_GLIBC : input.platform.libc.version,
   });
+  const r = isR
+    ? { version: input.r?.version ?? DEFAULT_R_VERSION, packages: [...new Set(plan.rPackages ?? [])], snapshot: input.r?.snapshot ?? "" }
+    : undefined;
   const candidate = {
     schemaVersion: 1 as const,
     method: claim.method,
@@ -79,7 +95,12 @@ export function reconcile(input: {
     repository: { url: input.repository.url, commitSha: input.repository.commitSha },
     entrypoint: plan.entrypoint,
     command: { argv: plan.command.argv, cwd: plan.command.cwd },
-    environment: { platform, requirements: plan.requirements, compatibilityConstraints: plan.compatibilityConstraints },
+    environment: {
+      platform,
+      requirements: plan.requirements,
+      compatibilityConstraints: plan.compatibilityConstraints,
+      ...(r ? { r } : {}),
+    },
     expectedRuntimeSeconds: plan.expectedRuntimeSeconds,
     metricParser: plan.metricParser,
     tolerance: input.tolerance ?? TOLERANCE[claim.metric.unit],
@@ -142,6 +163,8 @@ export function reviewPolicy(input: {
   repository: { commitSha: string; files: ReadonlySet<string> };
   datasetPolicy: FetchPolicy;
   dependencies: DependencyPort | null;
+  /** The R versions with a lab image, and the R package port; absent or empty when R is not offered. */
+  r?: { versions: readonly RVersion[]; packages: RPackagePort | null };
   commandTimeoutSeconds: number;
   /** The project-owned constraints file; a plan constraint outside it is refused. */
   trustedConstraints: ReadonlyArray<{ requirement: string; reason: string }>;
@@ -162,10 +185,12 @@ export function reviewPolicy(input: {
   if (!adapterEntry && !input.repository.files.has(contract.entrypoint))
     unusable.push(`the entry point ${contract.entrypoint} is not a file in the pinned checkout`);
 
-  // The command: `python <script> [args]`, where the script resolves to the entry point or the declared adapter.
+  // The command: `python <script> [args]` (`Rscript` for R), where the script resolves to the entry point or the declared adapter.
+  const rEnv = contract.environment.r;
+  const runner = rEnv ? "Rscript" : "python";
   const [program, script] = contract.command.argv;
   const cwd = contract.command.cwd;
-  if (program !== "python") unusable.push("the command must start with `python`");
+  if (program !== runner) unusable.push(`the command must start with \`${runner}\``);
   if (cwd !== "repo" && cwd !== "work/repo") unusable.push("the command must run from `repo` or `work/repo`");
   if (script === undefined || script.startsWith("-")) {
     unusable.push("the command must name a script file (no `-c` or `-m`)");
@@ -177,6 +202,13 @@ export function reviewPolicy(input: {
     if (!allowed.has(resolved)) unusable.push(`the command runs ${script}, which is neither the entry point nor the declared adapter`);
   }
   if (adapter) {
+    if (!adapter.path.endsWith(rEnv ? ".R" : ".py"))
+      unusable.push(`the adapter of ${rEnv ? "an R" : "a Python"} plan must be a ${rEnv ? ".R" : ".py"} file`);
+    // One language per plan: the lab for a Python plan has no R, and the other way round.
+    if (!rEnv && /\bRscript\b|\bR\s+(?:CMD|--vanilla|-e)\b/u.test(adapter.content))
+      unusable.push("the adapter runs R from Python; plan an R study (language r) to run R code");
+    if (rEnv && /\b(?:system2?|processx::run)\s*\([^)]*\bpython3?\b/u.test(adapter.content))
+      unusable.push("the adapter runs Python from R; plan a Python study to run Python code");
     warnings.push(`an adapter (${adapter.path}) wraps the official code; the result can be at most partially reproduced`);
     // Neutral messages: these reach events and the Supervisor before the reveal.
     if (findLiteral(contract.reportedValue, [adapter.content]) || findValue(contract.reportedValue, contract.metric.unit, adapter.content))
@@ -221,14 +253,26 @@ export function reviewPolicy(input: {
     if (source.sha256 === null) blocked.push("a downloaded dataset needs its SHA-256; unchecksummed data is not used");
   }
 
-  // Dependencies: no URLs, paths, source builds, or GPU packages.
-  if (input.dependencies) {
+  // R: a lab image for the version, prebuilt CRAN binaries only, and no Python packages.
+  if (rEnv) {
+    if (!input.r?.versions.includes(rEnv.version)) blocked.push(`this server has no lab image for R ${rEnv.version}`);
+    if (contract.environment.requirements.length || contract.environment.compatibilityConstraints.length)
+      unusable.push("an R plan installs no Python packages; list CRAN packages in rPackages");
+    if (source.kind === "package") unusable.push("an R plan cannot take its data from a Python package");
+    if (rEnv.packages.length) {
+      if (!input.r?.packages) blocked.push("R package preparation is disabled on this server, and the plan needs CRAN packages");
+      else for (const refusal of input.r.packages.screen(rEnv.packages)) blocked.push(`${refusal.requirement}: ${refusal.reason}`);
+    }
+  }
+
+  // Python dependencies (an R plan has none): no URLs, paths, source builds, or GPU packages.
+  if (!rEnv && input.dependencies) {
     const screen = input.dependencies.screen(
       [...contract.environment.requirements, ...contract.environment.compatibilityConstraints.map((item) => item.requirement)],
       contract.environment.platform,
     );
     for (const refusal of screen.refused) blocked.push(`${refusal.requirement}: ${refusal.reason} (${refusal.code})`);
-  } else if (contract.environment.requirements.length > 0) {
+  } else if (!rEnv && contract.environment.requirements.length > 0) {
     blocked.push("dependency preparation is disabled on this server, and the plan needs Python packages");
   }
   const trusted = new Map(input.trustedConstraints.map((item) => [normalizeConstraint(item.requirement), item.reason]));

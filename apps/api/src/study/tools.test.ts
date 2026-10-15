@@ -149,6 +149,8 @@ beforeEach(async () => {
     },
     planDigest: "c".repeat(64),
     prepared: null,
+    preparedR: null,
+    rPackages: null,
     datasets: [],
     labsByAgent: new Map([["agt_eng", lab]]),
     exports: new Map(),

@@ -9,7 +9,9 @@ import {
   ImageNotReadyError,
   ImageReadiness,
   loadBaseImageLock,
+  loadRBaseImageLock,
   pythonBaseImageRequest,
+  rBaseImageRequest,
   pythonBaseImageTag,
   unpinnedBaseImages,
   type ImageRequest,
@@ -24,6 +26,7 @@ const PLATFORM_DIGEST: Record<string, string> = {
   "linux/arm64": `sha256:${"b".repeat(64)}`,
 };
 const baseLockPath = fileURLToPath(new URL("../../../lab-images/python-base/bases.lock.json", import.meta.url));
+const rLockPath = fileURLToPath(new URL("../../../lab-images/r-base/bases.lock.json", import.meta.url));
 
 function result(exitCode: number | null, stdout = "", stderr = "", aborted = false): RuntimeCommandResult {
   return {
@@ -456,5 +459,38 @@ describe("lab base images", () => {
     const imageRequest = pythonBaseImageRequest({ lock, python: "3.11", platform: "linux/amd64", contextDir: "/x" });
     expect(unpinnedBaseImages(dockerfile, imageRequest.build?.buildArgs)).toEqual([]);
     expect(unpinnedBaseImages(dockerfile)).toEqual(["(empty)"]);
+  });
+});
+
+describe("R lab base image", () => {
+  it("locks R 4.5 for both platforms by digest", async () => {
+    const lock = await loadRBaseImageLock(rLockPath);
+    expect(Object.keys(lock.bases)).toEqual(["4.5"]);
+    const base = lock.bases["4.5"]!;
+    expect(base.rVersion.startsWith("4.5.")).toBe(true);
+    expect(base.index).toBe("sha256:c3f39b365d1077fe24f8e9ab2742e352b6d3950897f51af1624a5bb5550c21c0");
+    expect(base.platforms["linux/amd64"]).not.toBe(base.platforms["linux/arm64"]);
+  });
+
+  it("builds the R lab image from the pinned rocker base and apt snapshot", async () => {
+    const lock = await loadRBaseImageLock(rLockPath);
+    const imageRequest = rBaseImageRequest({ lock, r: "4.5", platform: "linux/arm64", contextDir: "/repo/lab-images/r-base" });
+    expect(imageRequest).toMatchObject({
+      key: "lab-base:r-4.5",
+      reference: "dejaml/r-base:0.1.0-r4.5-linux-arm64",
+      platform: "linux/arm64",
+      python: "3.12",
+      build: {
+        contextDir: "/repo/lab-images/r-base",
+        buildArgs: {
+          R_BASE: `docker.io/rocker/r-ver:${lock.bases["4.5"]?.tag}@${lock.bases["4.5"]?.index}`,
+          R_VERSION_MINOR: "4.5",
+          APT_SNAPSHOT: lock.aptSnapshot,
+        },
+      },
+    });
+    const { readFile } = await import("node:fs/promises");
+    const dockerfile = await readFile(join(rLockPath, "..", "Dockerfile"), "utf8");
+    expect(unpinnedBaseImages(dockerfile, imageRequest.build?.buildArgs)).toEqual([]);
   });
 });

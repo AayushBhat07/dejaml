@@ -4,17 +4,24 @@ import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { platformFromEnv } from "@dejaml/contracts";
-import { ImageReadiness, LabManager, loadBaseImageLock } from "@dejaml/lab-manager";
+import { ImageReadiness, LabManager, loadBaseImageLock, loadRBaseImageLock } from "@dejaml/lab-manager";
 import { loadProviderConfig, ProviderConfigError, providerRoute, publicProviders } from "@dejaml/agent-runtime";
 import { DATASET_MAX_BYTES, datasetPolicy } from "@dejaml/net-guard";
-import { DependencyPreparer, loadCompatibilityConstraints, loadPrepPolicy } from "@dejaml/prep";
+import { DependencyPreparer, loadCompatibilityConstraints, loadPrepPolicy, RPackagePreparer } from "@dejaml/prep";
 import { RunStore } from "@dejaml/run-store";
 
 import { loadCases } from "./cases.js";
 import { DEFAULT_STUDY_RESOURCES } from "./pipeline.js";
 import { environmentSecrets, withSecrets } from "./boundaries.js";
 import { createApiServer, recoverAfterRestart } from "./server.js";
-import { datasetAllowedHosts, loadReviewedTargets, localDatasetPort, preparerPort, readinessLabImagePort } from "./study/index.js";
+import {
+  datasetAllowedHosts,
+  loadReviewedTargets,
+  localDatasetPort,
+  preparerPort,
+  readinessLabImagePort,
+  rPackagePort,
+} from "./study/index.js";
 
 const projectRoot = resolve(fileURLToPath(new URL("../../../", import.meta.url)));
 const dataDir = resolve(process.env.DEJAML_DATA_DIR ?? join(projectRoot, "artifacts", "api"));
@@ -50,6 +57,16 @@ try {
 // Lab images are found by identity, pulled by digest, or built from a digest-pinned base; never substituted.
 const readiness = new ImageReadiness();
 const baseImages = await loadBaseImageLock(join(projectRoot, "lab-images/python-base/bases.lock.json"));
+// R studies: the R lab image and prebuilt CRAN binaries from a dated snapshot; DEJAML_R_ENABLED=0 turns both off.
+const rEnabled = process.env.DEJAML_R_ENABLED !== "0";
+const rImages = rEnabled ? await loadRBaseImageLock(join(projectRoot, "lab-images/r-base/bases.lock.json")) : null;
+const rPreparer = rImages
+  ? new RPackagePreparer({
+      cacheDir: join(dataDir, "prep-cache"),
+      libraryRoot: join(dataDir, "r-libraries"),
+      ...(process.env.DEJAML_R_SNAPSHOT?.trim() ? { snapshot: process.env.DEJAML_R_SNAPSHOT.trim() } : {}),
+    })
+  : null;
 // Trust zone 3: Python wheels are downloaded by short-lived, egress-restricted containers.
 const prep =
   process.env.DEJAML_PREP_ENABLED === "0"
@@ -93,7 +110,13 @@ const api = createApiServer({
   multiAgent: {
     enabled: process.env.DEJAML_AUTONOMOUS !== "0",
     dependencies: prep ? preparerPort(prep) : null,
-    images: readinessLabImagePort({ readiness, lock: baseImages, contextDir: join(projectRoot, "lab-images/python-base") }),
+    images: readinessLabImagePort({
+      readiness,
+      lock: baseImages,
+      contextDir: join(projectRoot, "lab-images/python-base"),
+      r: rImages ? { lock: rImages, contextDir: join(projectRoot, "lab-images/r-base") } : null,
+    }),
+    rPackages: rPreparer && rImages ? rPackagePort(rPreparer, rImages) : null,
     datasets: datasetHosts.length ? localDatasetPort(datasetFetchPolicy) : null,
     config: {
       platform,

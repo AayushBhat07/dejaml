@@ -1,5 +1,7 @@
 export type PrepErrorCode =
   | "no_compatible_wheel"
+  /** An R package has no prebuilt binary for the lab's R version and platform, or needs a newer R. */
+  | "no_compatible_binary"
   | "resolution_conflict"
   | "egress_denied"
   | "limit_exceeded"

@@ -18,6 +18,22 @@ export type ContainerPlatform = z.infer<typeof ContainerPlatformSchema>;
 export const PythonVersionSchema = z.enum(["3.10", "3.11", "3.12", "3.13"]);
 export type PythonVersion = z.infer<typeof PythonVersionSchema>;
 
+/** R minor versions a study may run on, each with its own lab image. */
+export const RVersionSchema = z.enum(["4.5"]);
+export type RVersion = z.infer<typeof RVersionSchema>;
+export const DEFAULT_R_VERSION: RVersion = "4.5";
+
+/** A CRAN package name. */
+export const RPackageNameSchema = z
+  .string()
+  .max(100)
+  .regex(/^[A-Za-z][A-Za-z0-9.]*[A-Za-z0-9]$/u);
+
+/** Ubuntu 24.04, the base of the R lab images, ships glibc 2.39. */
+export const R_IMAGE_GLIBC = "2.39";
+/** The Python inside the R lab images; only the lab's own tools use it. */
+export const R_IMAGE_PYTHON: PythonVersion = "3.12";
+
 export const AcceleratorPolicySchema = z.enum(["cpu_only"]);
 export type AcceleratorPolicy = z.infer<typeof AcceleratorPolicySchema>;
 

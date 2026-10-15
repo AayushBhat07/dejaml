@@ -1,5 +1,5 @@
 import type { AgentLimits, AgentRole } from "@dejaml/agent-runtime";
-import { MetricParserSchema, PythonVersionSchema } from "@dejaml/contracts";
+import { MetricParserSchema, PythonVersionSchema, RPackageNameSchema } from "@dejaml/contracts";
 import { z } from "zod";
 
 /**
@@ -53,7 +53,10 @@ export const RepositoryMappingSchema = z.object({
 
 export const AdapterSchema = z.object({
   /** Written by the orchestrator into the lab before any engineer starts. */
-  path: z.string().regex(/^work\/adapter\/[A-Za-z0-9_.-]{1,80}\.py$/u),
+  path: z
+    .string()
+    .regex(/^work\/adapter\/[A-Za-z0-9_.-]{1,80}\.(?:py|R)$/u)
+    .describe("A .py file for a Python plan, or a .R file for an R plan."),
   content: z
     .string()
     .min(1)
@@ -81,13 +84,27 @@ export const PlanSchema = z.object({
       .array(z.string().min(1).max(500))
       .min(2)
       .max(40)
-      .describe("Starts with `python`; the next item is the entry point (or the adapter) as seen from cwd."),
+      .describe("Starts with `python` (`Rscript` for an R plan); the next item is the entry point (or the adapter) as seen from cwd."),
     cwd: z
       .enum(["repo", "work/repo"])
       .describe("`work/repo` is a writable copy of the checkout made before the run; `repo` is the read-only checkout."),
   }),
-  python: PythonVersionSchema,
-  requirements: z.array(z.string().min(1).max(200)).max(150).describe("From the repository's dependency files, unchanged."),
+  language: z
+    .enum(["python", "r"])
+    .optional()
+    .describe("`r` when the official code is R and runs with Rscript; omitted or `python` otherwise."),
+  python: PythonVersionSchema.describe("The Python version; ignored for an R plan."),
+  requirements: z
+    .array(z.string().min(1).max(200))
+    .max(150)
+    .describe("Python packages from the repository's dependency files, unchanged. Empty for an R plan."),
+  rPackages: z
+    .array(RPackageNameSchema)
+    .max(150)
+    .optional()
+    .describe(
+      "R plans only: the CRAN packages the code loads (library(), require(), pkg::), by name. Base and recommended packages are already installed.",
+    ),
   compatibilityConstraints: z
     .array(z.object({ requirement: z.string().min(1).max(200), reason: z.string().min(1).max(500) }))
     .max(30)
@@ -256,13 +273,14 @@ export const INSTRUCTIONS: Record<AgentRole, string> = {
     "Reconcile the Paper Analyst's claim with the Repository Analyst's map (both on the board) into one exact plan to reproduce that claim with the repository's official code in an offline, CPU-only Linux lab.",
     "The command runs `python <entrypoint> [args]` from `repo` (read-only) or `work/repo` (a writable copy made before the run). Choose the Python version the code supports (3.10 or 3.11 for older code). Requirements come from the repository's dependency files unchanged; a pin may be relaxed or added only by choosing an entry from trustedCompatibilityConstraints (copied exactly into compatibilityConstraints); anything else is refused by policy.",
     "Use dependency_check to see whether binary wheels exist for your requirements on the lab platform; nothing is built from source, and GPU packages (CUDA, ROCm) are refused.",
+    "If the official code is R (.R scripts, an R DESCRIPTION file) and rVersions is not empty, plan an R study: language `r`, the command `Rscript <entrypoint> [args]`, empty requirements, and in rPackages every CRAN package the code loads. Check them with dependency_check (language `r`): packages come only as prebuilt Linux binaries from a dated CRAN snapshot, so GitHub-only, Bioconductor, and packages without a binary are not available. An R adapter is a .R file run with Rscript. Never call Rscript from Python or Python from R: each plan runs one language. If rVersions is empty, R code cannot run here: finish blocked.",
     "Data: prefer files in the repository. Otherwise find the official download (README, data scripts, the dataset's own page) on a host in datasetHostsAllowed, call dataset_probe on that exact URL, and copy the sha256 it returns into the plan; the lab itself has no network. Set status blocked only if no allowed host serves the data.",
     "metricParser must read the number the official code prints (stdout pattern with one capture group) or writes (a JSON file; `path` like `artifacts/result.json` is relative to the lab workdir /workspace/case). Code and adapters must write that file to its absolute path, such as /workspace/case/artifacts/result.json: `repo` is read-only and `work/repo` has its own, different artifacts folder. When the official code does not run as one script for this claim (it needs arguments, a data path, or prints no metric), declare an adapter: a small wrapper that only imports or calls the official code and captures its metric, listing every difference. Set entrypoint to the official script it wraps, and run the adapter at its path (for example `python ../work/adapter/run.py` from `repo`). A result through an adapter is at most partially reproduced. Never plan a rewritten approximation, a changed dataset, a subset, altered filtering, or a replacement metric.",
     "If previousRounds says an earlier plan was refused, fix exactly what was refused for the same claim. If no faithful plan fits the lab, finish with status blocked and blockedReason; do not give up.",
     BLIND_PLANNING,
   ].join("\n"),
   lab_engineer: [
-    "You work alone inside a sealed, offline Linux lab prepared for the approved plan: /workspace/case/repo is the repository (read-only), work/repo is a writable copy when the plan asked for one, data/ holds verified datasets (read-only), and the Python environment is already installed.",
+    "You work alone inside a sealed, offline Linux lab prepared for the approved plan: /workspace/case/repo is the repository (read-only), work/repo is a writable copy when the plan asked for one, data/ holds verified datasets (read-only), and the Python environment (for an R plan: R and its CRAN packages in rlib/, read-only) is already installed.",
     "Run the approved command with lab_run_official. It runs exactly the plan's argv from the plan's cwd, after the lab checks the checkout and environment are unchanged. When it fails, read its logs, inspect files, and fix what the plan allows (for example create an output directory with lab_run). Use request_debugging when you are stuck.",
     "If the code needs a different or extra package, use dependency_request with the reason and then finish as not_measured: the plan is re-approved and a fresh lab is prepared. Never change the code, the data, the split, or the metric.",
     "When the official run succeeded, finish as measured with its receipt id. The metric is parsed by the lab from that run, not by you. Declare every deviation you know of.",

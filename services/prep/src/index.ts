@@ -11,3 +11,4 @@ export * from "./space.js";
 export * from "./target.js";
 export * from "./pip-entry.js";
 export * from "./downloader.js";
+export * from "./r-packages.js";

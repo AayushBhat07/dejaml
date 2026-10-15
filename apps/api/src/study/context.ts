@@ -5,6 +5,7 @@ import type {
   PaperDocument,
   PlatformSpec,
   RepositoryCandidate,
+  RVersion,
   ResourceBudgetSchema,
   RunEvent,
 } from "@dejaml/contracts";
@@ -33,6 +34,8 @@ export const LAB_LAYOUT = {
   /** Where the plan's adapter is written; covered by the integrity check. */
   adapterDir: "work/adapter",
   venv: "/workspace/case/work/.venv",
+  /** An R study's CRAN packages, mounted read-only; the R lab image's library path. */
+  rLibDir: "rlib",
 } as const;
 
 export type StudyConfig = {
@@ -115,11 +118,53 @@ export type DependencyPort = {
   release(prepared: PreparedDependencies): Promise<{ removed: boolean }>;
 };
 
-export type LabImage = { name: string; imageId: string; digest: string | null; containerPlatform: ContainerPlatform; python: string };
+export type LabImage = {
+  name: string;
+  imageId: string;
+  digest: string | null;
+  containerPlatform: ContainerPlatform;
+  python: string;
+  /** The full R version of an R lab image, such as 4.5.3. */
+  r?: string;
+};
 
 export type LabImagePort = {
-  /** Resolves (inspects, pulls, or builds) the lab image for the platform; throws PreparationFailure with outcome `failed`. */
-  ensure(input: { platform: PlatformSpec; signal: AbortSignal }): Promise<LabImage>;
+  /**
+   * Resolves (inspects, pulls, or builds) the lab image for the platform, or
+   * the R lab image when `r` is set; throws PreparationFailure with outcome `failed`.
+   */
+  ensure(input: { platform: PlatformSpec; r?: RVersion; signal: AbortSignal }): Promise<LabImage>;
+  /** The R versions this server has lab images for; empty when R is not offered. */
+  rVersions?: RVersion[];
+};
+
+export type PreparedRLibrary = {
+  manifestSha256: string;
+  /** Host path of the sealed library; mounted read-only, never reported. */
+  libraryDir: string;
+  snapshot: string;
+  packages: Array<{ name: string; version: string; sha256: string; requested: boolean }>;
+};
+
+/** Trust zone 2 for R: prebuilt CRAN binaries from a dated snapshot, nothing compiled. */
+export type RPackagePort = {
+  snapshot: string;
+  screen(packages: string[]): Array<{ requirement: string; reason: string }>;
+  /** Whether binaries exist for the packages and their dependencies (fetches only the index). */
+  check(input: {
+    packages: string[];
+    r: RVersion;
+    platform: ContainerPlatform;
+    signal: AbortSignal;
+  }): Promise<{ ok: boolean; detail: Record<string, unknown> }>;
+  prepare(input: {
+    runId: string;
+    packages: string[];
+    r: RVersion;
+    platform: ContainerPlatform;
+    signal: AbortSignal;
+  }): Promise<PreparedRLibrary>;
+  release(prepared: PreparedRLibrary): Promise<{ removed: boolean }>;
 };
 
 export type DatasetIdentity = {
@@ -188,7 +233,7 @@ export type EngineerLab = {
   artifacts: Map<string, ArtifactSummary>;
   /** Digest of work/repo (when used), the adapter directory, and the venv, taken right after setup. */
   integrity: { workRepo: string | null; venv: string | null; adapter: string | null };
-  environment: { python: string | null; distributions: Array<{ name: string; version: string }> } | null;
+  environment: { python: string | null; r?: string | null; distributions: Array<{ name: string; version: string }> } | null;
   official: CommandRecord | null;
   dependencyRequest: { requirements: string[]; reason: string } | null;
   destroyed: boolean;
@@ -226,6 +271,9 @@ export type StudyContext = {
   contract: ClaimContract | null;
   planDigest: string | null;
   prepared: PreparedDependencies | null;
+  preparedR: PreparedRLibrary | null;
+  /** The R package port, when this server offers R studies. */
+  rPackages: RPackagePort | null;
   datasets: AcquiredDataset[];
   labsByAgent: Map<string, EngineerLab>;
   exports: Map<string, ExportedArtifact[]>;
