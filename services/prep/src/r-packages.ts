@@ -19,8 +19,8 @@ import { PrepError } from "./errors.js";
  */
 
 export const R_REPOSITORY_BASE = "https://packagemanager.posit.co/cran";
-/** The package manager's own host and the CDN host it may redirect downloads to. */
-export const R_REPOSITORY_HOSTS = ["packagemanager.posit.co", "p3m.dev"] as const;
+/** The package manager's hosts, including the sync host it redirects binary downloads to. */
+export const R_REPOSITORY_HOSTS = ["packagemanager.posit.co", "p3m.dev", "rspm-sync.rstudio.com"] as const;
 /** The snapshot used unless the administrator sets another. */
 export const DEFAULT_R_SNAPSHOT = "2026-10-01";
 

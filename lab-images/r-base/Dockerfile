@@ -23,7 +23,9 @@ LABEL org.opencontainers.image.title="DéjàML R lab base" \
       org.opencontainers.image.version="0.1.0" \
       dejaml.r-version="${R_VERSION_MINOR}"
 
+# R_LIBS puts the study's library first: rocker's Renviron.site keeps a preset R_LIBS.
 ENV HOME=/tmp \
+    R_LIBS=/workspace/case/rlib:/usr/local/lib/R/site-library:/usr/local/lib/R/library \
     R_LIBS_SITE=/workspace/case/rlib:/usr/local/lib/R/site-library \
     R_LIBS_USER=/workspace/case/rlib \
     PYTHONDONTWRITEBYTECODE=1 \
@@ -35,8 +37,15 @@ RUN set -eu; \
     test -n "${APT_SNAPSHOT}"; \
     actual="$(Rscript -e 'cat(R.version$major, strsplit(R.version$minor, ".", fixed = TRUE)[[1]][1], sep = ".")')"; \
     if [ "${actual}" != "${R_VERSION_MINOR}" ]; then echo "base has R ${actual}, expected ${R_VERSION_MINOR}" >&2; exit 1; fi; \
-    apt-get -o APT::Snapshot="${APT_SNAPSHOT}" update; \
-    DEBIAN_FRONTEND=noninteractive apt-get -o APT::Snapshot="${APT_SNAPSHOT}" install -y --no-install-recommends python3 python-is-python3; \
+    # apt's own snapshot option does not cover ports.ubuntu.com (the arm64 archive), so both
+    # platforms read the dated snapshot directly; snapshot.ubuntu.com/ubuntu serves amd64 and arm64.
+    rm -f /etc/apt/sources.list /etc/apt/sources.list.d/*; \
+    printf '%s\n' 'Types: deb' "URIs: https://snapshot.ubuntu.com/ubuntu/${APT_SNAPSHOT}/" \
+      'Suites: noble noble-updates noble-security' 'Components: main universe' \
+      'Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg' > /etc/apt/sources.list.d/ubuntu.sources; \
+    apt-get update; \
+    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends python3 python-is-python3; \
+    rm -f /etc/apt/sources.list.d/ubuntu.sources; \
     python -c 'import hashlib, json, os, shutil, sys; assert sys.version_info[:2] == (3, 12), sys.version'; \
     if python -c 'import pip' 2>/dev/null; then echo "pip is importable" >&2; exit 1; fi; \
     groupadd --gid 10001 dejaml; \

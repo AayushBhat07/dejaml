@@ -52,6 +52,7 @@ export const LAB_ENV_ALLOWLIST: ReadonlySet<string> = new Set([
   "R_VERSION",
   "R_HOME",
   "CRAN",
+  "R_LIBS",
   "R_LIBS_SITE",
   "R_LIBS_USER",
   "OMP_NUM_THREADS",
