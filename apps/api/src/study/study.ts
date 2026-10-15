@@ -9,6 +9,7 @@ import {
   type AgentRole,
   BoundedAgentRuntime,
   type ChatProvider,
+  GAVE_UP_PREFIX,
   PROVIDER_FAILURE_PREFIX,
   ROLE_LABELS,
 } from "@dejaml/agent-runtime";
@@ -1112,6 +1113,12 @@ export async function runMultiAgentStudy(
     });
     const result = planOut;
     if (!result.plan) {
+      // A Planner that gave up found no plan that fits the lab: that is a block, not a missing result.
+      if (result.status === "failed" && result.reason?.startsWith(GAVE_UP_PREFIX))
+        return refusedPlan(
+          [withhold(`the Planner found no plan that fits the lab: ${result.reason.slice(GAVE_UP_PREFIX.length)}`)],
+          "blocked",
+        );
       stopReasons.push(`the Planner did not finish (${result.status}${result.reason ? `: ${result.reason}` : ""})`);
       return "stop";
     }

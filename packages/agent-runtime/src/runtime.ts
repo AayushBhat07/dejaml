@@ -77,6 +77,8 @@ export type AgentOutcomeStatus = "completed" | "failed" | "cancelled" | "exhaust
 
 /** How a failed outcome's reason begins when the model provider, not the agent, failed. */
 export const PROVIDER_FAILURE_PREFIX = "model provider error";
+/** How a failed outcome's reason begins when the agent itself called give_up. */
+export const GAVE_UP_PREFIX = "gave up: ";
 
 export type AgentOutcome<T = unknown> = {
   agentId: string;
@@ -486,7 +488,9 @@ export class BoundedAgentRuntime implements AgentRuntime {
             });
             this.#toolTurn(agentId, usage.segments, call, call.name === FINISH ? "Result accepted." : "Acknowledged.", false);
             finished =
-              call.name === FINISH ? end("completed", parsed.data, null) : end("failed", null, (parsed.data as { reason: string }).reason);
+              call.name === FINISH
+                ? end("completed", parsed.data, null)
+                : end("failed", null, `${GAVE_UP_PREFIX}${(parsed.data as { reason: string }).reason}`);
             continue;
           }
           const tool = byName.get(call.name);

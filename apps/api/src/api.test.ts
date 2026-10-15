@@ -703,6 +703,17 @@ describe("Run API", () => {
     expect(report.study?.result.status).toBe("reproduced");
   });
 
+  it("ends policy_blocked, not inconclusive, when the Planner gives up because no plan fits the lab", async () => {
+    await startServer({ autonomous: true, repositoryUrl: "https://github.com/example/new-paper" });
+    studyProvider.plannerGivesUp = true;
+    const { runId } = (await (await upload(await paperPdf(true, "https://github.com/example/new-paper"))).json()) as { runId: string };
+    await api.idle();
+    const report = (await (await fetch(`${base}/api/runs/${runId}/report`)).json()) as StudyReport;
+    expect(report.study?.result.status).toBe("policy_blocked");
+    expect(JSON.stringify(report.study?.result.reasons)).toContain("needs R");
+    expect(report.events.find((event) => event.type === "replan")?.publicPayload.reason).toBe("policy_refused_replan");
+  });
+
   it("fails, not inconclusive, when the model provider refuses every call", async () => {
     await startServer({ autonomous: true, repositoryUrl: "https://github.com/example/new-paper" });
     studyProvider.failWith = new ProviderError("payment_required", "credit balance is too low");

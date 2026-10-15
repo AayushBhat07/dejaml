@@ -463,6 +463,8 @@ export class ScriptedStudyProvider implements ChatProvider {
   };
   /** Changes to the Planner's plan (for policy tests). */
   plan: Record<string, unknown> = {};
+  /** The Planner calls give_up instead of finishing a plan. */
+  plannerGivesUp = false;
   /** Changes to the Planner's first plan only, before any re-plan. */
   firstPlan: Record<string, unknown> = {};
   /** The Supervisor's final proposal; null proposes the computed status. */
@@ -580,6 +582,7 @@ export class ScriptedStudyProvider implements ChatProvider {
       }
       case "Reproduction Planner":
         if (turn === 0) return [{ name: "board_read", input: { kinds: ["paper_claim", "repository_mapping"] } }];
+        if (this.plannerGivesUp) return [{ name: "give_up", input: { reason: "the official code needs R" } }];
         return finish({
           status: "ready",
           summary: "Run train.py unchanged from a writable copy; it writes the accuracy to artifacts/result.json.",
