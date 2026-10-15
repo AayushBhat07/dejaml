@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 import { platformFromEnv } from "@dejaml/contracts";
 import { ImageReadiness, LabManager, loadBaseImageLock } from "@dejaml/lab-manager";
 import { loadProviderConfig, ProviderConfigError, providerRoute, publicProviders } from "@dejaml/agent-runtime";
-import { DEFAULT_DATASET_POLICY, parseAllowedHosts } from "@dejaml/net-guard";
+import { DATASET_MAX_BYTES, datasetPolicy } from "@dejaml/net-guard";
 import { DependencyPreparer, loadCompatibilityConstraints, loadPrepPolicy } from "@dejaml/prep";
 import { RunStore } from "@dejaml/run-store";
 
@@ -14,7 +14,7 @@ import { loadCases } from "./cases.js";
 import { DEFAULT_STUDY_RESOURCES } from "./pipeline.js";
 import { environmentSecrets, withSecrets } from "./boundaries.js";
 import { createApiServer, recoverAfterRestart } from "./server.js";
-import { loadReviewedTargets, localDatasetPort, preparerPort, readinessLabImagePort } from "./study/index.js";
+import { datasetAllowedHosts, loadReviewedTargets, localDatasetPort, preparerPort, readinessLabImagePort } from "./study/index.js";
 
 const projectRoot = resolve(fileURLToPath(new URL("../../../", import.meta.url)));
 const dataDir = resolve(process.env.DEJAML_DATA_DIR ?? join(projectRoot, "artifacts", "api"));
@@ -66,11 +66,14 @@ const trustedConstraints = (
 ).map((item) => ({ requirement: item.spec, reason: item.reason }));
 // Reviewed claim targets are server-owned files; each adapter is checked against its reviewed hash here.
 const reviewedTargets = await loadReviewedTargets(join(projectRoot, "config/reviewed-targets"), projectRoot);
-const datasetHosts = parseAllowedHosts(process.env.DEJAML_DATASET_ALLOWED_HOSTS ?? "");
+const datasetHosts = datasetAllowedHosts(process.env.DEJAML_DATASET_ALLOWED_HOSTS);
 const number = (name: string, fallback: number): number => {
   const value = Number(process.env[name] ?? "");
   return Number.isFinite(value) && value > 0 ? value : fallback;
 };
+// The download time limit scales with this cap; archives may unpack to at most 4 GiB.
+const datasetMaxBytes = Math.floor(number("DEJAML_DATASET_MAX_MB", DATASET_MAX_BYTES / 1024 ** 2) * 1024 ** 2);
+const datasetFetchPolicy = { ...datasetPolicy(datasetMaxBytes), allowedHosts: datasetHosts };
 
 const recovery = await recoverAfterRestart({ store, labs, workRoot: dataDir, resumeStudies: process.env.DEJAML_AUTONOMOUS !== "0" });
 const api = createApiServer({
@@ -91,7 +94,7 @@ const api = createApiServer({
     enabled: process.env.DEJAML_AUTONOMOUS !== "0",
     dependencies: prep ? preparerPort(prep) : null,
     images: readinessLabImagePort({ readiness, lock: baseImages, contextDir: join(projectRoot, "lab-images/python-base") }),
-    datasets: datasetHosts.length ? localDatasetPort({ ...DEFAULT_DATASET_POLICY, allowedHosts: datasetHosts }) : null,
+    datasets: datasetHosts.length ? localDatasetPort(datasetFetchPolicy) : null,
     config: {
       platform,
       resources: {
@@ -99,7 +102,7 @@ const api = createApiServer({
         timeoutSeconds: number("DEJAML_LAB_TIMEOUT_SECONDS", DEFAULT_STUDY_RESOURCES.timeoutSeconds),
       },
       engineers: Math.min(3, Math.floor(number("DEJAML_LAB_ENGINEERS", 1))),
-      datasetPolicy: { ...DEFAULT_DATASET_POLICY, allowedHosts: datasetHosts },
+      datasetPolicy: datasetFetchPolicy,
       maxStudyMs: number("DEJAML_STUDY_MAX_MINUTES", 180) * 60_000,
       commandTimeoutSeconds: number("DEJAML_COMMAND_TIMEOUT_SECONDS", 900),
       maxReplans: Math.min(4, Math.floor(number("DEJAML_MAX_REPLANS", 2))),

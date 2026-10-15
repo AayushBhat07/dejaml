@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { posix } from "node:path";
 
 import { buildPlatformSpec, type ClaimContract, ClaimContractSchema, type PlatformSpec } from "@dejaml/contracts";
-import type { FetchPolicy } from "@dejaml/net-guard";
+import { type FetchPolicy, hostMatchesAllowlist } from "@dejaml/net-guard";
 import { findLiteral } from "@dejaml/research-runtime";
 
 import { executionContract, findValue, riggedAdapter } from "./blinding.js";
@@ -157,7 +157,9 @@ export function reviewPolicy(input: {
 
   if (contract.repository.commitSha !== input.repository.commitSha)
     unusable.push("the contract names a different commit than the pinned checkout");
-  if (!input.repository.files.has(contract.entrypoint))
+  // A plan may name its declared adapter as the entry point: the adapter is what runs, and it is capped below.
+  const adapterEntry = adapter !== null && posix.normalize(contract.entrypoint) === adapter.path;
+  if (!adapterEntry && !input.repository.files.has(contract.entrypoint))
     unusable.push(`the entry point ${contract.entrypoint} is not a file in the pinned checkout`);
 
   // The command: `python <script> [args]`, where the script resolves to the entry point or the declared adapter.
@@ -213,7 +215,7 @@ export function reviewPolicy(input: {
     } catch {
       blocked.push("the dataset URL is not a valid URL");
     }
-    if (host && !input.datasetPolicy.allowedHosts.map((item) => item.toLowerCase()).includes(host)) {
+    if (host && !hostMatchesAllowlist(host, input.datasetPolicy.allowedHosts)) {
       blocked.push(`dataset host ${host} is not on the administrator's allowlist`);
     }
     if (source.sha256 === null) blocked.push("a downloaded dataset needs its SHA-256; unchecksummed data is not used");

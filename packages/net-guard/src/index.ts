@@ -42,6 +42,8 @@ export {
   acquireDataset,
   type AcquireDatasetOptions,
   DATASET_MAX_BYTES,
+  datasetPolicy,
+  datasetTimeoutMs,
   type DatasetReceipt,
   DEFAULT_DATASET_POLICY,
   isSafeFileName,

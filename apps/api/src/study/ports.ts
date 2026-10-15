@@ -1,8 +1,16 @@
-import { chmod, rm, stat } from "node:fs/promises";
+import { chmod, readFile, rename, rm, stat } from "node:fs/promises";
 import { join } from "node:path";
 
 import { type BaseImageLock, type ImageReadiness, ImageNotReadyError, pythonBaseImageRequest } from "@dejaml/lab-manager";
-import { acquireLabDataset, cleanupDataset, DatasetError, type FetchPolicy, NetGuardError } from "@dejaml/net-guard";
+import {
+  acquireLabDataset,
+  cleanupDataset,
+  DatasetError,
+  type FetchPolicy,
+  type LabDataset,
+  NetGuardError,
+  parseAllowedHosts,
+} from "@dejaml/net-guard";
 import {
   type DependencyManifest,
   type DependencyPreparer,
@@ -26,34 +34,133 @@ import {
 } from "./context.js";
 
 /**
+ * Public hosts that serve the datasets lightweight ML papers use (UCI,
+ * OpenML, the UCR/UEA archive, Zenodo, figshare, Hugging Face, files in
+ * GitHub repositories), with the hosts their downloads redirect to. Every
+ * download is still HTTPS-only, size-capped, and pinned by its SHA-256.
+ */
+export const COMMON_DATASET_HOSTS: readonly string[] = [
+  "archive.ics.uci.edu",
+  "www.openml.org",
+  "api.openml.org",
+  "data.openml.org",
+  "www.timeseriesclassification.com",
+  "timeseriesclassification.com",
+  "www.cs.ucr.edu",
+  "zenodo.org",
+  "figshare.com",
+  "ndownloader.figshare.com",
+  "huggingface.co",
+  "cdn-lfs.huggingface.co",
+  "cdn-lfs.hf.co",
+  "cas-bridge.xethub.hf.co",
+  "raw.githubusercontent.com",
+  "github.com",
+  "codeload.github.com",
+  "objects.githubusercontent.com",
+  "release-assets.githubusercontent.com",
+];
+
+/** The dataset allowlist: the common hosts when unset or empty, none for `none`, else exactly the listed hosts. */
+export function datasetAllowedHosts(env: string | undefined): string[] {
+  const value = (env ?? "").trim();
+  if (value === "") return [...COMMON_DATASET_HOSTS];
+  if (value.toLowerCase() === "none") return [];
+  return parseAllowedHosts(value);
+}
+
+/**
  * Local implementations of the orchestrator's ports. An AWS deployment swaps
  * these for workers behind a queue; the orchestrator does not change.
  */
 
+/**
+ * Some hosts answer a missing file with HTTP 200 and a short HTML or text
+ * error page. A dataset is never a web page or a few bytes saying "not found",
+ * so the probe refuses those instead of reporting their hash.
+ */
+async function looksLikeErrorPage(dataset: LabDataset): Promise<string | null> {
+  if (dataset.identity.extracted) return null;
+  if (/^text\/html\b/iu.test(dataset.identity.contentType ?? "")) return "a web page";
+  if (dataset.identity.bytes > 2048) return null;
+  const head = await readFile(dataset.filePath, "utf8").catch(() => "");
+  if (/^\s*<(?:!doctype\s+html|html|head|body)\b/iu.test(head)) return "a web page";
+  if (/^\s*(?:404\b|<\?xml[^>]*>\s*<Error>)|\b(?:not found|no such file|access denied|forbidden)\b/iu.test(head)) {
+    return `an error message (${dataset.identity.bytes} bytes)`;
+  }
+  return null;
+}
+
+/** Probed downloads kept so preparation can reuse them; each may hold a full-size dataset on disk. */
+const MAX_KEPT_PROBES = 2;
+
+function datasetFailure(error: unknown): unknown {
+  if (error instanceof DatasetError) return new PreparationFailure(`dataset_${error.code}`, error.message, error.policy);
+  if (error instanceof NetGuardError) return new PreparationFailure(`dataset_${error.code}`, error.message, "policy_blocked");
+  return error;
+}
+
 /** Trust zone 4: allowlisted HTTPS downloads, checksummed, extracted safely, mounted read-only. */
 export function localDatasetPort(policy: FetchPolicy): DatasetPort {
+  const kept: Array<{ dataset: LabDataset; url: string; extract: boolean }> = [];
+
+  /**
+   * Moves a kept probe of the same URL, archive mode and hash into
+   * `destinationDir`, so the file is not downloaded twice. Null when there is
+   * none or the move fails; the caller then downloads as usual.
+   */
+  async function takeProbe(input: { url: string; sha256: string; extract: boolean; destinationDir: string }): Promise<LabDataset | null> {
+    const index = kept.findIndex(
+      (entry) =>
+        entry.extract === input.extract &&
+        entry.dataset.identity.sha256 === input.sha256.toLowerCase() &&
+        (entry.url === input.url || entry.dataset.identity.finalUrl === input.url),
+    );
+    if (index === -1) return null;
+    const { dataset } = kept.splice(index, 1)[0] as { dataset: LabDataset };
+    try {
+      // A sealed directory must be writable to move it to a new parent.
+      await chmod(dataset.root, 0o755);
+      await rename(dataset.root, input.destinationDir);
+    } catch {
+      await cleanupDataset(dataset.root);
+      return null;
+    }
+    try {
+      await chmod(input.destinationDir, 0o555);
+    } catch {
+      await cleanupDataset(input.destinationDir);
+      return null;
+    }
+    return { ...dataset, root: input.destinationDir, filePath: join(input.destinationDir, dataset.downloadPath) };
+  }
+
   return {
     async acquire(input) {
       try {
-        const dataset = await acquireLabDataset({
-          name: input.name,
-          url: input.url,
-          policy,
-          ...(input.sha256 ? { expectedSha256: input.sha256 } : {}),
-          requireChecksum: true,
-          destinationDir: input.destinationDir,
-          extract: input.extract,
-          signal: input.signal,
-        });
+        const reused = input.sha256 ? await takeProbe({ ...input, sha256: input.sha256 }) : null;
+        const dataset =
+          reused ??
+          (await acquireLabDataset({
+            name: input.name,
+            url: input.url,
+            policy,
+            ...(input.sha256 ? { expectedSha256: input.sha256 } : {}),
+            requireChecksum: true,
+            destinationDir: input.destinationDir,
+            extract: input.extract,
+            signal: input.signal,
+          }));
         const identity = dataset.identity;
         return {
           identity: {
-            name: identity.name,
+            name: input.name,
             requestedUrl: identity.requestedUrl,
             finalUrl: identity.finalUrl,
             sha256: identity.sha256,
             bytes: identity.bytes,
-            checksumVerified: identity.checksumVerified,
+            // A reused probe matched the plan's hash, which verifies it.
+            checksumVerified: reused !== null || identity.checksumVerified,
             extracted: identity.extracted
               ? {
                   fileCount: identity.extracted.fileCount,
@@ -67,14 +174,46 @@ export function localDatasetPort(policy: FetchPolicy): DatasetPort {
           labPath: `${LAB_LAYOUT.dataDir}/${dataset.extractedPath ?? dataset.downloadPath}`,
         };
       } catch (error) {
-        if (error instanceof DatasetError) throw new PreparationFailure(`dataset_${error.code}`, error.message, error.policy);
-        if (error instanceof NetGuardError) throw new PreparationFailure(`dataset_${error.code}`, error.message, "policy_blocked");
-        throw error;
+        throw datasetFailure(error);
       }
     },
     async release(dataset) {
       const receipt = await cleanupDataset(dataset.root);
       return { removed: receipt.verifiedAbsent };
+    },
+    async probe(input) {
+      let dataset: LabDataset;
+      try {
+        dataset = await acquireLabDataset({
+          name: "probe",
+          url: input.url,
+          policy,
+          destinationDir: input.destinationDir,
+          extract: input.extract,
+          signal: input.signal,
+        });
+      } catch (error) {
+        await cleanupDataset(input.destinationDir).catch(() => undefined);
+        throw datasetFailure(error);
+      }
+      const errorPage = await looksLikeErrorPage(dataset);
+      if (errorPage) {
+        await cleanupDataset(dataset.root).catch(() => undefined);
+        throw new PreparationFailure("dataset_error_page", `the URL returned ${errorPage}, not data`, "inconclusive");
+      }
+      kept.push({ dataset, url: input.url, extract: input.extract });
+      while (kept.length > MAX_KEPT_PROBES) {
+        const oldest = kept.shift();
+        if (oldest) await cleanupDataset(oldest.dataset.root).catch(() => undefined);
+      }
+      const files = dataset.identity.extracted?.files ?? [];
+      return {
+        finalUrl: dataset.identity.finalUrl,
+        sha256: dataset.identity.sha256,
+        bytes: dataset.identity.bytes,
+        files: files.slice(0, 200).map((file) => ({ path: file.path, bytes: file.bytes })),
+        fileCount: files.length,
+      };
     },
   };
 }

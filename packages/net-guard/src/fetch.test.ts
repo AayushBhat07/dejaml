@@ -455,8 +455,8 @@ describe("dataset policy defaults", () => {
   it("allows nothing until hosts are configured", async () => {
     expect(DEFAULT_DATASET_POLICY.allowedHosts).toEqual([]);
     expect(DEFAULT_DATASET_POLICY.maxRedirects).toBe(3);
-    expect(DEFAULT_DATASET_POLICY.maxBytes).toBe(200 * 1024 * 1024);
-    expect(DEFAULT_DATASET_POLICY.timeoutMs).toBe(120_000);
+    expect(DEFAULT_DATASET_POLICY.maxBytes).toBe(2 * 1024 * 1024 * 1024);
+    expect(DEFAULT_DATASET_POLICY.timeoutMs).toBe(120_000 + 1024 * 1000);
     await expect(
       safeDownload({ url: "https://archive.ics.uci.edu/x.zip", policy: DEFAULT_DATASET_POLICY, destinationFile: "/nonexistent/x" }),
     ).rejects.toMatchObject({ code: "host_not_allowed" });

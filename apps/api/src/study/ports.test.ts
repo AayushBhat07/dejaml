@@ -8,7 +8,7 @@ import { type DependencyManifest, type DependencyPreparer, PrepError } from "@de
 import { describe, expect, it, vi } from "vitest";
 
 import { PreparationFailure } from "./context.js";
-import { preparerPort, readinessLabImagePort, screenRequirements } from "./ports.js";
+import { COMMON_DATASET_HOSTS, datasetAllowedHosts, preparerPort, readinessLabImagePort, screenRequirements } from "./ports.js";
 
 const platform = buildPlatformSpec({ architecture: "arm64", python: "3.11" });
 const signal = new AbortController().signal;
@@ -226,5 +226,14 @@ describe("deployment boundaries", () => {
     );
     expect(env).toEqual({ DEJAML_OPENAI_MODELS: "m", DEJAML_ANTHROPIC_API_KEY: "from-vault" });
     expect(environmentSecrets({ A: "1" }).get("A")).toBe("1");
+  });
+});
+
+describe("dataset allowlist", () => {
+  it("allows the common dataset hosts by default, none on request, or exactly the listed hosts", () => {
+    expect(datasetAllowedHosts(undefined)).toEqual(COMMON_DATASET_HOSTS);
+    expect(datasetAllowedHosts(" ")).toContain("archive.ics.uci.edu");
+    expect(datasetAllowedHosts("none")).toEqual([]);
+    expect(datasetAllowedHosts("data.example.org, *.example.net")).toEqual(["data.example.org", "*.example.net"]);
   });
 });

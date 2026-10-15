@@ -13,7 +13,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { checkDemoAcceptance } from "./acceptance.js";
 import { loadCases, type CuratedCase } from "./cases.js";
 import type { StudyReport } from "./pipeline.js";
-import { loadProviderConfig } from "@dejaml/agent-runtime";
+import { loadProviderConfig, ProviderError } from "@dejaml/agent-runtime";
 
 import { DEFAULT_STUDY_RESOURCES } from "./pipeline.js";
 import { createApiServer, recoverAfterRestart, type ApiServer } from "./server.js";
@@ -528,7 +528,26 @@ describe("Run API", () => {
     expect(otherRepository.status).toBe(400);
     // A request can name a case, never carry one.
     expect((await upload(paper, "paper.pdf", { reviewedCaseId: "fixture-rf-accuracy", claimContract: "{}" })).status).toBe(400);
+    expect((await upload(paper, "paper.pdf", { reviewedCaseId: "fixture-rf-accuracy", openStudy: "true" })).status).toBe(400);
     expect(store.listActiveRuns()).toHaveLength(0);
+  });
+
+  it("runs an open study for a reviewed paper when the browser asks for one", async () => {
+    const paper = await paperPdf(false);
+    await startServer({
+      autonomous: true,
+      repositoryUrl: "https://github.com/example/new-paper",
+      commitSha: "7f8b1c4cbe5b4caf2f6cc8bc0d6fc31ce2f6bd71",
+      reviewedTargets: await fixtureTarget(paper),
+    });
+    const response = await upload(paper, "paper.pdf", { openStudy: "true" });
+    expect(response.status).toBe(202);
+    const { runId } = (await response.json()) as { runId: string };
+    await api.idle();
+    const report = (await (await fetch(`${base}/api/runs/${runId}/report`)).json()) as StudyReport;
+    expect(report.caseId ?? null).toBeNull();
+    expect(report.study?.reviewedTarget ?? null).toBeNull();
+    expect(report.events.some((event) => event.type === "reviewed_target")).toBe(false);
   });
 
   it("requires an explicit claim when one paper has multiple reviewed cases", async () => {
@@ -665,6 +684,45 @@ describe("Run API", () => {
     expect(report.status).toBe("inconclusive");
     expect(report.events.some((event) => event.type === "lab_create")).toBe(false);
     expect(report.study?.stages.find((stage) => stage.stage === "executing")?.status).toBe("skipped");
+    // A skipped stage announces itself as skipped, so the run page never ticks it.
+    const stageEvents = (type: string) => report.events.filter((event) => event.type === type).map((event) => event.publicPayload.stage);
+    expect(stageEvents("stage_skipped")).toEqual(["preparing", "executing", "reviewing"]);
+    expect(stageEvents("stage_started")).not.toContain("executing");
+  });
+
+  it("re-plans the same claim once after policy refuses the plan, and then runs it", async () => {
+    await startServer({ autonomous: true, repositoryUrl: "https://github.com/example/new-paper" });
+    studyProvider.firstPlan = { requirements: ["torch==2.4.0"] };
+    const { runId } = (await (await upload(await paperPdf(true, "https://github.com/example/new-paper"))).json()) as { runId: string };
+    await api.idle();
+    const report = (await (await fetch(`${base}/api/runs/${runId}/report`)).json()) as StudyReport;
+    const types = report.events.map((event) => event.type);
+    expect(types).toContain("plan_refused");
+    expect(report.events.find((event) => event.type === "replan")?.publicPayload.reason).toBe("policy_refused_replan");
+    expect(types.indexOf("plan_approved")).toBeGreaterThan(types.indexOf("plan_refused"));
+    expect(report.study?.result.status).toBe("reproduced");
+  });
+
+  it("ends policy_blocked, not inconclusive, when the Planner gives up because no plan fits the lab", async () => {
+    await startServer({ autonomous: true, repositoryUrl: "https://github.com/example/new-paper" });
+    studyProvider.plannerGivesUp = true;
+    const { runId } = (await (await upload(await paperPdf(true, "https://github.com/example/new-paper"))).json()) as { runId: string };
+    await api.idle();
+    const report = (await (await fetch(`${base}/api/runs/${runId}/report`)).json()) as StudyReport;
+    expect(report.study?.result.status).toBe("policy_blocked");
+    expect(JSON.stringify(report.study?.result.reasons)).toContain("needs R");
+    expect(report.events.find((event) => event.type === "replan")?.publicPayload.reason).toBe("policy_refused_replan");
+  });
+
+  it("fails, not inconclusive, when the model provider refuses every call", async () => {
+    await startServer({ autonomous: true, repositoryUrl: "https://github.com/example/new-paper" });
+    studyProvider.failWith = new ProviderError("payment_required", "credit balance is too low");
+    const { runId } = (await (await upload(await paperPdf(true, "https://github.com/example/new-paper"))).json()) as { runId: string };
+    await api.idle();
+    const report = (await (await fetch(`${base}/api/runs/${runId}/report`)).json()) as StudyReport;
+    expect(report.study?.result.status).toBe("failed");
+    expect(report.status).toBe("failed");
+    expect(JSON.stringify(report.study?.result.reasons)).toContain("payment_required");
   });
 
   it("ends inconclusive when the Independent Reviewers reject the measurement, and the Supervisor cannot raise it", async () => {

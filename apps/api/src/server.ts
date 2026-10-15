@@ -142,7 +142,7 @@ async function readUpload(request: IncomingMessage): Promise<Upload> {
 type Selection = { providerId: string; model: string };
 
 /** The only fields a study upload may carry. The model is chosen by provider id and model name alone. */
-const UPLOAD_FIELDS: ReadonlySet<string> = new Set(["paper", "providerId", "modelName", "repositoryUrl", "reviewedCaseId"]);
+const UPLOAD_FIELDS: ReadonlySet<string> = new Set(["paper", "providerId", "modelName", "repositoryUrl", "reviewedCaseId", "openStudy"]);
 const KEY_FIELD = /key|token|secret|password|credential|auth/iu;
 const ENDPOINT_FIELD = /url|endpoint|host|base/iu;
 /** Request headers that would carry a provider key; never accepted from a browser. */
@@ -250,10 +250,13 @@ export function createApiServer(options: ApiOptions): ApiServer {
     // one server-reviewed case matches the uploaded paper byte for byte. The
     // target contents still come only from the server registry. This keeps an
     // older or stale browser from accidentally launching an open study for a
-    // paper that already has a reviewed execution contract.
+    // paper that already has a reviewed execution contract. A browser that
+    // asks for an open study on purpose sends openStudy, and skips the match.
     const uploadSha256 = createHash("sha256").update(upload.data).digest("hex");
     let caseId = upload.field("reviewedCaseId");
-    if (caseId === null) {
+    const openStudy = upload.field("openStudy") === "true";
+    if (openStudy && caseId !== null) throw new HttpError(400, "Choose a reviewed case or an open study, not both.");
+    if (caseId === null && !openStudy) {
       const matches = [...(options.reviewedTargets?.values() ?? [])].filter((item) => item.paper.sha256 === uploadSha256);
       if (matches.length === 1) caseId = matches[0]!.caseId;
       if (matches.length > 1) {

@@ -20,7 +20,11 @@ export const MAX_CHECKED_OUT_FILES = 20_000;
 export const DEFAULT_ACQUISITION_TIMEOUT_MS = 60_000;
 export const ACQUISITION_DIRECTORY_PREFIX = "dejaml-repo-";
 
-const GITHUB_LINK_PATTERN = /https?:\/\/(?:www\.)?github\.com\/[^\s<>()[\]{}"'`]+/giu;
+// PDF text extraction can break a link with spaces or a line break around its
+// slashes ("https: //github.com/ owner/repo"), so whitespace is allowed there
+// and removed from the match.
+const GITHUB_LINK_PATTERN =
+  /https?:\s*\/\s*\/\s*(?:www\.)?github\.com\s*\/\s*[A-Za-z0-9-]+\s*\/\s*[A-Za-z0-9._-]+[^\s<>()[\]{}"'`]*|https?:\/\/(?:www\.)?github\.com\/[^\s<>()[\]{}"'`]+/giu;
 const OWNER_PATTERN = /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?$/;
 const REPOSITORY_PATTERN = /^[A-Za-z0-9._-]{1,100}$/;
 const RESERVED_OWNERS = new Set([
@@ -133,7 +137,7 @@ export function discoverGithubRepositories(document: PaperDocument): RepositoryC
 
   for (const page of document.pages) {
     for (const match of page.text.matchAll(GITHUB_LINK_PATTERN)) {
-      const rawUrl = trimUrlPunctuation(match[0]);
+      const rawUrl = trimUrlPunctuation(match[0].replace(/\s+/gu, ""));
       try {
         const canonical = canonicalizeGithubRepositoryUrl(rawUrl);
         const key = canonical.repositoryUrl.toLowerCase();

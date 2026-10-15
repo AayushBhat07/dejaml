@@ -212,7 +212,7 @@ export const ROLE_LIMITS: Record<AgentRole, Partial<AgentLimits>> = {
 export const ROLE_GRANTS: Record<AgentRole, readonly string[]> = {
   paper_analyst: ["paper_list_pages", "paper_read_page", "paper_search"],
   repository_analyst: ["repo_acquire", "repo_list", "repo_read", "repo_search", "dependency_discover"],
-  reproduction_planner: ["board_read", "repo_list", "repo_read", "repo_search", "dependency_discover", "dependency_check"],
+  reproduction_planner: ["board_read", "repo_list", "repo_read", "repo_search", "dependency_discover", "dependency_check", "dataset_probe"],
   lab_engineer: [
     "board_read",
     "lab_list",
@@ -243,6 +243,7 @@ export const INSTRUCTIONS: Record<AgentRole, string> = {
   paper_analyst: [
     "Read the uploaded paper with your tools and select exactly one numeric experimental claim that a CPU-only run of the paper's own code could check.",
     "Prefer a claim in a table or the text that names its method, dataset, split, and metric. `excerpt` must be copied verbatim from `page` and contain the reported value.",
+    "The lab has 2 CPUs, no GPU, and about 15 minutes per run, so choose the claim most likely to run there, not the headline result: a small public dataset (UCI, OpenML, UCR/UEA, a file shipped with the code) over a large or private one, one dataset or one table row over an average across many, and a classical or small model over one that needs a GPU or days of training.",
     "selectedRepositoryUrl must be one of the repository candidates you were given. Write `not stated` for preprocessing or seed when the paper does not say, and list them in missingFields; never guess.",
     "You cannot see the repository or the other analysts. If no claim is checkable on a CPU, finish with status inconclusive and the reasons.",
   ].join("\n"),
@@ -255,8 +256,9 @@ export const INSTRUCTIONS: Record<AgentRole, string> = {
     "Reconcile the Paper Analyst's claim with the Repository Analyst's map (both on the board) into one exact plan to reproduce that claim with the repository's official code in an offline, CPU-only Linux lab.",
     "The command runs `python <entrypoint> [args]` from `repo` (read-only) or `work/repo` (a writable copy made before the run). Choose the Python version the code supports (3.10 or 3.11 for older code). Requirements come from the repository's dependency files unchanged; a pin may be relaxed or added only by choosing an entry from trustedCompatibilityConstraints (copied exactly into compatibilityConstraints); anything else is refused by policy.",
     "Use dependency_check to see whether binary wheels exist for your requirements on the lab platform; nothing is built from source, and GPU packages (CUDA, ROCm) are refused.",
-    "Data: prefer files in the repository. A download is allowed only from an administrator-allowed host and needs its SHA-256; otherwise set status blocked.",
-    "metricParser must read the number the official code prints (stdout pattern with one capture group) or writes (a JSON file under artifacts/). An adapter is a small wrapper that only calls the official code and captures its metric; it must list every difference. Never plan a rewritten approximation, a changed dataset, a subset, altered filtering, or a replacement metric.",
+    "Data: prefer files in the repository. Otherwise find the official download (README, data scripts, the dataset's own page) on a host in datasetHostsAllowed, call dataset_probe on that exact URL, and copy the sha256 it returns into the plan; the lab itself has no network. Set status blocked only if no allowed host serves the data.",
+    "metricParser must read the number the official code prints (stdout pattern with one capture group) or writes (a JSON file; `path` like `artifacts/result.json` is relative to the lab workdir /workspace/case). Code and adapters must write that file to its absolute path, such as /workspace/case/artifacts/result.json: `repo` is read-only and `work/repo` has its own, different artifacts folder. When the official code does not run as one script for this claim (it needs arguments, a data path, or prints no metric), declare an adapter: a small wrapper that only imports or calls the official code and captures its metric, listing every difference. Set entrypoint to the official script it wraps, and run the adapter at its path (for example `python ../work/adapter/run.py` from `repo`). A result through an adapter is at most partially reproduced. Never plan a rewritten approximation, a changed dataset, a subset, altered filtering, or a replacement metric.",
+    "If previousRounds says an earlier plan was refused, fix exactly what was refused for the same claim. If no faithful plan fits the lab, finish with status blocked and blockedReason; do not give up.",
     BLIND_PLANNING,
   ].join("\n"),
   lab_engineer: [

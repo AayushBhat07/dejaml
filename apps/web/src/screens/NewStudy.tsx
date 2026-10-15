@@ -104,11 +104,9 @@ export function NewStudy({
     try {
       await onStart(paper.file, {
         ...(live && provider ? { model: { providerId: provider.id, model: modelName } } : {}),
-        ...(live && chosen
-          ? { reviewedCaseId: chosen.caseId }
-          : !chosen && repositoryUrl.trim()
-            ? { repositoryUrl: repositoryUrl.trim() }
-            : {}),
+        ...(live && chosen ? { reviewedCaseId: chosen.caseId } : {}),
+        ...(live && !chosen ? { openStudy: true } : {}),
+        ...(!chosen && repositoryUrl.trim() ? { repositoryUrl: repositoryUrl.trim() } : {}),
       });
     } catch (failure) {
       setError(failure instanceof Error ? failure.message : "The study could not be started.");

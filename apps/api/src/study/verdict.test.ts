@@ -184,6 +184,21 @@ describe("claim contract and policy review", () => {
     expect(review.outcome).toBe("approved");
     expect(review.warnings.join()).toMatch(/adapter/u);
     expect(policy(contract, { ...adapter, content: "print('accuracy: 81.66')" }).violations.join()).toMatch(/adapter contains/u);
+    // A plan may name the adapter itself as its entry point; it is not a checkout file, and the result stays capped.
+    const asEntry = contractFor({
+      entrypoint: "work/adapter/run.py",
+      command: { argv: ["python", "../work/adapter/run.py"], cwd: "repo" },
+      adapter,
+    });
+    expect(policy(asEntry, adapter).outcome).toBe("approved");
+    expect(policy(asEntry, null).violations.join()).toMatch(/not a file in the pinned checkout/u);
+  });
+
+  it("matches dataset hosts against wildcard allowlist entries", () => {
+    const download = (url: string) =>
+      contractFor({ dataset: { name: "d", source: { kind: "download", url, sha256: "e".repeat(64), extract: false } } });
+    expect(policy(download("https://cdn.example.org/d.csv"), null, ["*.example.org"]).outcome).toBe("approved");
+    expect(policy(download("https://cdn.example.net/d.csv"), null, ["*.example.org"]).outcome).toBe("policy_blocked");
   });
 
   it("checks metric patterns for exactly one capture group", () => {

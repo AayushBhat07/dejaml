@@ -463,6 +463,10 @@ export class ScriptedStudyProvider implements ChatProvider {
   };
   /** Changes to the Planner's plan (for policy tests). */
   plan: Record<string, unknown> = {};
+  /** The Planner calls give_up instead of finishing a plan. */
+  plannerGivesUp = false;
+  /** Changes to the Planner's first plan only, before any re-plan. */
+  firstPlan: Record<string, unknown> = {};
   /** The Supervisor's final proposal; null proposes the computed status. */
   supervisorProposal: string | null = null;
   /** The Supervisor's answer at a checkpoint. */
@@ -477,6 +481,8 @@ export class ScriptedStudyProvider implements ChatProvider {
   debugOnFailure = true;
   /** Delay per model call, so tests can cancel mid-study. */
   delayMs = 0;
+  /** An error every model call throws, as a provider out of credit does. */
+  failWith: Error | null = null;
   readonly systems: string[] = [];
   #counter = 0;
 
@@ -485,6 +491,7 @@ export class ScriptedStudyProvider implements ChatProvider {
   async chat(request: ChatRequest): Promise<ChatResponse> {
     if (this.delayMs > 0) await new Promise((resolve) => setTimeout(resolve, this.delayMs));
     if (request.signal?.aborted) throw Object.assign(new Error("cancelled"), { name: "AbortError" });
+    if (this.failWith) throw this.failWith;
     this.systems.push(request.system);
     const role = /^You are the ([A-Za-z ]+), one independent agent/u.exec(request.system)?.[1] ?? "";
     const turns = request.messages.filter((message) => message.role === "assistant").length;
@@ -575,6 +582,7 @@ export class ScriptedStudyProvider implements ChatProvider {
       }
       case "Reproduction Planner":
         if (turn === 0) return [{ name: "board_read", input: { kinds: ["paper_claim", "repository_mapping"] } }];
+        if (this.plannerGivesUp) return [{ name: "give_up", input: { reason: "the official code needs R" } }];
         return finish({
           status: "ready",
           summary: "Run train.py unchanged from a writable copy; it writes the accuracy to artifacts/result.json.",
@@ -591,6 +599,7 @@ export class ScriptedStudyProvider implements ChatProvider {
           adapter: null,
           risks: [],
           ...this.plan,
+          ...((inputs.previousRounds as unknown[] | undefined)?.length ? {} : this.firstPlan),
         });
       case "Lab Engineer": {
         if (turn === 0 && this.tamper) return [{ name: "lab_run", input: { argv: ["touch", "work/.venv/x"] } }];

@@ -1,18 +1,21 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { constants } from "node:fs";
 import { chmod, type FileHandle, mkdir, open, rm } from "node:fs/promises";
 import { isAbsolute, resolve, sep } from "node:path";
-import { gunzipSync, inflateRawSync } from "node:zlib";
+import { Readable, type Transform } from "node:stream";
+import { createGunzip, createInflateRaw } from "node:zlib";
 
 import { DatasetError, type DatasetErrorCode } from "./dataset-errors.js";
 
 /**
- * A bounded, non-streaming archive reader for zip, tar, tar.gz and single-file
- * gzip. The whole archive is held in memory (its size is already capped by the
- * fetch policy); every entry is validated before anything is written, then
- * files are decompressed one at a time under hard output limits into a fresh
- * directory. Links, devices, unsafe paths, duplicates and bombs are refused.
- * Archives inside the archive are written as plain files, never extracted.
+ * A bounded archive reader for zip, tar, tar.gz and single-file gzip. The
+ * archive is read from disk (or a buffer) in chunks, so memory use does not
+ * grow with its size. A gzip stream is first inflated, under hard output
+ * limits, to a temporary file beside the destination. Every entry is
+ * validated before anything is written, then files are streamed one at a time
+ * under hard output limits into a fresh directory. Links, devices, unsafe
+ * paths, duplicates and bombs are refused. Archives inside the archive are
+ * written as plain files, never extracted.
  */
 
 export interface ArchiveLimits {
@@ -31,10 +34,12 @@ export interface ArchiveLimits {
   readonly maxPathLength: number;
 }
 
+const GIB = 1024 * 1024 * 1024;
+
 export const DEFAULT_ARCHIVE_LIMITS: ArchiveLimits = Object.freeze({
   maxFiles: 10_000,
-  maxTotalBytes: 512 * 1024 * 1024,
-  maxFileBytes: 256 * 1024 * 1024,
+  maxTotalBytes: 4 * GIB,
+  maxFileBytes: 4 * GIB,
   maxRatio: 100,
   ratioFloorBytes: 1024 * 1024,
   maxDepth: 32,
@@ -165,7 +170,8 @@ interface PlannedFile {
   readonly kind: "file";
   readonly path: string;
   readonly size: number;
-  readonly read: () => Buffer;
+  /** Streams the entry's content; verifies its size (and CRC for zip) as it goes. */
+  readonly open: () => AsyncIterable<Buffer>;
 }
 interface PlannedDir {
   readonly kind: "dir";
@@ -180,7 +186,7 @@ class Plan {
 
   constructor(private readonly limits: ArchiveLimits) {}
 
-  add(rawPath: string, entry: { kind: "dir" } | { kind: "file"; size: number; read: () => Buffer }): void {
+  add(rawPath: string, entry: { kind: "dir" } | { kind: "file"; size: number; open: () => AsyncIterable<Buffer> }): void {
     if (this.entries.length >= this.limits.maxFiles) {
       fail("archive_too_many_files", `Archive has more than ${this.limits.maxFiles} entries`);
     }
@@ -219,7 +225,7 @@ class Plan {
     if (this.total > this.limits.maxTotalBytes) {
       fail("archive_too_large", `Archive expands beyond ${this.limits.maxTotalBytes} bytes`);
     }
-    this.entries.push({ kind: "file", path, size: entry.size, read: entry.read });
+    this.entries.push({ kind: "file", path, size: entry.size, open: entry.open });
   }
 
   get totalBytes(): number {
@@ -235,6 +241,78 @@ class Plan {
 function checkRatio(uncompressed: number, compressed: number, limits: ArchiveLimits, what: string): void {
   if (uncompressed >= limits.ratioFloorBytes && uncompressed > compressed * limits.maxRatio) {
     fail("archive_ratio_exceeded", `${what} expands ${uncompressed} bytes from ${compressed} (ratio limit ${limits.maxRatio})`);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Sources: random-access reads over a buffer or an open file.
+
+const CHUNK_BYTES = 1024 * 1024;
+
+interface Source {
+  readonly size: number;
+  /** Exactly `length` bytes at `offset`, or `archive_corrupt` if the source is shorter. */
+  read(offset: number, length: number): Promise<Buffer>;
+}
+
+function bufferSource(data: Buffer): Source {
+  return {
+    size: data.length,
+    read: async (offset, length) => {
+      if (offset < 0 || length < 0 || offset + length > data.length) {
+        fail("archive_corrupt", "Archive is truncated");
+      }
+      return data.subarray(offset, offset + length);
+    },
+  };
+}
+
+async function fileSource(handle: FileHandle): Promise<Source> {
+  const { size } = await handle.stat();
+  return {
+    size,
+    read: async (offset, length) => {
+      if (offset < 0 || length < 0 || offset + length > size) {
+        fail("archive_corrupt", "Archive is truncated");
+      }
+      const buffer = Buffer.allocUnsafe(length);
+      let filled = 0;
+      while (filled < length) {
+        const { bytesRead } = await handle.read(buffer, filled, length - filled, offset + filled);
+        if (bytesRead === 0) {
+          fail("archive_corrupt", "Archive changed size while extracting");
+        }
+        filled += bytesRead;
+      }
+      return buffer;
+    },
+  };
+}
+
+async function* chunks(source: Source, start: number, end: number, signal?: AbortSignal): AsyncGenerator<Buffer> {
+  for (let offset = start; offset < end; offset += CHUNK_BYTES) {
+    checkAborted(signal);
+    yield await source.read(offset, Math.min(CHUNK_BYTES, end - offset));
+  }
+}
+
+/** Runs `input` through a zlib transform, mapping zlib errors to `archive_corrupt`. */
+async function* inflate(input: AsyncIterable<Buffer>, transform: Transform, what: string): AsyncGenerator<Buffer> {
+  const readable = Readable.from(input, { objectMode: false });
+  readable.on("error", (error) => transform.destroy(error));
+  readable.pipe(transform);
+  try {
+    for await (const chunk of transform) {
+      yield chunk as Buffer;
+    }
+  } catch (cause) {
+    if (cause instanceof DatasetError) {
+      throw cause;
+    }
+    fail("archive_corrupt", `${what} is corrupt`, cause);
+  } finally {
+    readable.destroy();
+    transform.destroy();
   }
 }
 
@@ -262,12 +340,16 @@ const CRC_TABLE = (() => {
   return table;
 })();
 
-export function crc32(data: Buffer): number {
-  let crc = 0xffffffff;
+function crc32Update(crc: number, data: Buffer): number {
+  let value = crc;
   for (let index = 0; index < data.length; index += 1) {
-    crc = (CRC_TABLE[(crc ^ (data[index] as number)) & 0xff] as number) ^ (crc >>> 8);
+    value = (CRC_TABLE[(value ^ (data[index] as number)) & 0xff] as number) ^ (value >>> 8);
   }
-  return (crc ^ 0xffffffff) >>> 0;
+  return value;
+}
+
+export function crc32(data: Buffer): number {
+  return (crc32Update(0xffffffff, data) ^ 0xffffffff) >>> 0;
 }
 
 const UTF8 = new TextDecoder("utf-8", { fatal: true });
@@ -280,30 +362,36 @@ function decodeName(bytes: Uint8Array): string {
   }
 }
 
-function findEocd(data: Buffer): number {
-  const earliest = Math.max(0, data.length - EOCD_SIZE - 0xffff);
-  for (let offset = data.length - EOCD_SIZE; offset >= earliest; offset -= 1) {
-    if (data.readUInt32LE(offset) === ZIP_EOCD_SIG && offset + EOCD_SIZE + data.readUInt16LE(offset + 20) === data.length) {
+/** The end record's offset inside `tail`, which holds the last bytes of the archive. */
+function findEocd(tail: Buffer): number {
+  const earliest = Math.max(0, tail.length - EOCD_SIZE - 0xffff);
+  for (let offset = tail.length - EOCD_SIZE; offset >= earliest; offset -= 1) {
+    if (tail.readUInt32LE(offset) === ZIP_EOCD_SIG && offset + EOCD_SIZE + tail.readUInt16LE(offset + 20) === tail.length) {
       return offset;
     }
   }
   return fail("archive_corrupt", "Zip end-of-central-directory record not found");
 }
 
-function planZip(data: Buffer, plan: Plan, limits: ArchiveLimits): void {
-  if (data.length < EOCD_SIZE) {
+const MAX_CENTRAL_DIRECTORY_BYTES = 64 * 1024 * 1024;
+
+async function planZip(source: Source, plan: Plan, limits: ArchiveLimits, signal?: AbortSignal): Promise<void> {
+  if (source.size < EOCD_SIZE) {
     fail("archive_corrupt", "Zip archive is truncated");
   }
-  const eocd = findEocd(data);
-  if (eocd >= 20 && data.readUInt32LE(eocd - 20) === ZIP64_LOCATOR_SIG) {
+  const tailStart = Math.max(0, source.size - EOCD_SIZE - 0xffff);
+  const tail = await source.read(tailStart, source.size - tailStart);
+  const tailOffset = findEocd(tail);
+  const eocd = tailStart + tailOffset;
+  if (eocd >= 20 && (await source.read(eocd - 20, 4)).readUInt32LE(0) === ZIP64_LOCATOR_SIG) {
     fail("archive_unsupported", "Zip64 archives are not supported");
   }
-  const disk = data.readUInt16LE(eocd + 4);
-  const cdDisk = data.readUInt16LE(eocd + 6);
-  const diskEntries = data.readUInt16LE(eocd + 8);
-  const totalEntries = data.readUInt16LE(eocd + 10);
-  const cdSize = data.readUInt32LE(eocd + 12);
-  const cdOffset = data.readUInt32LE(eocd + 16);
+  const disk = tail.readUInt16LE(tailOffset + 4);
+  const cdDisk = tail.readUInt16LE(tailOffset + 6);
+  const diskEntries = tail.readUInt16LE(tailOffset + 8);
+  const totalEntries = tail.readUInt16LE(tailOffset + 10);
+  const cdSize = tail.readUInt32LE(tailOffset + 12);
+  const cdOffset = tail.readUInt32LE(tailOffset + 16);
   if (totalEntries === 0xffff || cdSize === 0xffffffff || cdOffset === 0xffffffff) {
     fail("archive_unsupported", "Zip64 archives are not supported");
   }
@@ -316,12 +404,19 @@ function planZip(data: Buffer, plan: Plan, limits: ArchiveLimits): void {
   if (cdOffset + cdSize !== eocd) {
     fail("archive_corrupt", "Zip central directory does not end at the end record (prepended or trailing data)");
   }
+  if (cdSize > MAX_CENTRAL_DIRECTORY_BYTES) {
+    fail("archive_too_large", `Zip central directory is ${cdSize} bytes (limit ${MAX_CENTRAL_DIRECTORY_BYTES})`);
+  }
+  // `data` is the central directory; offsets into it are relative to cdOffset.
+  const data = await source.read(cdOffset, cdSize);
+  const end = cdSize;
 
   const ranges: Array<[number, number]> = [];
   let declaredTotal = 0;
-  let cursor = cdOffset;
+  let cursor = 0;
   for (let index = 0; index < totalEntries; index += 1) {
-    if (cursor + 46 > eocd || data.readUInt32LE(cursor) !== ZIP_CENTRAL_SIG) {
+    checkAborted(signal);
+    if (cursor + 46 > end || data.readUInt32LE(cursor) !== ZIP_CENTRAL_SIG) {
       fail("archive_corrupt", "Zip central directory entry is malformed");
     }
     const madeBy = data.readUInt16LE(cursor + 4);
@@ -338,7 +433,7 @@ function planZip(data: Buffer, plan: Plan, limits: ArchiveLimits): void {
     const localOffset = data.readUInt32LE(cursor + 42);
     const nameEnd = cursor + 46 + nameLength;
     const next = nameEnd + extraLength + commentLength;
-    if (next > eocd) {
+    if (next > end) {
       fail("archive_corrupt", "Zip central directory entry overruns the directory");
     }
     const nameBytes = data.subarray(cursor + 46, nameEnd);
@@ -360,17 +455,18 @@ function planZip(data: Buffer, plan: Plan, limits: ArchiveLimits): void {
       fail("archive_unsafe_path", `Zip entry is a symlink or special file: ${JSON.stringify(name)}`);
     }
 
-    if (localOffset + 30 > cdOffset || data.readUInt32LE(localOffset) !== ZIP_LOCAL_SIG) {
+    const local = localOffset + 30 > cdOffset ? null : await source.read(localOffset, 30);
+    if (local === null || local.readUInt32LE(0) !== ZIP_LOCAL_SIG) {
       fail("archive_corrupt", `Zip local header is missing for ${JSON.stringify(name)}`);
     }
-    const localNameLength = data.readUInt16LE(localOffset + 26);
-    const localExtraLength = data.readUInt16LE(localOffset + 28);
+    const localNameLength = local.readUInt16LE(26);
+    const localExtraLength = local.readUInt16LE(28);
     const dataStart = localOffset + 30 + localNameLength + localExtraLength;
     const dataEnd = dataStart + compressedSize;
     if (dataEnd > cdOffset) {
       fail("archive_corrupt", `Zip entry data overruns the archive: ${JSON.stringify(name)}`);
     }
-    if (!data.subarray(localOffset + 30, localOffset + 30 + localNameLength).equals(nameBytes)) {
+    if (!(await source.read(localOffset + 30, localNameLength)).equals(nameBytes)) {
       fail("archive_corrupt", `Zip local and central names differ for ${JSON.stringify(name)}`);
     }
     ranges.push([localOffset, dataEnd]);
@@ -387,14 +483,13 @@ function planZip(data: Buffer, plan: Plan, limits: ArchiveLimits): void {
     }
     checkRatio(size, compressedSize, limits, `Zip entry ${JSON.stringify(name)}`);
     declaredTotal += size;
-    const compressed = data.subarray(dataStart, dataEnd);
     plan.add(name, {
       kind: "file",
       size,
-      read: () => inflateZipEntry(compressed, method, size, crc, name),
+      open: () => inflateZipEntry(chunks(source, dataStart, dataEnd, signal), method, size, crc, name),
     });
   }
-  if (cursor !== eocd) {
+  if (cursor !== end) {
     fail("archive_corrupt", "Zip central directory size does not match its entries");
   }
   ranges.sort((a, b) => a[0] - b[0]);
@@ -403,28 +498,33 @@ function planZip(data: Buffer, plan: Plan, limits: ArchiveLimits): void {
       fail("archive_corrupt", "Zip entries overlap");
     }
   }
-  checkRatio(declaredTotal, data.length, limits, "Archive");
+  checkRatio(declaredTotal, source.size, limits, "Archive");
 }
 
-function inflateZipEntry(compressed: Buffer, method: number, size: number, crc: number, name: string): Buffer {
-  let output: Buffer;
-  if (method === 0) {
-    output = compressed;
-  } else {
-    try {
-      // One extra byte of headroom so an understated size is detected, not truncated.
-      output = inflateRawSync(compressed, { maxOutputLength: size + 1 });
-    } catch (cause) {
-      return fail("archive_corrupt", `Zip entry does not inflate to its declared size: ${JSON.stringify(name)}`, cause);
+async function* inflateZipEntry(
+  compressed: AsyncIterable<Buffer>,
+  method: number,
+  size: number,
+  crc: number,
+  name: string,
+): AsyncGenerator<Buffer> {
+  const output = method === 0 ? compressed : inflate(compressed, createInflateRaw(), `Zip entry ${JSON.stringify(name)}`);
+  let produced = 0;
+  let running = 0xffffffff;
+  for await (const chunk of output) {
+    produced += chunk.length;
+    if (produced > size) {
+      fail("archive_corrupt", `Zip entry inflates beyond its declared size: ${JSON.stringify(name)}`);
     }
+    running = crc32Update(running, chunk);
+    yield chunk;
   }
-  if (output.length !== size) {
+  if (produced !== size) {
     fail("archive_corrupt", `Zip entry size differs from its header: ${JSON.stringify(name)}`);
   }
-  if (crc32(output) !== crc) {
+  if ((running ^ 0xffffffff) >>> 0 !== crc) {
     fail("archive_corrupt", `Zip entry CRC mismatch: ${JSON.stringify(name)}`);
   }
-  return output;
 }
 
 // ---------------------------------------------------------------------------
@@ -497,16 +597,17 @@ function verifyTarChecksum(header: Buffer): void {
   }
 }
 
-function planTar(data: Buffer, plan: Plan, limits: ArchiveLimits): void {
+async function planTar(source: Source, plan: Plan, limits: ArchiveLimits, signal?: AbortSignal): Promise<void> {
   let offset = 0;
   let pending: { path?: string; size?: number } = {};
   let headers = 0;
   const maxHeaders = limits.maxFiles * 3 + 16;
-  while (offset < data.length) {
-    if (offset + BLOCK > data.length) {
+  while (offset < source.size) {
+    checkAborted(signal);
+    if (offset + BLOCK > source.size) {
       fail("archive_corrupt", "Tar archive is truncated");
     }
-    const header = data.subarray(offset, offset + BLOCK);
+    const header = await source.read(offset, BLOCK);
     if (header.every((byte) => byte === 0)) {
       return;
     }
@@ -526,16 +627,16 @@ function planTar(data: Buffer, plan: Plan, limits: ArchiveLimits): void {
     const size = type === "0" || type === "7" ? (pending.size ?? headerSize) : headerSize;
     const dataStart = offset + BLOCK;
     const dataEnd = dataStart + size;
-    if (dataEnd > data.length) {
+    if (dataEnd > source.size) {
       fail("archive_corrupt", "Tar entry data overruns the archive");
     }
     offset = dataStart + Math.ceil(size / BLOCK) * BLOCK;
-    const body = data.subarray(dataStart, dataEnd);
 
     if (type === "x" || type === "g" || type === "L") {
       if (size > MAX_PAX_BYTES) {
         fail("archive_too_large", "Tar extended header is too large");
       }
+      const body = await source.read(dataStart, size);
       if (type === "x") {
         pending = { ...pending, ...parsePax(body) };
       } else if (type === "L") {
@@ -560,7 +661,7 @@ function planTar(data: Buffer, plan: Plan, limits: ArchiveLimits): void {
         if (name.endsWith("/")) {
           fail("archive_corrupt", `Tar file entry has a directory name: ${JSON.stringify(name)}`);
         }
-        plan.add(name, { kind: "file", size, read: () => body });
+        plan.add(name, { kind: "file", size, open: () => chunks(source, dataStart, dataEnd, signal) });
         break;
       case "5":
         plan.add(name, { kind: "dir" });
@@ -581,21 +682,30 @@ function planTar(data: Buffer, plan: Plan, limits: ArchiveLimits): void {
   }
 }
 
-function gunzipBounded(data: Buffer, limits: ArchiveLimits): Buffer {
+/**
+ * Inflates a gzip stream into `tempPath` (created fresh, 0600) under the same
+ * size and ratio caps as before. The caller removes `tempPath`.
+ */
+async function gunzipToFile(source: Source, tempPath: string, limits: ArchiveLimits, signal?: AbortSignal): Promise<void> {
   const tarOverhead = (limits.maxFiles * 3 + 18) * BLOCK;
   const sizeCap = limits.maxTotalBytes + tarOverhead;
-  const ratioCap = Math.max(data.length * limits.maxRatio, limits.ratioFloorBytes);
+  const ratioCap = Math.max(source.size * limits.maxRatio, limits.ratioFloorBytes);
   const cap = Math.min(sizeCap, ratioCap);
+  const handle = await open(tempPath, WRITE_FLAGS, 0o600);
   try {
-    return gunzipSync(data, { maxOutputLength: cap });
-  } catch (cause) {
-    if ((cause as NodeJS.ErrnoException).code === "ERR_BUFFER_TOO_LARGE" || cause instanceof RangeError) {
-      if (ratioCap < sizeCap) {
-        return fail("archive_ratio_exceeded", `Gzip stream expands beyond ${limits.maxRatio}x its size`, cause);
+    let produced = 0;
+    for await (const chunk of inflate(chunks(source, 0, source.size, signal), createGunzip(), "Gzip stream")) {
+      produced += chunk.length;
+      if (produced > cap) {
+        if (ratioCap < sizeCap) {
+          fail("archive_ratio_exceeded", `Gzip stream expands beyond ${limits.maxRatio}x its size`);
+        }
+        fail("archive_too_large", `Gzip stream expands beyond ${sizeCap} bytes`);
       }
-      return fail("archive_too_large", `Gzip stream expands beyond ${sizeCap} bytes`, cause);
+      await writeAll(handle, chunk);
     }
-    return fail("archive_corrupt", "Gzip stream is corrupt", cause);
+  } finally {
+    await handle.close();
   }
 }
 
@@ -627,12 +737,12 @@ function checkAborted(signal: AbortSignal | undefined): void {
 const WRITE_FLAGS = constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | (constants.O_NOFOLLOW ?? 0);
 
 /**
- * Extracts `archive` into `destinationDir`, which must not exist yet (its
- * parent must). On success files are 0644 and directories 0755; on any
- * failure the directory is removed.
+ * Extracts `archive` (a buffer, or the absolute path of a file) into
+ * `destinationDir`, which must not exist yet (its parent must). On success
+ * files are 0644 and directories 0755; on any failure the directory is removed.
  */
 export async function extractArchive(
-  archive: Buffer,
+  archive: Buffer | string,
   destinationDir: string,
   options: ExtractArchiveOptions = {},
 ): Promise<ExtractionResult> {
@@ -640,31 +750,65 @@ export async function extractArchive(
   if (!isAbsolute(destinationDir) || resolve(destinationDir) !== destinationDir) {
     fail("archive_unsafe_path", "destinationDir must be an absolute, normalized path");
   }
-  const detected = options.format ?? detectArchiveFormat(archive);
-  if (detected === null) {
-    fail("archive_unsupported", "Not a zip, tar, or gzip archive");
-  }
-
-  const plan = new Plan(limits);
-  let format: ArchiveFormat = detected;
-  if (detected === "zip") {
-    planZip(archive, plan, limits);
-  } else if (detected === "tar") {
-    planTar(archive, plan, limits);
-  } else {
-    const inflated = gunzipBounded(archive, limits);
-    if (isTar(inflated)) {
-      format = "tar.gz";
-      planTar(inflated, plan, limits);
+  const handles: FileHandle[] = [];
+  const tempPath = `${destinationDir}.inflate-${randomUUID()}`;
+  let tempCreated = false;
+  try {
+    let source: Source;
+    if (typeof archive === "string") {
+      const handle = await open(archive, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
+      handles.push(handle);
+      source = await fileSource(handle);
     } else {
-      format = "gzip";
-      const memberName = options.gzipMemberName ?? "data";
-      checkRatio(inflated.length, archive.length, limits, "Gzip stream");
-      plan.add(memberName, { kind: "file", size: inflated.length, read: () => inflated });
+      source = bufferSource(archive);
+    }
+    const head = await source.read(0, Math.min(source.size, BLOCK));
+    const detected = options.format ?? detectArchiveFormat(head);
+    if (detected === null) {
+      fail("archive_unsupported", "Not a zip, tar, or gzip archive");
+    }
+
+    const plan = new Plan(limits);
+    let format: ArchiveFormat = detected;
+    if (detected === "zip") {
+      await planZip(source, plan, limits, options.signal);
+    } else if (detected === "tar") {
+      await planTar(source, plan, limits, options.signal);
+    } else {
+      tempCreated = true;
+      await gunzipToFile(source, tempPath, limits, options.signal);
+      const inflatedHandle = await open(tempPath, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
+      handles.push(inflatedHandle);
+      const inflated = await fileSource(inflatedHandle);
+      if (isTar(await inflated.read(0, Math.min(inflated.size, BLOCK)))) {
+        format = "tar.gz";
+        await planTar(inflated, plan, limits, options.signal);
+      } else {
+        format = "gzip";
+        const memberName = options.gzipMemberName ?? "data";
+        checkRatio(inflated.size, source.size, limits, "Gzip stream");
+        plan.add(memberName, { kind: "file", size: inflated.size, open: () => chunks(inflated, 0, inflated.size, options.signal) });
+      }
+    }
+    checkAborted(options.signal);
+    return await writePlan(plan, format, destinationDir, limits, options.signal);
+  } finally {
+    for (const handle of handles) {
+      await handle.close().catch(() => undefined);
+    }
+    if (tempCreated) {
+      await rm(tempPath, { force: true });
     }
   }
-  checkAborted(options.signal);
+}
 
+async function writePlan(
+  plan: Plan,
+  format: ArchiveFormat,
+  destinationDir: string,
+  limits: ArchiveLimits,
+  signal: AbortSignal | undefined,
+): Promise<ExtractionResult> {
   try {
     await mkdir(destinationDir, { mode: 0o700 });
   } catch (cause) {
@@ -686,7 +830,7 @@ export async function extractArchive(
 
     let total = 0;
     for (const entry of plan.entries) {
-      checkAborted(options.signal);
+      checkAborted(signal);
       if (entry.kind === "dir") {
         await ensureDir(entry.path);
         continue;
@@ -695,26 +839,30 @@ export async function extractArchive(
       if (slash !== -1) {
         await ensureDir(entry.path.slice(0, slash));
       }
-      const content = entry.read();
-      if (content.length !== entry.size || content.length > limits.maxFileBytes) {
-        fail("archive_corrupt", `Entry ${JSON.stringify(entry.path)} changed size while extracting`);
-      }
-      total += content.length;
-      if (total > limits.maxTotalBytes) {
-        fail("archive_too_large", `Archive expands beyond ${limits.maxTotalBytes} bytes`);
-      }
+      const hash = createHash("sha256");
+      let written = 0;
       const handle = await open(inside(destinationDir, entry.path), WRITE_FLAGS, 0o600);
       try {
-        await writeAll(handle, content);
+        for await (const chunk of entry.open()) {
+          written += chunk.length;
+          total += chunk.length;
+          if (written > entry.size || written > limits.maxFileBytes) {
+            fail("archive_corrupt", `Entry ${JSON.stringify(entry.path)} changed size while extracting`);
+          }
+          if (total > limits.maxTotalBytes) {
+            fail("archive_too_large", `Archive expands beyond ${limits.maxTotalBytes} bytes`);
+          }
+          hash.update(chunk);
+          await writeAll(handle, chunk);
+        }
         await handle.chmod(0o644);
       } finally {
         await handle.close();
       }
-      files.push({
-        path: entry.path,
-        sha256: createHash("sha256").update(content).digest("hex"),
-        bytes: content.length,
-      });
+      if (written !== entry.size) {
+        fail("archive_corrupt", `Entry ${JSON.stringify(entry.path)} changed size while extracting`);
+      }
+      files.push({ path: entry.path, sha256: hash.digest("hex"), bytes: written });
     }
     for (const dir of [...dirs].sort((a, b) => b.length - a.length)) {
       await chmod(inside(destinationDir, dir), 0o755);
