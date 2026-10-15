@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { PlatformSpecSchema } from "./platform.js";
+import { PlatformSpecSchema, RPackageNameSchema, RVersionSchema } from "./platform.js";
 
 const Sha256 = z.string().regex(/^[a-f0-9]{64}$/u, "expected a lowercase SHA-256 digest");
 const CommitSha = z.string().regex(/^[a-f0-9]{40}$/u, "expected a full lowercase Git commit SHA");
@@ -181,6 +181,14 @@ export const ClaimContractSchema = z.object({
     requirements: z.array(z.string().max(300)).max(200),
     /** Project-owned compatibility constraints, each shown in the report. */
     compatibilityConstraints: z.array(z.object({ requirement: z.string().max(300), reason: z.string().min(1).max(500) })).max(30),
+    /** Present for an R study: the R version, the CRAN packages, and the dated binary snapshot they come from. */
+    r: z
+      .object({
+        version: RVersionSchema,
+        packages: z.array(RPackageNameSchema).max(150),
+        snapshot: z.string().regex(/^\d{4}-\d{2}-\d{2}$/u),
+      })
+      .optional(),
   }),
   expectedRuntimeSeconds: z
     .number()

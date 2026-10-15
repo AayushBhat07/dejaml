@@ -87,9 +87,9 @@ point of the product and the reason for the tagline _Same claim. One more run._
    deterministic code, not a model, checks it: CPU only, allowed hosts, a
    runtime ceiling, reviewed adapters by hash, and no plan that states an
    expected result.
-5. **Prepare.** Hash-verified Python wheels and checksum-verified datasets are
-   fetched in a short-lived, egress-restricted container. The lab image is pinned
-   by digest.
+5. **Prepare.** Hash-verified Python wheels (or, for R code, prebuilt CRAN
+   binaries from a dated snapshot) and checksum-verified datasets are fetched in
+   a short-lived, egress-restricted container. The lab image is pinned by digest.
 6. **Execute.** One to three **Lab Engineers**, each in its own offline Docker
    lab, run the approved command. A **Debugger** can step in on failure.
 7. **Review blind.** The observation is locked, then an **Independent

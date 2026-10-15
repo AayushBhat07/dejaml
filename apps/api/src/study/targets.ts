@@ -306,6 +306,7 @@ export function targetViolations(
         platform: { python: { version: string } };
         requirements: string[];
         compatibilityConstraints: Array<{ requirement: string }>;
+        r?: unknown;
       };
     };
     adapter: Adapter | null;
@@ -325,6 +326,8 @@ export function targetViolations(
     out.push("the plan's metric parser is not the reviewed parser");
   if (contract.expectedRuntimeSeconds > target.expectedRuntimeCeilingSeconds)
     out.push(`the plan's expected runtime exceeds the reviewed ceiling (${target.expectedRuntimeCeilingSeconds} s)`);
+  // Reviewed targets are Python studies; an R plan is never one of them.
+  if (contract.environment.r) out.push("the plan runs R, and the reviewed target is a Python study");
   if (!target.environment.python.includes(contract.environment.platform.python.version as never))
     out.push(`Python ${contract.environment.platform.python.version} is not a reviewed version (${target.environment.python.join(", ")})`);
   const reviewed = new Set(target.environment.requirements.map(norm));

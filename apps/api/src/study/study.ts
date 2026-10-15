@@ -26,8 +26,9 @@ import type {
   StageRetryReason,
   WorkStage,
 } from "@dejaml/contracts";
-import { WORK_STAGES } from "@dejaml/contracts";
+import { DEFAULT_R_VERSION, WORK_STAGES } from "@dejaml/contracts";
 import { type CleanupReceipt, DEFAULT_LAB_LIMITS, type LabWorker, LabSpecSchema } from "@dejaml/lab-manager";
+import { DEFAULT_R_SNAPSHOT } from "@dejaml/prep";
 import { acquireGithubRepository, cleanupAcquiredRepository } from "@dejaml/repository-intake";
 import {
   BlindingIntegrityError,
@@ -70,6 +71,8 @@ import {
   type LabImagePort,
   PreparationFailure,
   type PreparedDependencies,
+  type PreparedRLibrary,
+  type RPackagePort,
   type StudyConfig,
   type StudyContext,
 } from "./context.js";
@@ -173,6 +176,8 @@ export type MultiAgentDependencies = {
   dependencies: DependencyPort | null;
   images: LabImagePort;
   datasets: DatasetPort | null;
+  /** Prebuilt CRAN binaries for R studies; null or absent when R packages are not offered. */
+  rPackages?: RPackagePort | null;
   config: StudyConfig;
   /** The model behind every agent of this run. Keys stay inside the provider object. */
   chatProvider: ChatProvider;
@@ -336,6 +341,7 @@ type PolicyStageOutput = {
 };
 type PrepareStageOutput = {
   dependencies: Omit<PreparedDependencies, "wheelhouseDir"> | null;
+  rLibrary?: Omit<PreparedRLibrary, "libraryDir"> | null;
   datasets: Array<AcquiredDataset["identity"]>;
   labImage: LabImage | null;
   failure: { code: string; outcome: PreparationFailure["outcome"]; message: string; requirement: string | null } | null;
@@ -481,6 +487,8 @@ export async function runMultiAgentStudy(
     contract: null,
     planDigest: null,
     prepared: null,
+    preparedR: null,
+    rPackages: deps.rPackages ?? null,
     datasets: [],
     labsByAgent: new Map(),
     exports: new Map(),
@@ -904,6 +912,8 @@ export async function runMultiAgentStudy(
   async function releasePrepared(): Promise<void> {
     if (ctx.prepared && deps.dependencies) await deps.dependencies.release(ctx.prepared).catch(() => undefined);
     ctx.prepared = null;
+    if (ctx.preparedR && deps.rPackages) await deps.rPackages.release(ctx.preparedR).catch(() => undefined);
+    ctx.preparedR = null;
     for (const dataset of ctx.datasets) await deps.datasets?.release(dataset).catch(() => undefined);
     ctx.datasets = [];
   }
@@ -1045,6 +1055,7 @@ export async function runMultiAgentStudy(
             platform: config.platform.containerPlatform,
             accelerator: "CPU only",
             pythonVersions: ["3.10", "3.11", "3.12", "3.13"],
+            rVersions: deps.images.rVersions ?? [],
             network: "none during execution",
             cpus: config.resources.cpus,
             memoryMb: config.resources.memoryMb,
@@ -1053,6 +1064,9 @@ export async function runMultiAgentStudy(
           datasetHostsAllowed: config.datasetPolicy.allowedHosts,
           trustedCompatibilityConstraints: config.trustedConstraints,
           dependencyPreparation: deps.dependencies ? "available" : "disabled on this server",
+          rPackagePreparation: deps.rPackages
+            ? `prebuilt CRAN binaries from the ${deps.rPackages.snapshot} snapshot`
+            : "disabled on this server",
           previousRounds: withhold(replanGuidance),
           ...(target ? { reviewedTarget: plannerTarget(target) } : {}),
         },
@@ -1105,6 +1119,7 @@ export async function runMultiAgentStudy(
           platform: config.platform,
           pages: ctx.paper.pages,
           ...(target ? { tolerance: target.tolerance } : {}),
+          r: { version: deps.images.rVersions?.[0] ?? DEFAULT_R_VERSION, snapshot: deps.rPackages?.snapshot ?? DEFAULT_R_SNAPSHOT },
         });
         if (reconciled.ok) contract = reconciled.contract;
         else reconcileErrors = reconciled.reasons;
@@ -1138,6 +1153,7 @@ export async function runMultiAgentStudy(
         repository: { commitSha: ctx.repository?.receipt.commitSha ?? "", files },
         datasetPolicy: config.datasetPolicy,
         dependencies: deps.dependencies,
+        r: { versions: deps.images.rVersions ?? [], packages: deps.rPackages ?? null },
         commandTimeoutSeconds: config.commandTimeoutSeconds,
         trustedConstraints: config.trustedConstraints,
         target,
@@ -1195,18 +1211,50 @@ export async function runMultiAgentStudy(
     if (
       saved.status === "completed" &&
       !ctx.prepared &&
-      ((saved.output as PrepareStageOutput | null)?.dependencies || (saved.output as PrepareStageOutput | null)?.datasets.length)
+      !ctx.preparedR &&
+      ((saved.output as PrepareStageOutput | null)?.dependencies ||
+        (saved.output as PrepareStageOutput | null)?.rLibrary ||
+        (saved.output as PrepareStageOutput | null)?.datasets.length)
     ) {
       stages.invalidate(runId, "preparing", "process_restart");
     }
     prepOut = await runStage<PrepareStageOutput>("preparing", async () => {
       try {
-        const labImage = await deps.images.ensure({ platform: contract.environment.platform, signal: study.signal });
-        event("lab_image_ready", "completed", `Lab image ready for ${labImage.containerPlatform}, Python ${labImage.python}`, {
-          image: labImage.name,
-          digest: labImage.digest,
-          imageId: labImage.imageId,
+        const rEnv = contract.environment.r;
+        const labImage = await deps.images.ensure({
+          platform: contract.environment.platform,
+          ...(rEnv ? { r: rEnv.version } : {}),
+          signal: study.signal,
         });
+        event(
+          "lab_image_ready",
+          "completed",
+          `Lab image ready for ${labImage.containerPlatform}, ${rEnv ? `R ${labImage.r ?? rEnv.version}` : `Python ${labImage.python}`}`,
+          {
+            image: labImage.name,
+            digest: labImage.digest,
+            imageId: labImage.imageId,
+          },
+        );
+        if (rEnv?.packages.length) {
+          if (!deps.rPackages)
+            throw new PreparationFailure("r_packages_disabled", "R package preparation is disabled on this server", "policy_blocked");
+          ctx.preparedR = await deps.rPackages.prepare({
+            runId,
+            packages: rEnv.packages,
+            r: rEnv.version,
+            platform: contract.environment.platform.containerPlatform,
+            signal: study.signal,
+          });
+          const { libraryDir: _library, ...recordedR } = ctx.preparedR;
+          board.post({ kind: "dependency_manifest", authorAgentId: null, authorRole: "system", payload: recordedR });
+          event(
+            "dependencies_prepared",
+            "completed",
+            `Prepared ${ctx.preparedR.packages.length} prebuilt R packages from the ${ctx.preparedR.snapshot} CRAN snapshot`,
+            { manifestSha256: ctx.preparedR.manifestSha256, packages: ctx.preparedR.packages.length, changes: [] },
+          );
+        }
         if (contract.environment.requirements.length && deps.dependencies) {
           ctx.prepared = await deps.dependencies.prepare({
             runId,
@@ -1288,8 +1336,10 @@ export async function runMultiAgentStudy(
           });
         }
         const { wheelhouseDir: _dir, ...recorded } = ctx.prepared ?? { wheelhouseDir: "" };
+        const { libraryDir: _library, ...recordedR } = ctx.preparedR ?? { libraryDir: "" };
         return {
           dependencies: ctx.prepared ? (recorded as Omit<PreparedDependencies, "wheelhouseDir">) : null,
+          rLibrary: ctx.preparedR ? (recordedR as Omit<PreparedRLibrary, "libraryDir">) : null,
           datasets,
           labImage,
           failure: null,
@@ -1589,6 +1639,7 @@ export async function runMultiAgentStudy(
       { hostPath: ctx.projection?.dir ?? ctx.repository!.dir, containerPath: LAB_LAYOUT.repoDir },
     ];
     if (ctx.prepared) inputs.push({ hostPath: ctx.prepared.wheelhouseDir, containerPath: LAB_LAYOUT.wheelsDir });
+    if (ctx.preparedR) inputs.push({ hostPath: ctx.preparedR.libraryDir, containerPath: LAB_LAYOUT.rLibDir });
     if (ctx.datasets[0]) inputs.push({ hostPath: ctx.datasets[0].root, containerPath: LAB_LAYOUT.dataDir });
     const spec = LabSpecSchema.parse({
       runId,
@@ -1774,6 +1825,10 @@ export async function runMultiAgentStudy(
         throw new PreparationFailure("adapter_refused", "the adapter contains a value or a comparison it must not contain", "inconclusive");
       await deps.labs.writeScratchFile(lab.labId, adapter.path, adapter.content, lab.commands.length + 1);
     }
+    if (contract.environment.r) {
+      await setUpRLab(lab, contract, must);
+      return;
+    }
     if (ctx.prepared?.installerWheel) {
       const { offlineInstallCommands } = await import("@dejaml/prep");
       const commands = offlineInstallCommands({
@@ -1818,6 +1873,51 @@ export async function runMultiAgentStudy(
         engineer: lab.label,
         imageId: lab.imageId,
       },
+    );
+  }
+
+  /** An R lab installs nothing: R and the prebuilt library are mounted; this checks the version and records the state. */
+  async function setUpRLab(
+    lab: EngineerLab,
+    contract: ClaimContract,
+    must: (argv: string[], what: string, outcome: PreparationFailure["outcome"], timeout?: number) => Promise<void>,
+  ): Promise<void> {
+    const r = contract.environment.r!;
+    // Every requested package must load from the mounted library before the Engineer starts.
+    if (ctx.preparedR) {
+      const requested = ctx.preparedR.packages.filter((item) => item.requested).map((item) => item.name);
+      if (requested.length)
+        await must(
+          ["Rscript", "-e", `invisible(lapply(commandArgs(TRUE), loadNamespace))`, ...requested],
+          "load R packages",
+          "replan",
+          300,
+        );
+    }
+    const inspect = await runInLab(
+      ctx,
+      lab,
+      orchestratorActor(),
+      ["Rscript", "-e", "cat(paste(R.version$major, R.version$minor, sep = '.'))"],
+      LAB_LAYOUT.workdir,
+      {},
+      60,
+    );
+    const version = /^\d+\.\d+\.\d+$/u.test(inspect.stdoutTail.trim()) ? inspect.stdoutTail.trim() : null;
+    lab.environment = {
+      python: null,
+      r: version,
+      distributions: (ctx.preparedR?.packages ?? []).map((item) => ({ name: item.name, version: item.version })),
+    };
+    if (!version?.startsWith(`${r.version}.`)) {
+      throw new PreparationFailure("r_mismatch", `the lab's R ${version ?? "unknown"} does not match the approved ${r.version}`, "failed");
+    }
+    lab.integrity = await measureIntegrity(ctx, lab, contract.dataset.source.kind === "repository" ? contract.dataset.source.paths : []);
+    event(
+      "lab_ready",
+      "completed",
+      `${lab.label}'s lab is ready: repository, ${ctx.preparedR ? `${ctx.preparedR.packages.length} prebuilt R packages` : "base R only"}, R ${version}`,
+      { engineer: lab.label, imageId: lab.imageId },
     );
   }
 
@@ -2067,6 +2167,8 @@ export async function runMultiAgentStudy(
   let dependenciesRemoved = true;
   if (ctx.prepared && deps.dependencies)
     dependenciesRemoved = (await deps.dependencies.release(ctx.prepared).catch(() => ({ removed: false }))).removed;
+  if (ctx.preparedR && deps.rPackages)
+    dependenciesRemoved = (await deps.rPackages.release(ctx.preparedR).catch(() => ({ removed: false }))).removed && dependenciesRemoved;
   let datasetsRemoved = true;
   for (const dataset of ctx.datasets) {
     const released = await deps.datasets?.release(dataset).catch(() => ({ removed: false }));
@@ -2173,7 +2275,7 @@ export async function runMultiAgentStudy(
       runId,
       number: 1,
       label: "baseline",
-      command: { executable: "python", args: official.argv.slice(1), cwd: official.cwd, env: {} },
+      command: { executable: ctx.contract?.environment.r ? "Rscript" : "python", args: official.argv.slice(1), cwd: official.cwd, env: {} },
       changes: planOut?.plan?.adapter ? [`adapter ${planOut.plan.adapter.path}`] : [],
       startedAt: now,
       endedAt: now,

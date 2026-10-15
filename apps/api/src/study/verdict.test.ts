@@ -201,6 +201,61 @@ describe("claim contract and policy review", () => {
     expect(policy(download("https://cdn.example.net/d.csv"), null, ["*.example.org"]).outcome).toBe("policy_blocked");
   });
 
+  it("approves an R plan run with Rscript in the R lab image, and records its packages and snapshot", () => {
+    const files = new Set(["train.py", "data/train.csv", "rules.R"]);
+    const rPackages = { snapshot: "2026-10-01", screen: () => [], check: async () => ({ ok: true, detail: {} }) } as never;
+    const rPolicy = (contract: ClaimContract, adapter: Plan["adapter"] = null, versions: Array<"4.5"> = ["4.5"]) =>
+      reviewPolicy({
+        contract,
+        adapter,
+        repository: { commitSha: COMMIT, files },
+        datasetPolicy: { allowedHosts: [], maxRedirects: 3, maxBytes: 1024, timeoutMs: 1000 } as never,
+        dependencies,
+        r: { versions, packages: rPackages },
+        commandTimeoutSeconds: 900,
+        trustedConstraints: [],
+      });
+    const rPlan: Partial<Plan> = {
+      language: "r",
+      entrypoint: "rules.R",
+      command: { argv: ["Rscript", "rules.R"], cwd: "repo" },
+      requirements: [],
+      rPackages: ["data.table", "data.table"],
+    };
+    const result = reconcile({
+      claim,
+      plan: { ...plan, ...rPlan },
+      repository: { url: "https://github.com/x/y", commitSha: COMMIT },
+      platform,
+      r: { version: "4.5", snapshot: "2026-10-01" },
+    });
+    if (!result.ok) throw new Error(result.reasons.join("; "));
+    expect(result.contract.environment.r).toEqual({ version: "4.5", packages: ["data.table"], snapshot: "2026-10-01" });
+    expect(result.contract.environment.platform.python.version).toBe("3.12");
+    expect(rPolicy(result.contract).outcome).toBe("approved");
+    // No R lab image on this server: refused by policy, not left to fail in the lab.
+    expect(rPolicy(result.contract, null, []).violations.join()).toMatch(/no lab image for R 4.5/u);
+    // An R plan runs Rscript, installs no Python packages, and its adapter is an .R file.
+    const python = { ...result.contract, command: { argv: ["python", "rules.R"], cwd: "repo" } };
+    expect(rPolicy(python).violations.join()).toMatch(/must start with `Rscript`/u);
+    const mixed = { ...result.contract, environment: { ...result.contract.environment, requirements: ["numpy"] } };
+    expect(rPolicy(mixed).violations.join()).toMatch(/installs no Python packages/u);
+    const pyAdapter = { path: "work/adapter/run.py", content: "print(1)", why: "w", source: "rules.R", differences: [] };
+    expect(rPolicy(result.contract, pyAdapter).violations.join()).toMatch(/must be a \.R file/u);
+  });
+
+  it("refuses a Python adapter that shells out to Rscript", () => {
+    const adapter = {
+      path: "work/adapter/run.py",
+      content: "import subprocess\nsubprocess.run(['Rscript', 'rules.R'], check=True)\n",
+      why: "the official code is R",
+      source: "rules.R",
+      differences: [],
+    };
+    const contract = contractFor({ command: { argv: ["python", "../adapter/run.py"], cwd: "work/repo" }, adapter });
+    expect(policy(contract, adapter).violations.join()).toMatch(/runs R from Python/u);
+  });
+
   it("checks metric patterns for exactly one capture group", () => {
     expect(checkMetricPattern("acc: ([0-9.]+)")).toBeNull();
     expect(checkMetricPattern("acc: [0-9.]+")).toMatch(/exactly one/u);

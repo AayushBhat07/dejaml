@@ -17,7 +17,7 @@ import { loadProviderConfig, ProviderError } from "@dejaml/agent-runtime";
 
 import { DEFAULT_STUDY_RESOURCES } from "./pipeline.js";
 import { createApiServer, recoverAfterRestart, type ApiServer } from "./server.js";
-import { type ClaimTarget, fixedLabImagePort, loadClaimTarget } from "./study/index.js";
+import { type ClaimTarget, fixedLabImagePort, loadClaimTarget, type LabImagePort, type RPackagePort } from "./study/index.js";
 import { paperPdf, ScriptedModel, ScriptedRuntime, ScriptedStudyProvider, STAND_IN_IMAGE_ID, standInAcquire } from "./stand-ins.js";
 
 const repoRoot = fileURLToPath(new URL("../../../", import.meta.url));
@@ -49,6 +49,8 @@ async function startServer(
     reviewedTargets?: Map<string, ClaimTarget>;
     /** Enables the administrator's audit download. */
     adminToken?: string;
+    /** Offers R studies: an R lab image and a package port standing in for the CRAN snapshot. */
+    r?: RPackagePort;
   } = {},
 ): Promise<void> {
   // A private project root holding the reviewed adapter and placeholder data files.
@@ -85,7 +87,7 @@ async function startServer(
     projectRoot,
     workRoot: join(work, "data"),
     image: { name: "dejaml/python-cpu:0.1.0", expectedImageId: STAND_IN_IMAGE_ID },
-    acquire: standInAcquire(cases[0]!, checkoutsCreated, options.commitSha),
+    acquire: standInAcquire(cases[0]!, checkoutsCreated, options.commitSha, options.r ? { "train.R": "cat('training')\n" } : {}),
     ...(options.labAgentEnabled ? { labAgentEnabled: true } : {}),
     ...(options.reviewedTargets ? { reviewedTargets: options.reviewedTargets } : {}),
     ...(options.adminToken ? { adminToken: options.adminToken } : {}),
@@ -94,8 +96,11 @@ async function startServer(
           multiAgent: {
             enabled: true,
             dependencies: null,
-            images: fixedLabImagePort({ name: "dejaml/python-cpu:0.1.0", expectedImageId: STAND_IN_IMAGE_ID }),
+            images: options.r
+              ? rLabImagePort()
+              : fixedLabImagePort({ name: "dejaml/python-cpu:0.1.0", expectedImageId: STAND_IN_IMAGE_ID }),
             datasets: null,
+            ...(options.r ? { rPackages: options.r } : {}),
             config: {
               platform: buildPlatformSpec({ architecture: "amd64", python: "3.11" }),
               resources: DEFAULT_STUDY_RESOURCES,
@@ -115,6 +120,44 @@ async function startServer(
   await new Promise<void>((resolve) => api.server.listen(0, "127.0.0.1", resolve));
   serverStarted = true;
   base = `http://127.0.0.1:${(api.server.address() as AddressInfo).port}`;
+}
+
+/** The lab image port of a server that also offers R 4.5 labs. */
+function rLabImagePort(): LabImagePort {
+  const python = fixedLabImagePort({ name: "dejaml/python-cpu:0.1.0", expectedImageId: STAND_IN_IMAGE_ID });
+  return {
+    rVersions: ["4.5"],
+    async ensure(input) {
+      const image = await python.ensure(input);
+      return input.r ? { ...image, name: "dejaml/r-base:0.1.0-r4.5", r: "4.5.3", python: "3.12" } : image;
+    },
+  };
+}
+
+/** Stands in for the CRAN snapshot: records what was asked and hands back an empty sealed library. */
+function standInRPackages(calls: { prepared: string[][]; released: number }): RPackagePort {
+  return {
+    snapshot: "2026-10-01",
+    screen: () => [],
+    check: async () => ({ ok: true, detail: {} }),
+    async prepare({ packages }) {
+      calls.prepared.push(packages);
+      const libraryDir = await mkdtemp(join(work, "rlib-"));
+      return {
+        manifestSha256: "c".repeat(64),
+        libraryDir,
+        snapshot: "2026-10-01",
+        packages: [
+          { name: "data.table", version: "1.17.8", sha256: "a".repeat(64), requested: true },
+          { name: "rpart", version: "4.1.24", sha256: "b".repeat(64), requested: false },
+        ],
+      };
+    },
+    async release() {
+      calls.released += 1;
+      return { removed: true };
+    },
+  };
 }
 
 async function upload(data: Uint8Array | string, name = "paper.pdf", fields: Record<string, string> = {}): Promise<Response> {
@@ -672,6 +715,49 @@ describe("Run API", () => {
     expect(report.study?.result.status).toBe("inconclusive");
     expect(report.metric).toBeNull();
     expect(runtime.containers.size).toBe(0);
+  });
+
+  it("runs an R study with prebuilt CRAN packages mounted read-only and the official command under Rscript", async () => {
+    const calls = { prepared: [] as string[][], released: 0 };
+    await startServer({ autonomous: true, repositoryUrl: "https://github.com/example/new-paper", r: standInRPackages(calls) });
+    studyProvider.plan = {
+      language: "r",
+      entrypoint: "train.R",
+      command: { argv: ["Rscript", "train.R"], cwd: "work/repo" },
+      rPackages: ["data.table"],
+      dataset: { name: "UCI Urban Land Cover", source: { kind: "repository", paths: ["train.R"] } },
+    };
+    const { runId } = (await (await upload(await paperPdf(true, "https://github.com/example/new-paper"))).json()) as { runId: string };
+    await api.idle();
+    const report = (await (await fetch(`${base}/api/runs/${runId}/report`)).json()) as StudyReport;
+    expect(calls.prepared).toEqual([["data.table"]]);
+    expect(calls.released).toBe(1);
+    expect(runtime.createArgs.some((arg) => arg.includes("/workspace/case/rlib") && arg.includes("readonly"))).toBe(true);
+    const official = runtime.execs.find((argv) => argv.includes("Rscript") && argv.includes("train.R"));
+    expect(official?.slice(official.indexOf("Rscript"), official.indexOf("Rscript") + 3)).toEqual(["Rscript", "--no-init-file", "train.R"]);
+    expect(report.events.find((event) => event.type === "lab_ready")?.summary).toContain("R 4.5.3");
+    expect(report.study?.result.status).toBe("reproduced");
+    expect(runtime.containers.size).toBe(0);
+  });
+
+  it("re-plans a Python adapter that shells out to Rscript instead of running it", async () => {
+    await startServer({ autonomous: true, repositoryUrl: "https://github.com/example/new-paper" });
+    studyProvider.firstPlan = {
+      entrypoint: "work/adapter/run.py",
+      command: { argv: ["python", "../work/adapter/run.py"], cwd: "repo" },
+      adapter: {
+        path: "work/adapter/run.py",
+        content: "import subprocess\nsubprocess.run(['Rscript', 'train.R'])\n",
+        why: "runs the R code",
+        source: "train.R",
+        differences: [],
+      },
+    };
+    const { runId } = (await (await upload(await paperPdf(true, "https://github.com/example/new-paper"))).json()) as { runId: string };
+    await api.idle();
+    const report = (await (await fetch(`${base}/api/runs/${runId}/report`)).json()) as StudyReport;
+    expect(JSON.stringify(report.events.find((event) => event.type === "plan_refused"))).toContain("plan an R study");
+    expect(report.study?.result.status).toBe("reproduced");
   });
 
   it("ends policy_blocked before any lab when the plan needs a GPU package", async () => {

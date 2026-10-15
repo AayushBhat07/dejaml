@@ -1,7 +1,15 @@
 import { readFile } from "node:fs/promises";
 import { isAbsolute, join, resolve } from "node:path";
 
-import { ContainerPlatformSchema, PythonVersionSchema, type ContainerPlatform, type PythonVersion } from "@dejaml/contracts";
+import {
+  ContainerPlatformSchema,
+  PythonVersionSchema,
+  R_IMAGE_PYTHON,
+  RVersionSchema,
+  type ContainerPlatform,
+  type PythonVersion,
+  type RVersion,
+} from "@dejaml/contracts";
 import { z } from "zod";
 
 import { type ContainerRuntime, type RuntimeCommandResult, DockerCliRuntime } from "./runtime.js";
@@ -711,6 +719,68 @@ export function pythonBaseImageRequest(input: {
       buildArgs: {
         PYTHON_BASE: `${repository}:${base.tag}@${base.index}`,
         PYTHON_VERSION: input.python,
+      },
+    },
+  };
+}
+
+// ---------------------------------------------------------------------------
+// R lab base images: rocker/r-ver (Ubuntu 24.04) for one R version, pinned in
+// lab-images/r-base/bases.lock.json, with Python added for the lab's own tools.
+
+export const RBaseImageLockSchema = z.object({
+  schemaVersion: z.literal(1),
+  image: z.string().regex(/^[a-z0-9][a-z0-9._/-]{0,127}$/u),
+  version: z.string().regex(/^[0-9A-Za-z._-]{1,32}$/u),
+  baseRepository: z.string().regex(/^[a-z0-9][a-z0-9._/:-]{0,254}$/u),
+  /** Ubuntu archive snapshot (`YYYYMMDDTHHMMSSZ`) the image's apt packages come from. */
+  aptSnapshot: z.string().regex(/^\d{8}T\d{6}Z$/u),
+  bases: z.record(
+    RVersionSchema,
+    z.object({
+      tag: z.string().regex(/^[0-9A-Za-z._-]{1,128}$/u),
+      rVersion: z.string().regex(/^4\.\d+\.\d+$/u),
+      index: DigestSchema,
+      platforms: z.object({ "linux/amd64": DigestSchema, "linux/arm64": DigestSchema }),
+    }),
+  ),
+});
+export type RBaseImageLock = z.infer<typeof RBaseImageLockSchema>;
+
+export async function loadRBaseImageLock(path: string): Promise<RBaseImageLock> {
+  return RBaseImageLockSchema.parse(JSON.parse(await readFile(path, "utf8")));
+}
+
+/** The image request for an R study's lab, built from `lab-images/r-base` with its base pinned by digest. */
+export function rBaseImageRequest(input: {
+  lock: RBaseImageLock;
+  r: RVersion;
+  platform: ContainerPlatform;
+  /** The `lab-images/r-base` directory. */
+  contextDir: string;
+  baseRepository?: string;
+  expectedImageId?: string;
+}): ImageRequest {
+  const base = input.lock.bases[input.r];
+  if (!base) {
+    throw new ImageNotReadyError("invalid_request", `no lab base image is locked for R ${input.r}`, { platform: input.platform });
+  }
+  const tag = `${input.lock.image}:${input.lock.version}-r${input.r}-${input.platform.replace("/", "-")}`;
+  const repository = input.baseRepository ?? input.lock.baseRepository;
+  return {
+    key: `lab-base:r-${input.r}`,
+    reference: tag,
+    platform: input.platform,
+    python: R_IMAGE_PYTHON,
+    ...(input.expectedImageId ? { expectedImageId: input.expectedImageId } : {}),
+    build: {
+      contextDir: input.contextDir,
+      dockerfile: "Dockerfile",
+      tag,
+      buildArgs: {
+        R_BASE: `${repository}:${base.tag}@${base.index}`,
+        R_VERSION_MINOR: input.r,
+        APT_SNAPSHOT: input.lock.aptSnapshot,
       },
     },
   };

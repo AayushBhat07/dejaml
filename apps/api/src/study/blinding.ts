@@ -180,6 +180,9 @@ const RIGGED = [
   /\btolerance\b/iu,
   // A metric line printed with a literal number instead of a computed one.
   /print\s*\(\s*f?["'][^"'\n]*(accuracy|score|f1|auc)[^"'\n{]*?[:=]\s*\d/iu,
+  // The same in R: a near-equality test, or a metric printed with a literal number.
+  /\ball\.equal\s*\(/u,
+  /\b(?:cat|print|message|sprintf)\s*\(\s*["'][^"'\n]*(accuracy|score|f1|auc)[^"'\n%]*?[:=]\s*\d/iu,
 ];
 
 export function riggedAdapter(source: string): string | null {

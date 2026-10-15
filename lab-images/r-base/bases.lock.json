@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "image": "dejaml/r-base",
+  "version": "0.1.0",
+  "baseRepository": "docker.io/rocker/r-ver",
+  "aptSnapshot": "20260901T000000Z",
+  "bases": {
+    "4.5": {
+      "tag": "4.5.3",
+      "rVersion": "4.5.3",
+      "index": "sha256:c3f39b365d1077fe24f8e9ab2742e352b6d3950897f51af1624a5bb5550c21c0",
+      "platforms": {
+        "linux/amd64": "sha256:35394dcbf419ac29056848522006de3cd33c33191377abed182acaecd48eba37",
+        "linux/arm64": "sha256:4b70014f9dbd0245a9b996e848ba6e3b28a1eada79c85513fb678ba353a81d36"
+      }
+    }
+  }
+}

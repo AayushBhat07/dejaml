@@ -30,6 +30,7 @@ import {
   checkTargetPaper,
   type ClaimTarget,
   type DatasetPort,
+  type RPackagePort,
   type DependencyPort,
   type BlindingProofCheck,
   type LabImagePort,
@@ -72,6 +73,8 @@ export type MultiAgentOptions = {
   images: LabImagePort;
   /** Trust zone 4; null disables dataset downloads. */
   datasets: DatasetPort | null;
+  /** Prebuilt CRAN binaries for R studies; null or absent disables R packages. */
+  rPackages?: RPackagePort | null;
   config: Omit<StudyConfig, "provider">;
   leakCheck?: LeakCheck;
 };
@@ -552,6 +555,7 @@ export async function runStudy(
         dependencies: options.dependencies,
         images: options.images,
         datasets: options.datasets,
+        rPackages: options.rPackages ?? null,
         config: { ...options.config, provider: agents.selection },
         chatProvider: agents.provider,
         workRoot: deps.workRoot,
