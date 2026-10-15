@@ -1,6 +1,6 @@
-import { createHash } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { existsSync } from "node:fs";
-import { mkdtemp, readdir, readFile, rm, stat } from "node:fs/promises";
+import { mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { gzipSync } from "node:zlib";
@@ -211,6 +211,32 @@ describe("extractArchive", () => {
     const bomb = gzipSync(Buffer.alloc(8 * 1024 * 1024));
     expect(await failure(bomb)).toBe("archive_ratio_exceeded");
     expect(await failure(gzipSync(Buffer.alloc(4096, 1)), { maxTotalBytes: 1024, maxFiles: 1, maxRatio: 1e9 })).toBe("archive_too_large");
+  });
+
+  it("streams multi-chunk entries from a file path and leaves no temporary files", async () => {
+    // Larger than one 1 MiB read, so content, size and CRC are checked across chunks.
+    const big = randomBytes(3 * 1024 * 1024 + 17);
+    const zipPath = join(workDir, "data.zip");
+    await writeFile(zipPath, buildZip([{ name: "big.bin", data: big }]));
+    const zipped = await extractArchive(zipPath, dest);
+    expect(zipped.files).toEqual([{ path: "big.bin", sha256: sha(big), bytes: big.length }]);
+
+    const tgzPath = join(workDir, "data.tar.gz");
+    await writeFile(tgzPath, gzipSync(buildTar([{ name: "d/big.bin", data: big }])));
+    const tarred = await extractArchive(tgzPath, join(workDir, "tgz"));
+    expect(tarred.format).toBe("tar.gz");
+    expect(tarred.files).toEqual([{ path: "d/big.bin", sha256: sha(big), bytes: big.length }]);
+    expect((await readdir(workDir)).sort()).toEqual(["data.tar.gz", "data.zip", "out", "tgz"]);
+  });
+
+  it("refuses a multi-chunk zip entry whose CRC is wrong", async () => {
+    const big = Buffer.alloc(2 * 1024 * 1024 + 5, 3);
+    expect(await failure(buildZip([{ name: "big.bin", data: big, method: 0, crc: 7 }]))).toBe("archive_corrupt");
+  });
+
+  it("removes the inflated temporary file when a gzip stream is refused", async () => {
+    expect(await failure(gzipSync(Buffer.alloc(8 * 1024 * 1024)))).toBe("archive_ratio_exceeded");
+    expect(await readdir(workDir)).toEqual([]);
   });
 
   it("honours cancellation before writing", async () => {

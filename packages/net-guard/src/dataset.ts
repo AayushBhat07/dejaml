@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { chmod, lstat, mkdir, readdir, readFile, rename, rm } from "node:fs/promises";
+import { chmod, lstat, mkdir, readdir, rename, rm } from "node:fs/promises";
 import { isAbsolute, join, resolve } from "node:path";
 
 import { type ArchiveFormat, type ArchiveLimits, extractArchive, type ExtractedFile } from "./archive.js";
@@ -10,15 +10,28 @@ import { type DownloadReceipt, type HttpsTransport, safeDownload } from "./fetch
 import { isBlockedHostname, looksLikeIpv4Variant, parseIpLiteral } from "./ip.js";
 import { type FetchPolicy, isPlainDnsName } from "./url-policy.js";
 
-export const DATASET_MAX_BYTES = 200 * 1024 * 1024;
+export const DATASET_MAX_BYTES = 2 * 1024 * 1024 * 1024;
+
+/** Slowest sustained download rate a dataset of the maximum size is given time for. */
+const MIN_DATASET_BYTES_PER_SECOND = 2 * 1024 * 1024;
+
+/** Two minutes plus enough time to fetch `maxBytes` at 2 MiB/s. Stalls still end at the idle timeout. */
+export function datasetTimeoutMs(maxBytes: number): number {
+  return 120_000 + Math.ceil(maxBytes / MIN_DATASET_BYTES_PER_SECOND) * 1000;
+}
+
+/** A dataset fetch policy for a size cap, with the time limit scaled to it. */
+export function datasetPolicy(maxBytes: number = DATASET_MAX_BYTES): FetchPolicy {
+  return Object.freeze({
+    allowedHosts: Object.freeze([]) as readonly string[],
+    maxRedirects: 3,
+    maxBytes,
+    timeoutMs: datasetTimeoutMs(maxBytes),
+  });
+}
 
 /** Nothing is downloadable until an administrator configures `allowedHosts`. */
-export const DEFAULT_DATASET_POLICY: FetchPolicy = Object.freeze({
-  allowedHosts: Object.freeze([]) as readonly string[],
-  maxRedirects: 3,
-  maxBytes: DATASET_MAX_BYTES,
-  timeoutMs: 120_000,
-});
+export const DEFAULT_DATASET_POLICY: FetchPolicy = datasetPolicy();
 
 const FILE_NAME_PATTERN = /^[A-Za-z0-9_-][A-Za-z0-9._-]{0,127}$/;
 
@@ -320,7 +333,7 @@ export async function acquireLabDataset(options: LabDatasetOptions): Promise<Lab
 
     let extracted: DatasetExtraction | null = null;
     if (options.extract === true) {
-      const result = await extractArchive(await readFile(receipt.path), join(destinationDir, LAB_DATASET_EXTRACTED_DIR), {
+      const result = await extractArchive(receipt.path, join(destinationDir, LAB_DATASET_EXTRACTED_DIR), {
         gzipMemberName: gzipMemberName(receipt.fileName),
         ...(options.archiveLimits === undefined ? {} : { limits: options.archiveLimits }),
         ...(signal === undefined ? {} : { signal }),

@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 import { platformFromEnv } from "@dejaml/contracts";
 import { ImageReadiness, LabManager, loadBaseImageLock } from "@dejaml/lab-manager";
 import { loadProviderConfig, ProviderConfigError, providerRoute, publicProviders } from "@dejaml/agent-runtime";
-import { DEFAULT_DATASET_POLICY } from "@dejaml/net-guard";
+import { DATASET_MAX_BYTES, datasetPolicy } from "@dejaml/net-guard";
 import { DependencyPreparer, loadCompatibilityConstraints, loadPrepPolicy } from "@dejaml/prep";
 import { RunStore } from "@dejaml/run-store";
 
@@ -71,6 +71,9 @@ const number = (name: string, fallback: number): number => {
   const value = Number(process.env[name] ?? "");
   return Number.isFinite(value) && value > 0 ? value : fallback;
 };
+// The download time limit scales with this cap; archives may unpack to at most 4 GiB.
+const datasetMaxBytes = Math.floor(number("DEJAML_DATASET_MAX_MB", DATASET_MAX_BYTES / 1024 ** 2) * 1024 ** 2);
+const datasetFetchPolicy = { ...datasetPolicy(datasetMaxBytes), allowedHosts: datasetHosts };
 
 const recovery = await recoverAfterRestart({ store, labs, workRoot: dataDir, resumeStudies: process.env.DEJAML_AUTONOMOUS !== "0" });
 const api = createApiServer({
@@ -91,7 +94,7 @@ const api = createApiServer({
     enabled: process.env.DEJAML_AUTONOMOUS !== "0",
     dependencies: prep ? preparerPort(prep) : null,
     images: readinessLabImagePort({ readiness, lock: baseImages, contextDir: join(projectRoot, "lab-images/python-base") }),
-    datasets: datasetHosts.length ? localDatasetPort({ ...DEFAULT_DATASET_POLICY, allowedHosts: datasetHosts }) : null,
+    datasets: datasetHosts.length ? localDatasetPort(datasetFetchPolicy) : null,
     config: {
       platform,
       resources: {
@@ -99,7 +102,7 @@ const api = createApiServer({
         timeoutSeconds: number("DEJAML_LAB_TIMEOUT_SECONDS", DEFAULT_STUDY_RESOURCES.timeoutSeconds),
       },
       engineers: Math.min(3, Math.floor(number("DEJAML_LAB_ENGINEERS", 1))),
-      datasetPolicy: { ...DEFAULT_DATASET_POLICY, allowedHosts: datasetHosts },
+      datasetPolicy: datasetFetchPolicy,
       maxStudyMs: number("DEJAML_STUDY_MAX_MINUTES", 180) * 60_000,
       commandTimeoutSeconds: number("DEJAML_COMMAND_TIMEOUT_SECONDS", 900),
       maxReplans: Math.min(4, Math.floor(number("DEJAML_MAX_REPLANS", 2))),

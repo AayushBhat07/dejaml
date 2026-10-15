@@ -147,9 +147,10 @@ export type DatasetPort = {
   }): Promise<AcquiredDataset>;
   release(dataset: AcquiredDataset): Promise<{ removed: boolean }>;
   /**
-   * Downloads a file once, with the same allowlist and limits, to learn its
-   * SHA-256, size and (for an archive) its file listing, then deletes it. The
-   * plan names that hash; preparation downloads it again and verifies it.
+   * Downloads a file, with the same allowlist and limits, to learn its
+   * SHA-256, size and (for an archive) its file listing. The plan names that
+   * hash; preparation reuses the kept download when the hash matches, and
+   * otherwise downloads it again and verifies it.
    */
   probe(input: { url: string; extract: boolean; destinationDir: string; signal: AbortSignal }): Promise<DatasetProbe>;
 };
