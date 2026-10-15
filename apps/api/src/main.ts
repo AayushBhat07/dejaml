@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 import { platformFromEnv } from "@dejaml/contracts";
 import { ImageReadiness, LabManager, loadBaseImageLock } from "@dejaml/lab-manager";
 import { loadProviderConfig, ProviderConfigError, providerRoute, publicProviders } from "@dejaml/agent-runtime";
-import { DEFAULT_DATASET_POLICY, parseAllowedHosts } from "@dejaml/net-guard";
+import { DEFAULT_DATASET_POLICY } from "@dejaml/net-guard";
 import { DependencyPreparer, loadCompatibilityConstraints, loadPrepPolicy } from "@dejaml/prep";
 import { RunStore } from "@dejaml/run-store";
 
@@ -14,7 +14,7 @@ import { loadCases } from "./cases.js";
 import { DEFAULT_STUDY_RESOURCES } from "./pipeline.js";
 import { environmentSecrets, withSecrets } from "./boundaries.js";
 import { createApiServer, recoverAfterRestart } from "./server.js";
-import { loadReviewedTargets, localDatasetPort, preparerPort, readinessLabImagePort } from "./study/index.js";
+import { datasetAllowedHosts, loadReviewedTargets, localDatasetPort, preparerPort, readinessLabImagePort } from "./study/index.js";
 
 const projectRoot = resolve(fileURLToPath(new URL("../../../", import.meta.url)));
 const dataDir = resolve(process.env.DEJAML_DATA_DIR ?? join(projectRoot, "artifacts", "api"));
@@ -66,7 +66,7 @@ const trustedConstraints = (
 ).map((item) => ({ requirement: item.spec, reason: item.reason }));
 // Reviewed claim targets are server-owned files; each adapter is checked against its reviewed hash here.
 const reviewedTargets = await loadReviewedTargets(join(projectRoot, "config/reviewed-targets"), projectRoot);
-const datasetHosts = parseAllowedHosts(process.env.DEJAML_DATASET_ALLOWED_HOSTS ?? "");
+const datasetHosts = datasetAllowedHosts(process.env.DEJAML_DATASET_ALLOWED_HOSTS);
 const number = (name: string, fallback: number): number => {
   const value = Number(process.env[name] ?? "");
   return Number.isFinite(value) && value > 0 ? value : fallback;

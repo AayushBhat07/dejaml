@@ -146,6 +146,21 @@ export type DatasetPort = {
     signal: AbortSignal;
   }): Promise<AcquiredDataset>;
   release(dataset: AcquiredDataset): Promise<{ removed: boolean }>;
+  /**
+   * Downloads a file once, with the same allowlist and limits, to learn its
+   * SHA-256, size and (for an archive) its file listing, then deletes it. The
+   * plan names that hash; preparation downloads it again and verifies it.
+   */
+  probe(input: { url: string; extract: boolean; destinationDir: string; signal: AbortSignal }): Promise<DatasetProbe>;
+};
+
+export type DatasetProbe = {
+  finalUrl: string;
+  sha256: string;
+  bytes: number;
+  /** Extracted files (relative paths and sizes), first 200; empty for a single file. */
+  files: Array<{ path: string; bytes: number }>;
+  fileCount: number;
 };
 
 // ---------------------------------------------------------------------------
@@ -187,6 +202,7 @@ export type StudyContext = {
   store: RunStore;
   labs: LabWorker;
   dependencies: DependencyPort | null;
+  datasetPort: DatasetPort | null;
   runtime: BoundedAgentRuntime;
   config: StudyConfig;
   /** Private per-run directory on the host (checkouts, datasets, exports). */

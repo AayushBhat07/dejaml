@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
-import { posix } from "node:path";
+import { mkdir } from "node:fs/promises";
+import { join, posix } from "node:path";
 
 import { defineTool, sha256, type ToolContext, type ToolDefinition, ToolDenied } from "@dejaml/agent-runtime";
 import { type CommandOutcome, LabError } from "@dejaml/lab-manager";
@@ -186,7 +187,10 @@ export async function measureIntegrity(ctx: StudyContext, lab: EngineerLab, data
   return { workRepo: parsed.workRepo, venv: parsed.venv, adapter: parsed.adapter ?? null };
 }
 
+const MAX_DATASET_PROBES = 6;
+
 export function labTools(ctx: StudyContext): ToolDefinition[] {
+  let probes = 0;
   const inspect = async (agentId: string, request: Parameters<StudyContext["labs"]["inspectFiles"]>[1]) => {
     const lab = requireLab(ctx, agentId);
     try {
@@ -421,6 +425,42 @@ export function labTools(ctx: StudyContext): ToolDefinition[] {
           "Dependency request recorded",
           "Recorded. The Supervisor and Planner will decide on a re-plan; finish now as not_measured.",
         );
+      },
+    }),
+    defineTool({
+      name: "dataset_probe",
+      description:
+        "Download a dataset file once from an allowed host (HTTPS only) to learn its SHA-256, size, and, for an archive, the files it contains. Nothing is kept: put the returned sha256 in the plan's download source, and preparation downloads and verifies it again. Use it for every download your plan needs.",
+      input: z.object({
+        url: z.string().min(8).max(2_000),
+        extract: z.boolean().describe("True for a .zip, .tar, .tar.gz, or .gz archive the code reads unpacked."),
+      }),
+      async run(input, context) {
+        if (!ctx.datasetPort) throw new ToolDenied("dataset downloads are disabled on this server");
+        probes += 1;
+        if (probes > MAX_DATASET_PROBES) throw new ToolDenied(`at most ${MAX_DATASET_PROBES} dataset probes per plan`);
+        const parent = join(ctx.workDir, "probes");
+        await mkdir(parent, { recursive: true, mode: 0o700 });
+        try {
+          const probe = await ctx.datasetPort.probe({
+            url: input.url,
+            extract: input.extract,
+            destinationDir: join(parent, randomUUID()),
+            signal: context.signal,
+          });
+          ctx.event("dataset_probed", "progress", `Probed a dataset (${probe.bytes} bytes, sha256 ${probe.sha256.slice(0, 12)})`, {
+            url: input.url,
+            finalUrl: probe.finalUrl,
+            sha256: probe.sha256,
+            bytes: probe.bytes,
+            fileCount: probe.fileCount,
+          });
+          return ok(`Dataset is ${probe.bytes} bytes, sha256 ${probe.sha256}`, probe);
+        } catch (error) {
+          if (error instanceof PreparationFailure)
+            return failed(`Download refused or failed: ${error.code}`, { code: error.code, message: error.message });
+          throw error;
+        }
       },
     }),
     defineTool({

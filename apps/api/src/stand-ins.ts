@@ -463,6 +463,8 @@ export class ScriptedStudyProvider implements ChatProvider {
   };
   /** Changes to the Planner's plan (for policy tests). */
   plan: Record<string, unknown> = {};
+  /** Changes to the Planner's first plan only, before any re-plan. */
+  firstPlan: Record<string, unknown> = {};
   /** The Supervisor's final proposal; null proposes the computed status. */
   supervisorProposal: string | null = null;
   /** The Supervisor's answer at a checkpoint. */
@@ -594,6 +596,7 @@ export class ScriptedStudyProvider implements ChatProvider {
           adapter: null,
           risks: [],
           ...this.plan,
+          ...((inputs.previousRounds as unknown[] | undefined)?.length ? {} : this.firstPlan),
         });
       case "Lab Engineer": {
         if (turn === 0 && this.tamper) return [{ name: "lab_run", input: { argv: ["touch", "work/.venv/x"] } }];

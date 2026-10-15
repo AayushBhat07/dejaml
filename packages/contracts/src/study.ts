@@ -82,6 +82,7 @@ export const StageRetryReasonSchema = z.enum([
   "dependency_failure_replan",
   "execution_failed_replan",
   "reviewer_rejected_replan",
+  "policy_refused_replan",
   "transient_provider_error",
   "operator_request",
 ]);

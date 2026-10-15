@@ -2,7 +2,7 @@ import { chmod, rm, stat } from "node:fs/promises";
 import { join } from "node:path";
 
 import { type BaseImageLock, type ImageReadiness, ImageNotReadyError, pythonBaseImageRequest } from "@dejaml/lab-manager";
-import { acquireLabDataset, cleanupDataset, DatasetError, type FetchPolicy, NetGuardError } from "@dejaml/net-guard";
+import { acquireLabDataset, cleanupDataset, DatasetError, type FetchPolicy, NetGuardError, parseAllowedHosts } from "@dejaml/net-guard";
 import {
   type DependencyManifest,
   type DependencyPreparer,
@@ -24,6 +24,42 @@ import {
   PreparationFailure,
   type PreparedDependencies,
 } from "./context.js";
+
+/**
+ * Public hosts that serve the datasets lightweight ML papers use (UCI,
+ * OpenML, the UCR/UEA archive, Zenodo, figshare, Hugging Face, files in
+ * GitHub repositories), with the hosts their downloads redirect to. Every
+ * download is still HTTPS-only, size-capped, and pinned by its SHA-256.
+ */
+export const COMMON_DATASET_HOSTS: readonly string[] = [
+  "archive.ics.uci.edu",
+  "www.openml.org",
+  "api.openml.org",
+  "data.openml.org",
+  "www.timeseriesclassification.com",
+  "timeseriesclassification.com",
+  "www.cs.ucr.edu",
+  "zenodo.org",
+  "figshare.com",
+  "ndownloader.figshare.com",
+  "huggingface.co",
+  "cdn-lfs.huggingface.co",
+  "cdn-lfs.hf.co",
+  "cas-bridge.xethub.hf.co",
+  "raw.githubusercontent.com",
+  "github.com",
+  "codeload.github.com",
+  "objects.githubusercontent.com",
+  "release-assets.githubusercontent.com",
+];
+
+/** The dataset allowlist: the common hosts when unset or empty, none for `none`, else exactly the listed hosts. */
+export function datasetAllowedHosts(env: string | undefined): string[] {
+  const value = (env ?? "").trim();
+  if (value === "") return [...COMMON_DATASET_HOSTS];
+  if (value.toLowerCase() === "none") return [];
+  return parseAllowedHosts(value);
+}
 
 /**
  * Local implementations of the orchestrator's ports. An AWS deployment swaps
@@ -75,6 +111,35 @@ export function localDatasetPort(policy: FetchPolicy): DatasetPort {
     async release(dataset) {
       const receipt = await cleanupDataset(dataset.root);
       return { removed: receipt.verifiedAbsent };
+    },
+    async probe(input) {
+      let root: string | null = null;
+      try {
+        const dataset = await acquireLabDataset({
+          name: "probe",
+          url: input.url,
+          policy,
+          destinationDir: input.destinationDir,
+          extract: input.extract,
+          signal: input.signal,
+        });
+        root = dataset.root;
+        const files = dataset.identity.extracted?.files ?? [];
+        return {
+          finalUrl: dataset.identity.finalUrl,
+          sha256: dataset.identity.sha256,
+          bytes: dataset.identity.bytes,
+          files: files.slice(0, 200).map((file) => ({ path: file.path, bytes: file.bytes })),
+          fileCount: files.length,
+        };
+      } catch (error) {
+        if (error instanceof DatasetError) throw new PreparationFailure(`dataset_${error.code}`, error.message, error.policy);
+        if (error instanceof NetGuardError) throw new PreparationFailure(`dataset_${error.code}`, error.message, "policy_blocked");
+        throw error;
+      } finally {
+        // The probe keeps nothing: preparation downloads the file again and verifies the hash.
+        await cleanupDataset(root ?? input.destinationDir).catch(() => undefined);
+      }
     },
   };
 }

@@ -467,6 +467,7 @@ export async function runMultiAgentStudy(
     store,
     labs: deps.labs,
     dependencies: deps.dependencies,
+    datasetPort: deps.datasets,
     runtime: undefined as unknown as BoundedAgentRuntime,
     config,
     workDir,
@@ -999,7 +1000,26 @@ export async function runMultiAgentStudy(
     if (ctx.sealedForScan) agentsStarted();
   }
 
-  async function plan(): Promise<boolean> {
+  /**
+   * A plan the Planner or policy refused gets one more attempt at the same
+   * sealed claim: another dataset source, Python version, or an adapter may
+   * fit the lab. The claim itself never changes, since it is already sealed.
+   */
+  async function refusedPlan(reasons: string[], kind: "blocked" | "unusable"): Promise<"replan" | "stop"> {
+    if (canReplan("policy_refused_replan")) {
+      await replan(
+        "policy_refused_replan",
+        `The previous plan was refused: ${reasons.join("; ")}. Plan the same claim again so it fits the lab: probe each download with dataset_probe and use its sha256, choose a Python version with binary wheels (check with dependency_check), or declare an adapter that only calls the official code. Set status blocked only if no faithful plan fits.`,
+        { refused: reasons, kind },
+      );
+      return "replan";
+    }
+    if (kind === "blocked") policyViolations.push(...reasons);
+    else stopReasons.push(...reasons);
+    return "stop";
+  }
+
+  async function plan(): Promise<"ready" | "replan" | "stop"> {
     const claim = paperOut?.result?.claim ?? null;
     const repository = repoOut?.repository ?? null;
     if (target && claim && paperOut?.result?.status === "ready") {
@@ -1008,7 +1028,7 @@ export async function runMultiAgentStudy(
       if (mismatch) {
         stopReasons.push(mismatch);
         event("claim_mismatch", "warning", mismatch, { caseId: target.caseId });
-        return false;
+        return "stop";
       }
     }
     planOut = await runStage<PlanStageOutput>("reconciling", async () => {
@@ -1093,19 +1113,13 @@ export async function runMultiAgentStudy(
     const result = planOut;
     if (!result.plan) {
       stopReasons.push(`the Planner did not finish (${result.status}${result.reason ? `: ${result.reason}` : ""})`);
-      return false;
+      return "stop";
     }
-    if (result.plan.status === "blocked") {
-      policyViolations.push(withhold(result.plan.blockedReason ?? result.plan.summary));
-      return false;
-    }
+    if (result.plan.status === "blocked") return refusedPlan([withhold(result.plan.blockedReason ?? result.plan.summary)], "blocked");
     if (result.plan.status === "inconclusive" || !result.contract) {
-      stopReasons.push(
-        result.reconcileErrors.length
-          ? `the plan is incomplete: ${result.reconcileErrors.join("; ")}`
-          : `the plan is inconclusive: ${withhold(result.plan.summary)}`,
-      );
-      return false;
+      if (result.reconcileErrors.length) return refusedPlan([`the plan is incomplete: ${result.reconcileErrors.join("; ")}`], "unusable");
+      stopReasons.push(`the plan is inconclusive: ${withhold(result.plan.summary)}`);
+      return "stop";
     }
     ctx.contract = result.contract;
 
@@ -1157,16 +1171,14 @@ export async function runMultiAgentStudy(
         planDigest: review.outcome === "approved" ? review.planDigest : null,
       };
     });
-    if (policyOut.outcome === "policy_blocked") {
-      policyViolations.push(...policyOut.violations);
-      return false;
-    }
-    if (policyOut.outcome === "inconclusive") {
-      stopReasons.push(...policyOut.violations.map((item) => `plan refused: ${item}`));
-      return false;
-    }
+    if (policyOut.outcome === "policy_blocked") return refusedPlan(policyOut.violations, "blocked");
+    if (policyOut.outcome === "inconclusive")
+      return refusedPlan(
+        policyOut.violations.map((item) => `plan refused: ${item}`),
+        "unusable",
+      );
     ctx.planDigest = policyOut.planDigest;
-    return true;
+    return "ready";
   }
 
   async function prepare(): Promise<"ready" | "replan" | "stop"> {
@@ -1853,7 +1865,9 @@ export async function runMultiAgentStudy(
       );
     } else {
       for (let round = 0; round <= config.maxReplans; round += 1) {
-        if (!(await plan())) break;
+        const planned = await plan();
+        if (planned === "replan") continue;
+        if (planned === "stop") break;
         const prepared = await prepare();
         if (prepared === "replan") continue;
         if (prepared === "stop") break;

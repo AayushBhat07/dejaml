@@ -96,6 +96,7 @@ beforeEach(async () => {
       },
     } as unknown as StudyContext["labs"],
     dependencies: null,
+    datasetPort: null,
     runtime: { board: (runId: string) => new EvidenceBoard(store.ledger, runId) } as unknown as StudyContext["runtime"],
     config: {
       platform: buildPlatformSpec({ architecture: "amd64", python: "3.11" }),
@@ -251,5 +252,28 @@ describe("study tools", () => {
     await destroy.run({ reason: "done" }, context("lab_engineer"));
     const run = tool("lab_run", "lab_engineer");
     await expect(run.run(run.input.parse({ argv: ["ls"] }), context("lab_engineer"))).rejects.toThrow(/destroyed/u);
+  });
+
+  it("probes a dataset for the Planner and reports its hash, size, and files", async () => {
+    const probed: Array<{ url: string; extract: boolean }> = [];
+    ctx.datasetPort = {
+      acquire: async () => {
+        throw new Error("not called");
+      },
+      release: async () => ({ removed: true }),
+      probe: async (input) => {
+        probed.push({ url: input.url, extract: input.extract });
+        return { finalUrl: input.url, sha256: "d".repeat(64), bytes: 42, files: [{ path: "train.csv", bytes: 40 }], fileCount: 1 };
+      },
+    };
+    const result = await call("dataset_probe", { url: "https://archive.ics.uci.edu/data.zip", extract: true }, "reproduction_planner");
+    expect(result.isError).toBeFalsy();
+    expect(result.summary).toContain("d".repeat(64));
+    expect(probed).toEqual([{ url: "https://archive.ics.uci.edu/data.zip", extract: true }]);
+
+    ctx.datasetPort = null;
+    await expect(
+      call("dataset_probe", { url: "https://archive.ics.uci.edu/data.zip", extract: false }, "reproduction_planner"),
+    ).rejects.toThrow(/disabled/u);
   });
 });

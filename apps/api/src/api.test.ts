@@ -690,6 +690,19 @@ describe("Run API", () => {
     expect(stageEvents("stage_started")).not.toContain("executing");
   });
 
+  it("re-plans the same claim once after policy refuses the plan, and then runs it", async () => {
+    await startServer({ autonomous: true, repositoryUrl: "https://github.com/example/new-paper" });
+    studyProvider.firstPlan = { requirements: ["torch==2.4.0"] };
+    const { runId } = (await (await upload(await paperPdf(true, "https://github.com/example/new-paper"))).json()) as { runId: string };
+    await api.idle();
+    const report = (await (await fetch(`${base}/api/runs/${runId}/report`)).json()) as StudyReport;
+    const types = report.events.map((event) => event.type);
+    expect(types).toContain("plan_refused");
+    expect(report.events.find((event) => event.type === "replan")?.publicPayload.reason).toBe("policy_refused_replan");
+    expect(types.indexOf("plan_approved")).toBeGreaterThan(types.indexOf("plan_refused"));
+    expect(report.study?.result.status).toBe("reproduced");
+  });
+
   it("fails, not inconclusive, when the model provider refuses every call", async () => {
     await startServer({ autonomous: true, repositoryUrl: "https://github.com/example/new-paper" });
     studyProvider.failWith = new ProviderError("payment_required", "credit balance is too low");
