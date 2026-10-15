@@ -13,3 +13,16 @@ DéjàML previously integrated with the external OpenClaw runtime through its do
 - License: MIT
 
 No OpenClaw source files are copied into this repository at this phase. Operators installing OpenClaw should retain the license and third-party notices distributed with that installation.
+
+## onetake and Kokoro (Feasibility and Viability video)
+
+`docs/media/dejaml-feasibility-and-viability.mp4` was made with onetake's
+"clearing" case and narrated with the Kokoro text-to-speech model (voice
+`af_aoede`). The sound effects were generated, not downloaded.
+
+- onetake: <https://github.com/feitangyuan/onetake>, under a noncommercial
+  license, so the video is for presentations, reports and posts, not paid
+  advertising.
+- Kokoro: <https://huggingface.co/hexgrad/Kokoro-82M>
+
+The video is not part of the MIT-licensed source code.
