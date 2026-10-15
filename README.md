@@ -165,7 +165,7 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for the full design.
 
 ## Reports and links
 
-| | |
+| Resource | Link |
 |---|---|
 | GitHub repository | <https://github.com/AayushBhat07/dejaml> |
 | YouTube | <https://www.youtube.com/@ParthNaukudkar-q5g> |
