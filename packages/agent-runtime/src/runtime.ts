@@ -75,6 +75,9 @@ export type AgentTask<T = unknown> = {
 
 export type AgentOutcomeStatus = "completed" | "failed" | "cancelled" | "exhausted";
 
+/** How a failed outcome's reason begins when the model provider, not the agent, failed. */
+export const PROVIDER_FAILURE_PREFIX = "model provider error";
+
 export type AgentOutcome<T = unknown> = {
   agentId: string;
   role: AgentRole;
@@ -549,7 +552,7 @@ export class BoundedAgentRuntime implements AgentRuntime {
       }
       const reason =
         error instanceof ProviderError
-          ? `model provider error (${error.code}): ${error.message}`
+          ? `${PROVIDER_FAILURE_PREFIX} (${error.code}): ${error.message}`
           : error instanceof Error
             ? error.message
             : String(error);

@@ -21,6 +21,11 @@ export type StudyOptions = {
    * expected value, or any other part of a case.
    */
   reviewedCaseId?: string;
+  /**
+   * The agents choose the claim. Without it the server runs a reviewed case
+   * when the paper matches one byte for byte.
+   */
+  openStudy?: boolean;
 };
 
 /** A provider the server's administrator configured with a server-held key. */
@@ -248,7 +253,10 @@ export class HttpRunClient implements RunClient {
     }
     // A reviewed case names its own repository on the server; only its id is sent.
     if (options.reviewedCaseId) body.append("reviewedCaseId", options.reviewedCaseId);
-    else if (options.repositoryUrl) body.append("repositoryUrl", options.repositoryUrl);
+    else {
+      if (options.openStudy) body.append("openStudy", "true");
+      if (options.repositoryUrl) body.append("repositoryUrl", options.repositoryUrl);
+    }
     const response = await fetch(`${this.#base}/runs`, { method: "POST", body });
     if (!response.ok) {
       const detail = (await response.json().catch(() => null)) as { error?: string } | null;

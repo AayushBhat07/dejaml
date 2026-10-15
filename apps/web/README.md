@@ -15,7 +15,7 @@ By default the app runs in **replay** mode, labelled by `fixtures/events/urban-l
 VITE_DEJAML_API=live npm run dev --workspace @dejaml/web
 ```
 
-In live mode the run ID is kept in `?run=`, so after a refresh the page follows the same study again: it replays the history from sequence 0, then continues live. The SSE client resumes with `Last-Event-ID` / `?after=`, drops duplicates, and reconnects with backoff. New Study lists the server's reviewed cases (`GET /api/config` → `reviewedCases`). It matches the chosen PDF's SHA-256 to a case, or lets you pick one by hand, shows the claim that will be tested, and sends only `reviewedCaseId`. The API also serves a live build (`VITE_DEJAML_API=live npm run build`) at `http://127.0.0.1:8787`.
+In live mode the run ID is kept in `?run=`, so after a refresh the page follows the same study again: it replays the history from sequence 0, then continues live. The SSE client resumes with `Last-Event-ID` / `?after=`, drops duplicates, and reconnects with backoff. New Study lists the server's reviewed cases (`GET /api/config` → `reviewedCases`). It matches the chosen PDF's SHA-256 to a case, or lets you pick one by hand, shows the claim that will be tested, and sends only `reviewedCaseId`. Choosing no case sends `openStudy`, so the server lets the agents choose the claim instead of matching the paper to its reviewed case. The API also serves a live build (`VITE_DEJAML_API=live npm run build`) at `http://127.0.0.1:8787`.
 
 ## The Research Campus
 

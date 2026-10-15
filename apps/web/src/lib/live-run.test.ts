@@ -92,6 +92,25 @@ describe("analyzeRun: agent roster", () => {
     expect(end.stages.map((step) => step.state)).toEqual(Array(8).fill("done"));
   });
 
+  it("shows stages a blocked plan skipped as skipped, not done", () => {
+    const upTo = until(byType("stage_started", (event) => event.publicPayload.stage === "policy_review"));
+    const base = upTo.at(-1)!.sequence;
+    const skipped = ["preparing", "executing", "reviewing"].map((stage, index) =>
+      makeEvent(base + 1 + index, { type: "stage_skipped", status: "progress", publicPayload: { stage, attempt: 1 } }),
+    );
+    const blocked = analyzeRun([
+      ...upTo,
+      ...skipped,
+      makeEvent(base + 4, { type: "stage_started", status: "started", publicPayload: { stage: "deciding", attempt: 1 } }),
+      makeEvent(base + 5, {
+        type: "run_finished",
+        status: "completed",
+        publicPayload: { runStatus: "completed", verdict: "policy_blocked" },
+      }),
+    ]);
+    expect(blocked.stages.map((step) => step.state)).toEqual(["done", "done", "done", "done", "skipped", "skipped", "skipped", "done"]);
+  });
+
   it("adds a Debugger only when an Engineer asks, and shows the Engineer blocked until it answers", () => {
     const upTo = until(byType("agent_turn", (event) => event.publicPayload.label === "engineer-1"));
     const parent = String(engineerOne.publicPayload.agentId);

@@ -276,6 +276,7 @@ describe("live mode", () => {
         name: "paper.pdf",
         options: {
           model: { providerId: "anthropic", model: "claude-sonnet-5-5" },
+          openStudy: true,
           repositoryUrl: "https://github.com/example/new-paper",
         },
       },
@@ -298,13 +299,16 @@ describe("live mode", () => {
         reviewedCaseId: "pyts-boss-gunpoint",
         repositoryUrl: "https://github.com/example/ignored",
       });
+      await client.createRun(pdf(""), { openStudy: true, repositoryUrl: "https://github.com/example/new-paper" });
     } finally {
       vi.unstubAllGlobals();
     }
-    expect(sent).toHaveLength(2);
+    expect(sent).toHaveLength(3);
     expect([...sent[0]!.keys()].sort()).toEqual(["modelName", "paper", "providerId"]);
     expect([...sent[1]!.keys()].sort()).toEqual(["modelName", "paper", "providerId", "reviewedCaseId"]);
     expect(sent[1]!.get("reviewedCaseId")).toBe("pyts-boss-gunpoint");
+    expect([...sent[2]!.keys()].sort()).toEqual(["openStudy", "paper", "repositoryUrl"]);
+    expect(sent[2]!.get("openStudy")).toBe("true");
   });
 });
 
@@ -372,7 +376,19 @@ describe("reviewed cases", () => {
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: "Start study" }));
     });
-    expect(createRun.mock.calls[0]![1]).toEqual({ model: { providerId: "openai", model: "gpt-x" } });
+    expect(createRun.mock.calls[0]![1]).toEqual({ model: { providerId: "openai", model: "gpt-x" }, openStudy: true });
+  });
+
+  it("starts an open study for a reviewed paper when the person chooses no case", async () => {
+    const createRun = vi.fn<RunClient["createRun"]>(async () => ({ runId: "run_created" }));
+    await renderWithCases(createRun);
+    await choosePaper(reviewedPaper);
+    fireEvent.change(screen.getByLabelText("Case"), { target: { value: "" } });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Start study" }));
+    });
+    // Saying so is what stops the server from matching the paper to its reviewed case.
+    expect(createRun.mock.calls[0]![1]).toEqual({ model: { providerId: "openai", model: "gpt-x" }, openStudy: true });
   });
 
   it("lets a person pick a reviewed case by hand and shows the server's refusal of a different paper", async () => {

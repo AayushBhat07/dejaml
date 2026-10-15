@@ -477,6 +477,8 @@ export class ScriptedStudyProvider implements ChatProvider {
   debugOnFailure = true;
   /** Delay per model call, so tests can cancel mid-study. */
   delayMs = 0;
+  /** An error every model call throws, as a provider out of credit does. */
+  failWith: Error | null = null;
   readonly systems: string[] = [];
   #counter = 0;
 
@@ -485,6 +487,7 @@ export class ScriptedStudyProvider implements ChatProvider {
   async chat(request: ChatRequest): Promise<ChatResponse> {
     if (this.delayMs > 0) await new Promise((resolve) => setTimeout(resolve, this.delayMs));
     if (request.signal?.aborted) throw Object.assign(new Error("cancelled"), { name: "AbortError" });
+    if (this.failWith) throw this.failWith;
     this.systems.push(request.system);
     const role = /^You are the ([A-Za-z ]+), one independent agent/u.exec(request.system)?.[1] ?? "";
     const turns = request.messages.filter((message) => message.role === "assistant").length;

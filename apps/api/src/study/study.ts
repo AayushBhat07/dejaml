@@ -4,7 +4,14 @@ import { chmod, mkdir, mkdtemp, readdir, rm, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { promisify } from "node:util";
 
-import { type AgentOutcome, type AgentRole, BoundedAgentRuntime, type ChatProvider, ROLE_LABELS } from "@dejaml/agent-runtime";
+import {
+  type AgentOutcome,
+  type AgentRole,
+  BoundedAgentRuntime,
+  type ChatProvider,
+  PROVIDER_FAILURE_PREFIX,
+  ROLE_LABELS,
+} from "@dejaml/agent-runtime";
 import type {
   Assessment,
   Attempt,
@@ -635,16 +642,20 @@ export async function runMultiAgentStudy(
       authorRole: "system",
       payload: { stage, status: "started", attempt: claim.record.attempt, retryReason: claim.record.retryReason },
     });
-    event(
-      "stage_started",
-      "started",
-      `Stage ${stage.replaceAll("_", " ")} started${claim.record.retryReason ? ` (retry: ${claim.record.retryReason.replaceAll("_", " ")})` : ""}`,
-      {
-        stage,
-        attempt: claim.record.attempt,
-        retryReason: claim.record.retryReason,
-      },
-    );
+    // A skipped stage never ran; saying it started would show it as done.
+    if (options.skip)
+      event("stage_skipped", "progress", `Stage ${stage.replaceAll("_", " ")} skipped`, { stage, attempt: claim.record.attempt });
+    else
+      event(
+        "stage_started",
+        "started",
+        `Stage ${stage.replaceAll("_", " ")} started${claim.record.retryReason ? ` (retry: ${claim.record.retryReason.replaceAll("_", " ")})` : ""}`,
+        {
+          stage,
+          attempt: claim.record.attempt,
+          retryReason: claim.record.retryReason,
+        },
+      );
     const renew = setInterval(() => {
       try {
         stages.renew(runId, stage, owner, STAGE_LEASE_MS);
@@ -720,7 +731,7 @@ export async function runMultiAgentStudy(
     }
     if (existing) {
       const handle = await runtime.resumeAgent(agentId);
-      return { agentId, done: handle.done as Promise<AgentOutcome<T>> };
+      return { agentId, done: watchProvider(handle.done as Promise<AgentOutcome<T>>) };
     }
     const handle = await runtime.startAgent<T>({
       runId,
@@ -736,7 +747,17 @@ export async function runMultiAgentStudy(
       result: { schema: options.schema, description: RESULT_DESCRIPTIONS[role] },
       provider,
     });
-    return { agentId, done: handle.done };
+    return { agentId, done: watchProvider(handle.done) };
+  }
+
+  /**
+   * An agent the model provider failed (no credit, a bad key, an outage) says
+   * nothing about the paper, so the study fails instead of ending inconclusive.
+   */
+  async function watchProvider<T>(done: Promise<AgentOutcome<T>>): Promise<AgentOutcome<T>> {
+    const outcome = await done;
+    if (outcome.status === "failed" && outcome.reason?.startsWith(PROVIDER_FAILURE_PREFIX)) infrastructureFailure ??= outcome.reason;
+    return outcome;
   }
 
   async function ensureRepository(url: string, commitSha: string): Promise<void> {

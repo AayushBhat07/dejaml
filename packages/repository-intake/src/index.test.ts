@@ -86,6 +86,21 @@ describe("GitHub repository discovery", () => {
     ]);
   });
 
+  it("finds a link the PDF text split around its slashes", () => {
+    const candidates = discoverGithubRepositories(
+      paperWithPages([
+        "Our code is at https: //github.com/ ChangWeiTan/MultiRocket. We build on https://github.com/angus924/minirocket.",
+        "Code: https:/\n/github.com/zedali16/envsca and https://github.com/zedali16 /envsca.",
+      ]),
+    );
+
+    expect(candidates.map((candidate) => [candidate.repositoryUrl, candidate.occurrences.map((item) => item.rawUrl)])).toEqual([
+      ["https://github.com/ChangWeiTan/MultiRocket", ["https://github.com/ChangWeiTan/MultiRocket"]],
+      ["https://github.com/angus924/minirocket", ["https://github.com/angus924/minirocket"]],
+      ["https://github.com/zedali16/envsca", ["https://github.com/zedali16/envsca"]],
+    ]);
+  });
+
   it("rejects credentials, lookalike hosts, and non-repository GitHub paths", () => {
     for (const url of [
       "https://token@github.com/owner/repo",
