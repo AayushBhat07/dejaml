@@ -5,7 +5,7 @@ import { join } from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const downloads = vi.hoisted(() => ({ count: 0 }));
+const downloads = vi.hoisted(() => ({ count: 0, body: "a,b\n1,2\n", contentType: "text/csv" as string | null }));
 
 vi.mock("@dejaml/net-guard", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@dejaml/net-guard")>();
@@ -15,7 +15,7 @@ vi.mock("@dejaml/net-guard", async (importOriginal) => {
     acquireLabDataset: vi.fn(async (options: { name: string; url: string; destinationDir: string; expectedSha256?: string }) => {
       downloads.count += 1;
       await mkdir(join(options.destinationDir, "download"), { recursive: true });
-      await writeFile(join(options.destinationDir, "download", "data.csv"), "a,b\n1,2\n");
+      await writeFile(join(options.destinationDir, "download", "data.csv"), downloads.body);
       return {
         identity: {
           name: options.name,
@@ -23,7 +23,8 @@ vi.mock("@dejaml/net-guard", async (importOriginal) => {
           finalUrl: options.url,
           sha256: "ab".repeat(32),
           expectedSha256: options.expectedSha256 ?? null,
-          bytes: 8,
+          bytes: Buffer.byteLength(downloads.body),
+          contentType: downloads.contentType,
           checksumVerified: options.expectedSha256 !== undefined,
           extracted: null,
           fetchedAt: "2026-10-15T00:00:00.000Z",
@@ -47,6 +48,8 @@ describe("local dataset port", () => {
 
   beforeEach(async () => {
     downloads.count = 0;
+    downloads.body = "a,b\n1,2\n";
+    downloads.contentType = "text/csv";
     work = await mkdtemp(join(tmpdir(), "dataset-port-"));
   });
   afterEach(async () => {
@@ -72,6 +75,20 @@ describe("local dataset port", () => {
     expect(acquired.root).toBe(join(work, "d0"));
     expect(acquired.identity).toMatchObject({ name: "wine", checksumVerified: true });
     expect(await readFile(join(work, "d0", "download", "data.csv"), "utf8")).toBe("a,b\n1,2\n");
+  });
+
+  it.each([
+    ["a short error message", "404: Not Found", "text/plain"],
+    ["a web page", "<!DOCTYPE html><html><body>Moved</body></html>", null],
+    ["an HTML response", "x".repeat(5000), "text/html; charset=utf-8"],
+  ])("refuses %s instead of reporting its hash", async (_label, body, contentType) => {
+    downloads.body = body;
+    downloads.contentType = contentType;
+    const port = localDatasetPort(DEFAULT_DATASET_POLICY);
+    await expect(port.probe({ url, extract: false, destinationDir: join(work, "probe"), signal })).rejects.toMatchObject({
+      code: "dataset_error_page",
+    });
+    expect(existsSync(join(work, "probe"))).toBe(false);
   });
 
   it("downloads again when the hash differs, and keeps at most two probes", async () => {

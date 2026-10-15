@@ -1,4 +1,4 @@
-import { chmod, rename, rm, stat } from "node:fs/promises";
+import { chmod, readFile, rename, rm, stat } from "node:fs/promises";
 import { join } from "node:path";
 
 import { type BaseImageLock, type ImageReadiness, ImageNotReadyError, pythonBaseImageRequest } from "@dejaml/lab-manager";
@@ -73,6 +73,23 @@ export function datasetAllowedHosts(env: string | undefined): string[] {
  * Local implementations of the orchestrator's ports. An AWS deployment swaps
  * these for workers behind a queue; the orchestrator does not change.
  */
+
+/**
+ * Some hosts answer a missing file with HTTP 200 and a short HTML or text
+ * error page. A dataset is never a web page or a few bytes saying "not found",
+ * so the probe refuses those instead of reporting their hash.
+ */
+async function looksLikeErrorPage(dataset: LabDataset): Promise<string | null> {
+  if (dataset.identity.extracted) return null;
+  if (/^text\/html\b/iu.test(dataset.identity.contentType ?? "")) return "a web page";
+  if (dataset.identity.bytes > 2048) return null;
+  const head = await readFile(dataset.filePath, "utf8").catch(() => "");
+  if (/^\s*<(?:!doctype\s+html|html|head|body)\b/iu.test(head)) return "a web page";
+  if (/^\s*(?:404\b|<\?xml[^>]*>\s*<Error>)|\b(?:not found|no such file|access denied|forbidden)\b/iu.test(head)) {
+    return `an error message (${dataset.identity.bytes} bytes)`;
+  }
+  return null;
+}
 
 /** Probed downloads kept so preparation can reuse them; each may hold a full-size dataset on disk. */
 const MAX_KEPT_PROBES = 2;
@@ -178,6 +195,11 @@ export function localDatasetPort(policy: FetchPolicy): DatasetPort {
       } catch (error) {
         await cleanupDataset(input.destinationDir).catch(() => undefined);
         throw datasetFailure(error);
+      }
+      const errorPage = await looksLikeErrorPage(dataset);
+      if (errorPage) {
+        await cleanupDataset(dataset.root).catch(() => undefined);
+        throw new PreparationFailure("dataset_error_page", `the URL returned ${errorPage}, not data`, "inconclusive");
       }
       kept.push({ dataset, url: input.url, extract: input.extract });
       while (kept.length > MAX_KEPT_PROBES) {
