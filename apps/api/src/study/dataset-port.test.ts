@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -50,6 +50,8 @@ describe("local dataset port", () => {
     work = await mkdtemp(join(tmpdir(), "dataset-port-"));
   });
   afterEach(async () => {
+    // The port seals a reused dataset's root read-only; reopen it so cleanup works without root.
+    await chmod(join(work, "d0"), 0o755).catch(() => undefined);
     await rm(work, { recursive: true, force: true });
   });
 
