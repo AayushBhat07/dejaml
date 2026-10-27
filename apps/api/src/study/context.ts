@@ -16,6 +16,7 @@ import type { RunStore } from "@dejaml/run-store";
 import type { z } from "zod";
 
 import type { SealedTarget } from "./blinding.js";
+import type { BuiltinAdapter } from "./builtin-adapters.js";
 import type { Projection } from "./projection.js";
 
 export type ResourceBudget = z.infer<typeof ResourceBudgetSchema>;
@@ -54,6 +55,8 @@ export type StudyConfig = {
    * A plan may apply only constraints listed here; each one used is reported.
    */
   trustedConstraints: Array<{ requirement: string; reason: string }>;
+  /** Project-owned adapters any plan may name by id (see builtin-adapters.ts). */
+  builtinAdapters?: readonly BuiltinAdapter[];
 };
 
 // ---------------------------------------------------------------------------
@@ -133,7 +136,25 @@ export type DatasetIdentity = {
   fetchedAt: string;
 };
 
-export type AcquiredDataset = { identity: DatasetIdentity; root: string; labPath: string };
+/** What the Planner's dataset_probe saw: the hash DéjàML observed on its own first fetch. */
+export type DatasetProbe = {
+  url: string;
+  finalUrl: string;
+  sha256: string;
+  bytes: number;
+  extracted: boolean;
+  /** The first extracted files (path and size), so a plan can name them. */
+  files: Array<{ path: string; bytes: number }>;
+  fileCount: number;
+};
+
+export type AcquiredDataset = {
+  identity: DatasetIdentity;
+  root: string;
+  labPath: string;
+  /** Up to 200 extracted files, relative to the extraction directory. */
+  files?: Array<{ path: string; bytes: number }>;
+};
 
 export type DatasetPort = {
   acquire(input: {
@@ -144,6 +165,8 @@ export type DatasetPort = {
     extract: boolean;
     destinationDir: string;
     signal: AbortSignal;
+    /** Only for the Planner's probe: fetch without a known hash and report the one observed. */
+    pinOnFirstFetch?: boolean;
   }): Promise<AcquiredDataset>;
   release(dataset: AcquiredDataset): Promise<{ removed: boolean }>;
 };
@@ -210,6 +233,8 @@ export type StudyContext = {
   planDigest: string | null;
   prepared: PreparedDependencies | null;
   datasets: AcquiredDataset[];
+  /** The trust-zone 3 port, for the Planner's dataset_probe; null when downloads are off. */
+  datasetPort: DatasetPort | null;
   labsByAgent: Map<string, EngineerLab>;
   exports: Map<string, ExportedArtifact[]>;
   /** Exports the lab's artifacts and destroys it; later lab tools are refused. */

@@ -149,6 +149,7 @@ beforeEach(async () => {
     planDigest: "c".repeat(64),
     prepared: null,
     datasets: [],
+    datasetPort: null,
     labsByAgent: new Map([["agt_eng", lab]]),
     exports: new Map(),
     finishLab: async (agentId: string) => {

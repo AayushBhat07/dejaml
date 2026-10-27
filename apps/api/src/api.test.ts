@@ -13,12 +13,27 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { checkDemoAcceptance } from "./acceptance.js";
 import { loadCases, type CuratedCase } from "./cases.js";
 import type { StudyReport } from "./pipeline.js";
-import { loadProviderConfig } from "@dejaml/agent-runtime";
+import { loadProviderConfig, ProviderError } from "@dejaml/agent-runtime";
 
 import { DEFAULT_STUDY_RESOURCES } from "./pipeline.js";
 import { createApiServer, recoverAfterRestart, type ApiServer } from "./server.js";
-import { type ClaimTarget, fixedLabImagePort, loadClaimTarget } from "./study/index.js";
-import { paperPdf, ScriptedModel, ScriptedRuntime, ScriptedStudyProvider, STAND_IN_IMAGE_ID, standInAcquire } from "./stand-ins.js";
+import {
+  type BuiltinAdapter,
+  type ClaimTarget,
+  type DatasetPort,
+  fixedLabImagePort,
+  loadBuiltinAdapters,
+  loadClaimTarget,
+} from "./study/index.js";
+import {
+  paperPdf,
+  ScriptedModel,
+  ScriptedRuntime,
+  ScriptedStudyProvider,
+  STAND_IN_IMAGE_ID,
+  standInAcquire,
+  standInDatasetPort,
+} from "./stand-ins.js";
 
 const repoRoot = fileURLToPath(new URL("../../../", import.meta.url));
 let work: string;
@@ -49,6 +64,10 @@ async function startServer(
     reviewedTargets?: Map<string, ClaimTarget>;
     /** Enables the administrator's audit download. */
     adminToken?: string;
+    /** Trust zone 3 for autonomous studies, with its allowlist. */
+    datasets?: DatasetPort;
+    datasetHosts?: string[];
+    builtinAdapters?: BuiltinAdapter[];
   } = {},
 ): Promise<void> {
   // A private project root holding the reviewed adapter and placeholder data files.
@@ -95,16 +114,17 @@ async function startServer(
             enabled: true,
             dependencies: null,
             images: fixedLabImagePort({ name: "dejaml/python-cpu:0.1.0", expectedImageId: STAND_IN_IMAGE_ID }),
-            datasets: null,
+            datasets: options.datasets ?? null,
             config: {
               platform: buildPlatformSpec({ architecture: "amd64", python: "3.11" }),
               resources: DEFAULT_STUDY_RESOURCES,
               engineers: options.engineers ?? 1,
-              datasetPolicy: { allowedHosts: [], maxRedirects: 3, maxBytes: 1024, timeoutMs: 1000 } as never,
+              datasetPolicy: { allowedHosts: options.datasetHosts ?? [], maxRedirects: 3, maxBytes: 1024, timeoutMs: 1000 } as never,
               maxStudyMs: 60_000,
               commandTimeoutSeconds: 60,
               maxReplans: 2,
               trustedConstraints: [],
+              ...(options.builtinAdapters ? { builtinAdapters: options.builtinAdapters } : {}),
             },
             leakCheck: async () => ({ containers: [...runtime.containers], networks: [] }),
           },
@@ -458,6 +478,116 @@ describe("Run API", () => {
     expect(study.engineers[0]).toMatchObject({ official: { exitCode: 0 }, review: { verdict: "approve" } });
   });
 
+  it("fails a study that stopped because the model provider errored, instead of calling it inconclusive", async () => {
+    const paper = await paperPdf(false);
+    await startServer({ autonomous: true, repositoryUrl: "https://github.com/example/new-paper" });
+    studyProvider.chat = async () => {
+      throw new ProviderError("payment_required", "credit balance is too low", { retryable: false });
+    };
+    const { runId } = (await (await upload(paper, "paper.pdf", { repositoryUrl: "https://github.com/example/new-paper" })).json()) as {
+      runId: string;
+    };
+    await api.idle();
+    const report = (await (await fetch(`${base}/api/runs/${runId}/report`)).json()) as StudyReport;
+    expect(report.study!.result.status).toBe("failed");
+    expect(JSON.stringify(report.study!.result)).toContain("model provider failed");
+  });
+
+  it("runs an open study for a reviewed paper when the uploader explicitly chooses none", async () => {
+    const paper = await paperPdf(false);
+    await startServer({
+      autonomous: true,
+      repositoryUrl: "https://github.com/example/new-paper",
+      commitSha: "7f8b1c4cbe5b4caf2f6cc8bc0d6fc31ce2f6bd71",
+      reviewedTargets: await fixtureTarget(paper),
+    });
+    const response = await upload(paper, "paper.pdf", { reviewedCaseId: "none", repositoryUrl: "https://github.com/example/new-paper" });
+    expect(response.status).toBe(202);
+    const { runId } = (await response.json()) as { runId: string };
+    await api.idle();
+    const report = (await (await fetch(`${base}/api/runs/${runId}/report`)).json()) as StudyReport;
+    expect(report.caseId).toBeNull();
+    expect(report.study!.reviewedTarget).toBeNull();
+    expect(report.study!.result.status).toBe("reproduced");
+    expect(studyProvider.systems.some((system) => system.includes("do not choose a different claim"))).toBe(false);
+  });
+
+  it("downloads a dataset only with the hash DéjàML observed on its own probe, never one a model wrote", async () => {
+    const paper = await paperPdf(false);
+    const datasets = standInDatasetPort();
+    await startServer({
+      autonomous: true,
+      repositoryUrl: "https://github.com/example/new-paper",
+      commitSha: "7f8b1c4cbe5b4caf2f6cc8bc0d6fc31ce2f6bd71",
+      datasets,
+      datasetHosts: ["*.example.org"],
+    });
+    studyProvider.probe = { url: "https://data.example.org/urban.csv", extract: false };
+    const { runId } = (await (await upload(paper, "paper.pdf", { repositoryUrl: "https://github.com/example/new-paper" })).json()) as {
+      runId: string;
+    };
+    await api.idle();
+    const report = (await (await fetch(`${base}/api/runs/${runId}/report`)).json()) as StudyReport;
+    // One probe without a hash, then preparation downloads again and checks the probed hash.
+    expect(datasets.requests.map((item) => item.sha256 === null)).toEqual([true, false]);
+    expect(report.study!.result.status).toBe("reproduced");
+    const events = store.listEvents(runId);
+    expect(events.some((event) => event.type === "dataset_probed")).toBe(true);
+    const approved = events.find((event) => event.type === "plan_approved")!;
+    expect(JSON.stringify(approved.publicPayload)).toContain("pinned to the SHA-256 DéjàML observed");
+
+    // A hash the Planner wrote itself is refused before anything is downloaded.
+    await api.close();
+    store.close();
+    serverStarted = false;
+    const unprobed = standInDatasetPort();
+    await startServer({
+      autonomous: true,
+      repositoryUrl: "https://github.com/example/new-paper",
+      commitSha: "7f8b1c4cbe5b4caf2f6cc8bc0d6fc31ce2f6bd71",
+      datasets: unprobed,
+      datasetHosts: ["*.example.org"],
+    });
+    studyProvider.plan = {
+      dataset: {
+        name: "UCI Urban Land Cover",
+        source: { kind: "download", url: "https://data.example.org/urban.csv", sha256: "a".repeat(64), extract: false },
+      },
+    };
+    const second = (await (await upload(paper, "paper.pdf", { repositoryUrl: "https://github.com/example/new-paper" })).json()) as {
+      runId: string;
+    };
+    await api.idle();
+    const refused = (await (await fetch(`${base}/api/runs/${second.runId}/report`)).json()) as StudyReport;
+    expect(unprobed.requests).toEqual([]);
+    expect(refused.study!.result.status).toBe("inconclusive");
+    expect(JSON.stringify(refused.study!.result)).toContain("not observed by DéjàML");
+  });
+
+  it("lets an open study run a notebook through the built-in, hash-pinned notebook runner, capped at partially reproduced", async () => {
+    const paper = await paperPdf(false);
+    await startServer({
+      autonomous: true,
+      repositoryUrl: "https://github.com/example/new-paper",
+      commitSha: "7f8b1c4cbe5b4caf2f6cc8bc0d6fc31ce2f6bd71",
+      builtinAdapters: await loadBuiltinAdapters(repoRoot),
+    });
+    studyProvider.plan = {
+      command: { argv: ["python", "../adapter/notebook_runner.py", "--notebook", "train.py"], cwd: "work/repo" },
+      adapter: { reviewedAdapterId: "notebook-runner" },
+    };
+    const { runId } = (await (await upload(paper, "paper.pdf", { repositoryUrl: "https://github.com/example/new-paper" })).json()) as {
+      runId: string;
+    };
+    await api.idle();
+    const report = (await (await fetch(`${base}/api/runs/${runId}/report`)).json()) as StudyReport;
+    const planner = report.study!.agents.find((agent) => agent.role === "reproduction_planner")!;
+    expect(JSON.stringify(store.ledger.listTurns(planner.agentId)[0])).toContain("notebook-runner");
+    expect(report.study!.result.status).toBe("partially_reproduced");
+    const approved = store.listEvents(runId).find((event) => event.type === "plan_approved")!;
+    expect(JSON.stringify(approved.publicPayload)).toContain("work/adapter/notebook_runner.py");
+  });
+
   it("keeps a policy-blocked study sealed: no paper value in events or the report, and only an administrator's audit download holds it", async () => {
     const paper = await paperPdf(false);
     await startServer({
@@ -478,6 +608,11 @@ describe("Run API", () => {
     expect(report.study?.blinding).toMatchObject({ sealed: true, revealed: false, reveal: null, sealedPayload: null });
     expect(report.study?.blinding.commitment).toMatch(/^[a-f0-9]{64}$/u);
     expect(report.study?.blinding.records.map((item) => item.phase)).toEqual(["target_sealed", "agents_started", "final_status"]);
+    // Stages that never ran are reported as skipped, never as started.
+    const stageEvents = (type: string): unknown[] =>
+      events.filter((event) => event.type === type).map((event) => (event.publicPayload as { stage?: string }).stage);
+    expect(stageEvents("stage_skipped")).toEqual(expect.arrayContaining(["preparing", "executing", "reviewing"]));
+    expect(stageEvents("stage_started")).not.toContain("executing");
     // Nothing the browser receives carries the paper's value, tolerance, or the nonce.
     for (const body of [text, JSON.stringify(events), await (await fetch(`${base}/api/config`)).text()]) {
       expect(body).not.toMatch(/81\.66|0\.8166|"nonce"|reportedValue/u);

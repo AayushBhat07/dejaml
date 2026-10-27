@@ -42,6 +42,7 @@ export const ROLE_CAPABILITIES: Record<AgentRole, readonly string[]> = {
     "repo_search",
     "dependency_discover",
     "dependency_check",
+    "dataset_probe",
   ],
   lab_engineer: [
     "board_read",

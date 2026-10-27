@@ -11,3 +11,4 @@ export * from "./targets.js";
 export * from "./blinding.js";
 export * from "./projection.js";
 export * from "./blinding-proof.js";
+export * from "./builtin-adapters.js";

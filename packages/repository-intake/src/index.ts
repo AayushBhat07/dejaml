@@ -128,11 +128,25 @@ export function canonicalizeGithubRepositoryUrl(rawUrl: string): {
   };
 }
 
+/**
+ * Rejoins GitHub links that PDF text extraction split with whitespace or a
+ * line break (`https:\n//github.com/…`, `github.\ncom/owner/\nrepo`) and
+ * gives scheme-less `github.com/owner/repo` mentions a scheme, so the pattern
+ * below sees one URL. Ordinary prose is left alone.
+ */
+export function rejoinGithubLinks(text: string): string {
+  return text
+    .replace(/https?\s*:\s*\/\s*\/\s*(?=(?:www\.)?github\s*\.\s*com)/giu, (scheme) => `${scheme.replace(/\s+/gu, "")}`)
+    .replace(/((?:www\.)?github)\s*\.\s*com\s*\/\s*/giu, "$1.com/")
+    .replace(/(github\.com\/[A-Za-z0-9-]{1,39})\s*\/\s*(?=[A-Za-z0-9._-])/giu, "$1/")
+    .replace(/(^|[^/\w.@-])((?:www\.)?github\.com\/)/giu, "$1https://$2");
+}
+
 export function discoverGithubRepositories(document: PaperDocument): RepositoryCandidate[] {
   const candidates = new Map<string, RepositoryCandidate>();
 
   for (const page of document.pages) {
-    for (const match of page.text.matchAll(GITHUB_LINK_PATTERN)) {
+    for (const match of rejoinGithubLinks(page.text).matchAll(GITHUB_LINK_PATTERN)) {
       const rawUrl = trimUrlPunctuation(match[0]);
       try {
         const canonical = canonicalizeGithubRepositoryUrl(rawUrl);

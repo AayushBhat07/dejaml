@@ -212,7 +212,7 @@ export const ROLE_LIMITS: Record<AgentRole, Partial<AgentLimits>> = {
 export const ROLE_GRANTS: Record<AgentRole, readonly string[]> = {
   paper_analyst: ["paper_list_pages", "paper_read_page", "paper_search"],
   repository_analyst: ["repo_acquire", "repo_list", "repo_read", "repo_search", "dependency_discover"],
-  reproduction_planner: ["board_read", "repo_list", "repo_read", "repo_search", "dependency_discover", "dependency_check"],
+  reproduction_planner: ["board_read", "repo_list", "repo_read", "repo_search", "dependency_discover", "dependency_check", "dataset_probe"],
   lab_engineer: [
     "board_read",
     "lab_list",
@@ -243,6 +243,7 @@ export const INSTRUCTIONS: Record<AgentRole, string> = {
   paper_analyst: [
     "Read the uploaded paper with your tools and select exactly one numeric experimental claim that a CPU-only run of the paper's own code could check.",
     "Prefer a claim in a table or the text that names its method, dataset, split, and metric. `excerpt` must be copied verbatim from `page` and contain the reported value.",
+    "Among checkable claims, pick the one most likely to run in minutes on 2 CPUs without a GPU: a single dataset rather than a mean over many, the smallest standard dataset the paper reports (for example a small UCI, UCR, OpenML or scikit-learn dataset, or data the paper says ships with its code) over a large one, a classical or small model over deep training, and one run or few runs over large ensembles or long sweeps. Never pick a claim that needs a GPU, hours of training, private or credentialed data, or code in a language other than Python.",
     "selectedRepositoryUrl must be one of the repository candidates you were given. Write `not stated` for preprocessing or seed when the paper does not say, and list them in missingFields; never guess.",
     "You cannot see the repository or the other analysts. If no claim is checkable on a CPU, finish with status inconclusive and the reasons.",
   ].join("\n"),
@@ -255,7 +256,8 @@ export const INSTRUCTIONS: Record<AgentRole, string> = {
     "Reconcile the Paper Analyst's claim with the Repository Analyst's map (both on the board) into one exact plan to reproduce that claim with the repository's official code in an offline, CPU-only Linux lab.",
     "The command runs `python <entrypoint> [args]` from `repo` (read-only) or `work/repo` (a writable copy made before the run). Choose the Python version the code supports (3.10 or 3.11 for older code). Requirements come from the repository's dependency files unchanged; a pin may be relaxed or added only by choosing an entry from trustedCompatibilityConstraints (copied exactly into compatibilityConstraints); anything else is refused by policy.",
     "Use dependency_check to see whether binary wheels exist for your requirements on the lab platform; nothing is built from source, and GPU packages (CUDA, ROCm) are refused.",
-    "Data: prefer files in the repository. A download is allowed only from an administrator-allowed host and needs its SHA-256; otherwise set status blocked.",
+    "Data: prefer files in the repository, then data bundled in a pinned Python package. Otherwise find the dataset's direct HTTPS download URL in the repository (README, download scripts, loaders) on a host in datasetHostsAllowed, call dataset_probe with it, and put the sha256 it reports in the download source; never write a hash yourself. The lab is offline: code that downloads its own data at run time (for example sklearn fetch_openml or torchvision download=True) must instead read the probed files under data/, through arguments the script already accepts or a small adapter. If no allowed source exists, set status blocked.",
+    "builtinAdapters are project-owned, hash-pinned adapters any plan may use: name one with adapter {reviewedAdapterId: <its id>} and follow its usage (for example `notebook-runner` when the experiment exists only as a Jupyter notebook). Prefer the official script, then a built-in adapter, then your own adapter.",
     "metricParser must read the number the official code prints (stdout pattern with one capture group) or writes (a JSON file under artifacts/). An adapter is a small wrapper that only calls the official code and captures its metric; it must list every difference. Never plan a rewritten approximation, a changed dataset, a subset, altered filtering, or a replacement metric.",
     BLIND_PLANNING,
   ].join("\n"),

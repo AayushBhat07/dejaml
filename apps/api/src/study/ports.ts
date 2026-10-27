@@ -40,7 +40,8 @@ export function localDatasetPort(policy: FetchPolicy): DatasetPort {
           url: input.url,
           policy,
           ...(input.sha256 ? { expectedSha256: input.sha256 } : {}),
-          requireChecksum: true,
+          // Only the Planner's probe fetches without a hash; it reports the one it observed.
+          requireChecksum: input.pinOnFirstFetch !== true,
           destinationDir: input.destinationDir,
           extract: input.extract,
           signal: input.signal,
@@ -65,6 +66,7 @@ export function localDatasetPort(policy: FetchPolicy): DatasetPort {
           },
           root: dataset.root,
           labPath: `${LAB_LAYOUT.dataDir}/${dataset.extractedPath ?? dataset.downloadPath}`,
+          files: (identity.extracted?.files ?? []).slice(0, 200).map((file) => ({ path: file.path, bytes: file.bytes })),
         };
       } catch (error) {
         if (error instanceof DatasetError) throw new PreparationFailure(`dataset_${error.code}`, error.message, error.policy);

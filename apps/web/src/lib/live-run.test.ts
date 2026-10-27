@@ -92,6 +92,35 @@ describe("analyzeRun: agent roster", () => {
     expect(end.stages.map((step) => step.state)).toEqual(Array(8).fill("done"));
   });
 
+  it("shows stages a stopped study skipped as skipped, never as done", () => {
+    const stage = (sequence: number, type: string, name: string) => makeEvent(sequence, { type, publicPayload: { stage: name } });
+    const events: RunEvent[] = [
+      makeEvent(1, { type: "study_team", status: "started", publicPayload: { provider: "scripted", model: "m" } }),
+      stage(2, "stage_started", "ingesting"),
+      stage(3, "stage_started", "analyzing_paper"),
+      stage(4, "stage_started", "analyzing_repository"),
+      stage(5, "stage_started", "reconciling"),
+      stage(6, "stage_started", "policy_review"),
+      makeEvent(7, { type: "plan_refused", status: "warning", publicPayload: { outcome: "policy_blocked", violations: ["GPU"] } }),
+      stage(8, "stage_skipped", "preparing"),
+      stage(9, "stage_skipped", "executing"),
+      stage(10, "stage_skipped", "reviewing"),
+      stage(11, "stage_started", "deciding"),
+      makeEvent(12, { type: "run_finished", status: "completed", publicPayload: { runStatus: "inconclusive", verdict: "policy_blocked" } }),
+    ];
+    const view = analyzeRun(events);
+    expect(Object.fromEntries(view.stages.map((step) => [step.id, step.state]))).toEqual({
+      ingesting: "done",
+      analyzing: "done",
+      reconciling: "done",
+      policy_review: "failed",
+      preparing: "skipped",
+      executing: "skipped",
+      reviewing: "skipped",
+      deciding: "done",
+    });
+  });
+
   it("adds a Debugger only when an Engineer asks, and shows the Engineer blocked until it answers", () => {
     const upTo = until(byType("agent_turn", (event) => event.publicPayload.label === "engineer-1"));
     const parent = String(engineerOne.publicPayload.agentId);

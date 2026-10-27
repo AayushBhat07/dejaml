@@ -10,7 +10,7 @@ import { join } from "node:path";
 
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
-import { acquireDataset, DEFAULT_DATASET_POLICY, parseAllowedHosts } from "./dataset.js";
+import { acquireDataset, datasetHostsFromEnv, DEFAULT_DATASET_POLICY, parseAllowedHosts, RESEARCH_DATASET_HOSTS } from "./dataset.js";
 import type { ResolvedAddress, Resolver } from "./dns.js";
 import { NetGuardError, type NetGuardErrorCode } from "./errors.js";
 import { type HttpsTransport, safeDownload, type SafeDownloadOptions } from "./fetch.js";
@@ -460,6 +460,17 @@ describe("dataset policy defaults", () => {
     await expect(
       safeDownload({ url: "https://archive.ics.uci.edu/x.zip", policy: DEFAULT_DATASET_POLICY, destinationFile: "/nonexistent/x" }),
     ).rejects.toMatchObject({ code: "host_not_allowed" });
+  });
+
+  it("defaults the dataset allowlist to public research archives, and lets an administrator turn it off or extend it", () => {
+    expect(datasetHostsFromEnv(undefined)).toEqual([...RESEARCH_DATASET_HOSTS]);
+    expect(datasetHostsFromEnv("  ")).toEqual([...RESEARCH_DATASET_HOSTS]);
+    expect(datasetHostsFromEnv("none")).toEqual([]);
+    expect(datasetHostsFromEnv("data.example.org")).toEqual(["data.example.org"]);
+    expect(datasetHostsFromEnv("default, data.example.org")).toEqual([...RESEARCH_DATASET_HOSTS, "data.example.org"]);
+    // Every default is a valid allowlist entry (no IP literals, wildcards or internal names).
+    expect(parseAllowedHosts(RESEARCH_DATASET_HOSTS.join(","))).toEqual([...RESEARCH_DATASET_HOSTS]);
+    expect(() => datasetHostsFromEnv("default,127.0.0.1")).toThrow(NetGuardError);
   });
 
   it("parses an administrator allowlist", () => {

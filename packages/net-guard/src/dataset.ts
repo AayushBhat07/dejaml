@@ -74,6 +74,55 @@ export function parseAllowedHosts(env: string | undefined): string[] {
   return [...hosts];
 }
 
+/**
+ * Public research-data archives a study may download from when the
+ * administrator sets no allowlist. Every download is still HTTPS-only,
+ * SSRF-checked, size-bounded, hashed and mounted read-only into an offline lab.
+ */
+export const RESEARCH_DATASET_HOSTS: readonly string[] = Object.freeze([
+  "archive.ics.uci.edu",
+  "timeseriesclassification.com",
+  "www.timeseriesclassification.com",
+  "www.cs.ucr.edu",
+  "zenodo.org",
+  "figshare.com",
+  "ndownloader.figshare.com",
+  "raw.githubusercontent.com",
+  "github.com",
+  "objects.githubusercontent.com",
+  "release-assets.githubusercontent.com",
+  "media.githubusercontent.com",
+  "huggingface.co",
+  "cdn-lfs.huggingface.co",
+  "cas-bridge.xethub.hf.co",
+  "www.openml.org",
+  "api.openml.org",
+  "openml.org",
+  "data.openml.org",
+  "www.cs.toronto.edu",
+  "ossci-datasets.s3.amazonaws.com",
+  "storage.googleapis.com",
+  "dataverse.harvard.edu",
+  "datadryad.org",
+  "physionet.org",
+  "www.kaggle.com",
+]);
+
+/**
+ * The dataset allowlist from `DEJAML_DATASET_ALLOWED_HOSTS`: unset or empty
+ * means {@link RESEARCH_DATASET_HOSTS}, `none` turns downloads off, and a list
+ * may include `default` to extend the research hosts instead of replacing them.
+ */
+export function datasetHostsFromEnv(env: string | undefined): string[] {
+  const value = (env ?? "").trim();
+  if (value === "") return [...RESEARCH_DATASET_HOSTS];
+  if (value.toLowerCase() === "none") return [];
+  const entries = value.split(",").map((entry) => entry.trim());
+  const withDefaults = entries.some((entry) => entry.toLowerCase() === "default");
+  const explicit = parseAllowedHosts(entries.filter((entry) => entry.toLowerCase() !== "default").join(","));
+  return [...new Set([...(withDefaults ? RESEARCH_DATASET_HOSTS : []), ...explicit])];
+}
+
 export interface AcquireDatasetOptions {
   readonly url: string;
   readonly expectedSha256?: string;

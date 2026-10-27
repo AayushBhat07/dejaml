@@ -23,6 +23,9 @@ export type StudyOptions = {
   reviewedCaseId?: string;
 };
 
+/** The reviewedCaseId that asks for an open study: the agents choose the claim. */
+export const NO_REVIEWED_CASE = "none";
+
 /** A provider the server's administrator configured with a server-held key. */
 export type ProviderOption = { id: string; label: string; models: string[] };
 
@@ -247,8 +250,10 @@ export class HttpRunClient implements RunClient {
       body.append("modelName", options.model.model);
     }
     // A reviewed case names its own repository on the server; only its id is sent.
+    // `none` asks for an open study explicitly, so a reviewed paper is not matched by its hash.
     if (options.reviewedCaseId) body.append("reviewedCaseId", options.reviewedCaseId);
-    else if (options.repositoryUrl) body.append("repositoryUrl", options.repositoryUrl);
+    const open = !options.reviewedCaseId || options.reviewedCaseId === NO_REVIEWED_CASE;
+    if (open && options.repositoryUrl) body.append("repositoryUrl", options.repositoryUrl);
     const response = await fetch(`${this.#base}/runs`, { method: "POST", body });
     if (!response.ok) {
       const detail = (await response.json().catch(() => null)) as { error?: string } | null;

@@ -1,6 +1,6 @@
 import type { RunEvent } from "@dejaml/contracts";
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, onTestFinished, vi } from "vitest";
 
 import { appendEvents, EMPTY_LOG } from "../lib/event-log";
 import { buildReport } from "../lib/lab";
@@ -347,6 +347,12 @@ describe("Live Run Dashboard: blinding", () => {
   });
 
   it("rebuilds the same sealed state after a reload or a replay with duplicates", () => {
+    // Freeze the clock: the header's elapsed time must not tick between the two renders.
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-10-27T00:00:00.000Z"));
+    onTestFinished(() => {
+      vi.useRealTimers();
+    });
     const fresh = render(<LiveRun {...props} log={logOf(beforeReveal)} />);
     const html = fresh.container.innerHTML;
     fresh.unmount();

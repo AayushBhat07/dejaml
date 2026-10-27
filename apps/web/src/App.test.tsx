@@ -276,6 +276,7 @@ describe("live mode", () => {
         name: "paper.pdf",
         options: {
           model: { providerId: "anthropic", model: "claude-sonnet-5-5" },
+          reviewedCaseId: "none",
           repositoryUrl: "https://github.com/example/new-paper",
         },
       },
@@ -372,7 +373,20 @@ describe("reviewed cases", () => {
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: "Start study" }));
     });
-    expect(createRun.mock.calls[0]![1]).toEqual({ model: { providerId: "openai", model: "gpt-x" } });
+    expect(createRun.mock.calls[0]![1]).toEqual({ model: { providerId: "openai", model: "gpt-x" }, reviewedCaseId: "none" });
+  });
+
+  it("sends an explicit open study when the person picks None for a reviewed paper", async () => {
+    const createRun = vi.fn<RunClient["createRun"]>(async () => ({ runId: "run_created" }));
+    await renderWithCases(createRun);
+    await choosePaper(reviewedPaper);
+    expect((screen.getByLabelText("Case") as HTMLSelectElement).value).toBe("pyts-boss-gunpoint");
+    fireEvent.change(screen.getByLabelText("Case"), { target: { value: "" } });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Start study" }));
+    });
+    // Without the explicit value the server would match the paper's hash to its reviewed case again.
+    expect(createRun.mock.calls[0]![1]).toEqual({ model: { providerId: "openai", model: "gpt-x" }, reviewedCaseId: "none" });
   });
 
   it("lets a person pick a reviewed case by hand and shows the server's refusal of a different paper", async () => {
