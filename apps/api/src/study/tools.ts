@@ -13,10 +13,10 @@ import {
 import { discoverDependencies } from "@dejaml/prep";
 import { z } from "zod";
 
-import type { StudyContext } from "./context.js";
+import { type DatasetProbe, PreparationFailure, type StudyContext } from "./context.js";
 import { labTools } from "./lab-tools.js";
 import { projectRepository } from "./projection.js";
-import { MAX_READ_BYTES, MAX_SEARCH_MATCHES, ok, RelativePathInput } from "./tool-helpers.js";
+import { failed, MAX_READ_BYTES, MAX_SEARCH_MATCHES, ok, RelativePathInput } from "./tool-helpers.js";
 
 /**
  * The concrete tools behind each role's grants. Every tool enforces its own
@@ -139,7 +139,14 @@ export function buildStudyTools(
   ctx: StudyContext,
   agent: { agentId: string; role: AgentRole; grants: readonly string[] },
 ): ToolDefinition[] {
-  const all: ToolDefinition[] = [boardRead(ctx), ...paperTools(ctx), ...repositoryTools(ctx), dependencyDiscover(ctx), ...labTools(ctx)];
+  const all: ToolDefinition[] = [
+    boardRead(ctx),
+    ...paperTools(ctx),
+    ...repositoryTools(ctx),
+    dependencyDiscover(ctx),
+    datasetProbe(ctx),
+    ...labTools(ctx),
+  ];
   const granted = new Set(agent.grants);
   return all.filter((tool) => granted.has(tool.name));
 }
@@ -371,6 +378,88 @@ function dependencyDiscover(ctx: StudyContext): ToolDefinition {
       };
       context.board.post({ kind: "dependency_report", authorAgentId: context.agentId, authorRole: context.role, payload });
       return ok(`Found ${discovery.files.length} dependency files (${discovery.ecosystem})`, payload, payload);
+    },
+  });
+}
+
+/** Probes one study may make; each is a full download, so they are few. */
+export const MAX_DATASET_PROBES = 3;
+
+/** The dataset probes recorded on the board, by requested URL. */
+export function datasetProbes(ctx: Pick<StudyContext, "runtime" | "runId">): DatasetProbe[] {
+  return ctx.runtime
+    .board(ctx.runId)
+    .list(["dataset_receipt"])
+    .filter((entry) => entry.payload.probe === true)
+    .map((entry) => entry.payload as unknown as DatasetProbe);
+}
+
+/**
+ * Trust zone 3 for the Planner: downloads a dataset once through the same
+ * allowlisted, SSRF-checked, size-bounded fetch the lab's data uses, and
+ * reports the SHA-256 DéjàML observed. A plan pins that hash; preparation
+ * downloads again and refuses any other bytes. The probe copy is deleted.
+ */
+function datasetProbe(ctx: StudyContext): ToolDefinition {
+  return defineTool({
+    name: "dataset_probe",
+    description:
+      "Download a public dataset (HTTPS, allowlisted hosts only, up to 200 MB) once, outside the lab, and report its SHA-256, size and, for an archive, its files. Use the reported sha256 in the plan's download source. At most 3 probes per study.",
+    input: z.object({
+      url: z.string().min(1).max(2_000).describe("The dataset's direct HTTPS download URL."),
+      extract: z.boolean().describe("True for a zip, tar, tar.gz or gzip archive the code reads extracted."),
+    }),
+    async run(input, context) {
+      if (!ctx.datasetPort) throw new ToolDenied("dataset downloads are disabled on this server");
+      const previous = datasetProbes(ctx);
+      const known = previous.find((probe) => probe.url === input.url && probe.extracted === input.extract);
+      if (known) return ok(`Already probed: sha256 ${known.sha256}`, known);
+      if (previous.length >= MAX_DATASET_PROBES)
+        throw new ToolDenied(`this study already probed ${MAX_DATASET_PROBES} datasets; plan with one of them`);
+      const root = join(ctx.workDir, "probes");
+      await mkdir(root, { recursive: true, mode: 0o711 });
+      let acquired;
+      try {
+        acquired = await ctx.datasetPort.acquire({
+          runId: ctx.runId,
+          name: "probe",
+          url: input.url,
+          sha256: null,
+          extract: input.extract,
+          destinationDir: join(root, `p${previous.length}-${Date.now().toString(36)}`),
+          signal: context.signal,
+          pinOnFirstFetch: true,
+        });
+      } catch (error) {
+        if (error instanceof PreparationFailure)
+          return failed(`Probe refused: ${error.code}`, { code: error.code, message: error.message, outcome: error.outcome });
+        throw error;
+      }
+      const probe: DatasetProbe = {
+        url: input.url,
+        finalUrl: acquired.identity.finalUrl,
+        sha256: acquired.identity.sha256,
+        bytes: acquired.identity.bytes,
+        extracted: input.extract,
+        files: (acquired.files ?? []).slice(0, 100),
+        fileCount: acquired.identity.extracted?.fileCount ?? 1,
+      };
+      await ctx.datasetPort.release(acquired).catch(() => undefined);
+      context.board.post({
+        kind: "dataset_receipt",
+        authorAgentId: context.agentId,
+        authorRole: context.role,
+        payload: { probe: true, ...probe },
+      });
+      ctx.event("dataset_probed", "completed", `Probed dataset ${probe.finalUrl} (${probe.bytes} bytes)`, {
+        url: probe.url,
+        sha256: probe.sha256,
+        bytes: probe.bytes,
+      });
+      return ok(`Downloaded ${probe.bytes} bytes; sha256 ${probe.sha256}`, {
+        ...probe,
+        labPath: input.extract ? "data/extracted/<files above>" : "data/download/<file name>",
+      });
     },
   });
 }

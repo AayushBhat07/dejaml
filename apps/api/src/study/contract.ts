@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { posix } from "node:path";
 
 import { buildPlatformSpec, type ClaimContract, ClaimContractSchema, type PlatformSpec } from "@dejaml/contracts";
-import type { FetchPolicy } from "@dejaml/net-guard";
+import { type FetchPolicy, hostMatchesAllowlist } from "@dejaml/net-guard";
 import { findLiteral } from "@dejaml/research-runtime";
 
 import { executionContract, findValue, riggedAdapter } from "./blinding.js";
@@ -147,6 +147,12 @@ export function reviewPolicy(input: {
   trustedConstraints: ReadonlyArray<{ requirement: string; reason: string }>;
   /** A reviewed claim target narrows what is accepted; it never relaxes a check. */
   target?: ClaimTarget | null;
+  /**
+   * The datasets DéjàML itself downloaded and hashed for this study (the
+   * Planner's dataset_probe). When given, a download without a reviewed
+   * target must use a hash observed here, never one a model wrote down.
+   */
+  probes?: ReadonlyArray<{ url: string; sha256: string }>;
 }): PolicyReview {
   const { contract, adapter } = input;
   const blocked: string[] = [];
@@ -213,10 +219,22 @@ export function reviewPolicy(input: {
     } catch {
       blocked.push("the dataset URL is not a valid URL");
     }
-    if (host && !input.datasetPolicy.allowedHosts.map((item) => item.toLowerCase()).includes(host)) {
+    if (
+      host &&
+      !hostMatchesAllowlist(
+        host,
+        input.datasetPolicy.allowedHosts.map((item) => item.toLowerCase()),
+      )
+    ) {
       blocked.push(`dataset host ${host} is not on the administrator's allowlist`);
     }
-    if (source.sha256 === null) blocked.push("a downloaded dataset needs its SHA-256; unchecksummed data is not used");
+    if (source.sha256 === null) {
+      blocked.push("a downloaded dataset needs its SHA-256; unchecksummed data is not used");
+    } else if (input.probes && !input.target) {
+      const observed = input.probes.some((probe) => probe.url === source.url && probe.sha256 === source.sha256);
+      if (observed) warnings.push(`dataset ${source.url} is pinned to the SHA-256 DéjàML observed on its first download`);
+      else unusable.push("the dataset's SHA-256 was not observed by DéjàML; probe the URL with dataset_probe and use the hash it reports");
+    }
   }
 
   // Dependencies: no URLs, paths, source builds, or GPU packages.

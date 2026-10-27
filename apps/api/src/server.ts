@@ -232,6 +232,9 @@ export function createApiServer(options: ApiOptions): ApiServer {
   const reports = new Map<string, StudyReport>();
   let busy = false;
 
+  /** The upload field value that asks for an open study instead of a reviewed case. */
+  const NO_REVIEWED_CASE = "none";
+
   const startRun = async (request: IncomingMessage, response: ServerResponse): Promise<void> => {
     // One lab at a time (ARCHITECTURE.md §17: no parallel labs); the dispatcher decides.
     if (busy) throw new HttpError(409, "Another study is still running. Try again when it finishes.");
@@ -253,7 +256,10 @@ export function createApiServer(options: ApiOptions): ApiServer {
     // paper that already has a reviewed execution contract.
     const uploadSha256 = createHash("sha256").update(upload.data).digest("hex");
     let caseId = upload.field("reviewedCaseId");
-    if (caseId === null) {
+    // `none` is the uploader's explicit choice of an open study: the agents choose the claim, even for a reviewed paper.
+    const openStudy = caseId === NO_REVIEWED_CASE;
+    if (openStudy) caseId = null;
+    if (caseId === null && !openStudy) {
       const matches = [...(options.reviewedTargets?.values() ?? [])].filter((item) => item.paper.sha256 === uploadSha256);
       if (matches.length === 1) caseId = matches[0]!.caseId;
       if (matches.length > 1) {

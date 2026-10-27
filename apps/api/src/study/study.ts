@@ -51,6 +51,7 @@ import {
   statesExpectation,
   withholdInJson,
 } from "./blinding.js";
+import { builtinAdapterView } from "./builtin-adapters.js";
 import {
   type AcquiredDataset,
   type DatasetPort,
@@ -101,7 +102,7 @@ import {
   publicTargetSummary,
   repositoryAnalystTarget,
 } from "./targets.js";
-import { acquireRepository, buildStudyTools, refreshProjection } from "./tools.js";
+import { acquireRepository, buildStudyTools, datasetProbes, refreshProjection } from "./tools.js";
 import {
   applySupervisor,
   decideStatus,
@@ -473,6 +474,7 @@ export async function runMultiAgentStudy(
     planDigest: null,
     prepared: null,
     datasets: [],
+    datasetPort: deps.datasets ?? null,
     labsByAgent: new Map(),
     exports: new Map(),
     finishLab: (agentId, reason) => finishLab(agentId, reason),
@@ -635,16 +637,21 @@ export async function runMultiAgentStudy(
       authorRole: "system",
       payload: { stage, status: "started", attempt: claim.record.attempt, retryReason: claim.record.retryReason },
     });
-    event(
-      "stage_started",
-      "started",
-      `Stage ${stage.replaceAll("_", " ")} started${claim.record.retryReason ? ` (retry: ${claim.record.retryReason.replaceAll("_", " ")})` : ""}`,
-      {
-        stage,
-        attempt: claim.record.attempt,
-        retryReason: claim.record.retryReason,
-      },
-    );
+    if (options.skip) {
+      // A skipped stage never ran: it gets its own event, so no view shows it as done.
+      event("stage_skipped", "progress", `Stage ${stage.replaceAll("_", " ")} skipped`, { stage });
+    } else {
+      event(
+        "stage_started",
+        "started",
+        `Stage ${stage.replaceAll("_", " ")} started${claim.record.retryReason ? ` (retry: ${claim.record.retryReason.replaceAll("_", " ")})` : ""}`,
+        {
+          stage,
+          attempt: claim.record.attempt,
+          retryReason: claim.record.retryReason,
+        },
+      );
+    }
     const renew = setInterval(() => {
       try {
         stages.renew(runId, stage, owner, STAGE_LEASE_MS);
@@ -720,7 +727,7 @@ export async function runMultiAgentStudy(
     }
     if (existing) {
       const handle = await runtime.resumeAgent(agentId);
-      return { agentId, done: handle.done as Promise<AgentOutcome<T>> };
+      return { agentId, done: noteProviderFailure(handle.done as Promise<AgentOutcome<T>>) };
     }
     const handle = await runtime.startAgent<T>({
       runId,
@@ -736,7 +743,17 @@ export async function runMultiAgentStudy(
       result: { schema: options.schema, description: RESULT_DESCRIPTIONS[role] },
       provider,
     });
-    return { agentId, done: handle.done };
+    return { agentId, done: noteProviderFailure(handle.done) };
+  }
+
+  /** The first agent that ended on a model provider error; a study that then stops is failed, not inconclusive. */
+  let providerFailure = null as string | null;
+  function noteProviderFailure<T>(done: Promise<AgentOutcome<T>>): Promise<AgentOutcome<T>> {
+    return done.then((outcome) => {
+      if (outcome.status === "failed" && outcome.reason?.startsWith("model provider error") && !providerFailure)
+        providerFailure = outcome.reason;
+      return outcome;
+    });
   }
 
   async function ensureRepository(url: string, commitSha: string): Promise<void> {
@@ -1009,6 +1026,8 @@ export async function runMultiAgentStudy(
             commandTimeoutSeconds: config.commandTimeoutSeconds,
           },
           datasetHostsAllowed: config.datasetPolicy.allowedHosts,
+          datasetDownloads: deps.datasets ? "available through dataset_probe" : "disabled on this server",
+          builtinAdapters: (config.builtinAdapters ?? []).map(builtinAdapterView),
           trustedCompatibilityConstraints: config.trustedConstraints,
           dependencyPreparation: deps.dependencies ? "available" : "disabled on this server",
           previousRounds: withhold(replanGuidance),
@@ -1033,8 +1052,9 @@ export async function runMultiAgentStudy(
         // A reference to a reviewed adapter becomes the reviewed, hash-checked file; any other id is refused.
         let adapter: Plan["adapter"] = null;
         if (proposed.adapter && "reviewedAdapterId" in proposed.adapter) {
-          const reviewed = target?.adapter;
-          if (reviewed && reviewed.id === proposed.adapter.reviewedAdapterId) {
+          const id = proposed.adapter.reviewedAdapterId;
+          const reviewed = target?.adapter?.id === id ? target.adapter : (config.builtinAdapters ?? []).find((item) => item.id === id);
+          if (reviewed) {
             adapter = {
               path: reviewed.path,
               content: reviewed.content,
@@ -1099,6 +1119,7 @@ export async function runMultiAgentStudy(
         commandTimeoutSeconds: config.commandTimeoutSeconds,
         trustedConstraints: config.trustedConstraints,
         target,
+        probes: datasetProbes(ctx),
       });
       if (review.outcome === "approved") {
         board.post({
@@ -1992,9 +2013,11 @@ export async function runMultiAgentStudy(
       extra.push("the approved claim is not the sealed target");
       comparisonTarget = null;
     }
+    // A provider outage that stopped the study before any measurement is a failure of the service, not of the paper.
+    const providerStopped = providerFailure !== null && !(execOut?.engineers ?? []).some((engineer) => engineer.value !== null);
     const decision = decideStatus({
       cancelled: isCancelled,
-      failure: infrastructureFailure,
+      failure: infrastructureFailure ?? (providerStopped ? `the model provider failed: ${providerFailure}` : null),
       policyViolations,
       stopReasons: [...stopReasons, ...extra],
       contract: ctx.contract,

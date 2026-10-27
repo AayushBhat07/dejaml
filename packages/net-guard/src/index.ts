@@ -42,10 +42,12 @@ export {
   acquireDataset,
   type AcquireDatasetOptions,
   DATASET_MAX_BYTES,
+  datasetHostsFromEnv,
   type DatasetReceipt,
   DEFAULT_DATASET_POLICY,
   isSafeFileName,
   parseAllowedHosts,
+  RESEARCH_DATASET_HOSTS,
 } from "./dataset.js";
 export {
   acquireLabDataset,

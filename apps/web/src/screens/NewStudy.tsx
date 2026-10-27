@@ -3,7 +3,7 @@ import { useState } from "react";
 import { Badge } from "../components/Badge";
 import { FileDrop } from "../components/FileDrop";
 import { checkPaper, formatBytes, type PaperCheck } from "../lib/paper";
-import type { ReviewedCase, ServerConfig, StudyOptions } from "../lib/run-client";
+import { NO_REVIEWED_CASE, type ReviewedCase, type ServerConfig, type StudyOptions } from "../lib/run-client";
 
 type Accepted = Extract<PaperCheck, { ok: true }>;
 
@@ -104,11 +104,8 @@ export function NewStudy({
     try {
       await onStart(paper.file, {
         ...(live && provider ? { model: { providerId: provider.id, model: modelName } } : {}),
-        ...(live && chosen
-          ? { reviewedCaseId: chosen.caseId }
-          : !chosen && repositoryUrl.trim()
-            ? { repositoryUrl: repositoryUrl.trim() }
-            : {}),
+        ...(live ? { reviewedCaseId: chosen ? chosen.caseId : NO_REVIEWED_CASE } : {}),
+        ...(!chosen && repositoryUrl.trim() ? { repositoryUrl: repositoryUrl.trim() } : {}),
       });
     } catch (failure) {
       setError(failure instanceof Error ? failure.message : "The study could not be started.");

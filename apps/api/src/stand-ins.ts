@@ -2,7 +2,7 @@
 // scripts/verify-stack.mjs to exercise the real API, pipeline, Lab Manager,
 // policy gate, and verifier without external services. Never used by main.ts.
 import { createHash } from "node:crypto";
-import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
 import {
@@ -19,6 +19,7 @@ import type { StructuredCompletionRequest, StructuredModelClient } from "@dejaml
 import { PDFDocument, StandardFonts } from "pdf-lib";
 
 import type { CuratedCase } from "./cases.js";
+import type { DatasetPort } from "./study/index.js";
 
 export const STAND_IN_IMAGE_ID = `sha256:${"c".repeat(64)}`;
 export const NOTEBOOK = '{"cells":[],"metadata":{},"nbformat":4,"nbformat_minor":5}\n';
@@ -446,6 +447,45 @@ export function standInAcquire(curated: CuratedCase, created: string[] = [], com
   };
 }
 
+/**
+ * Trust zone 3 stand-in for tests: every URL serves the same bytes, written
+ * into the requested directory. A known hash must match those bytes, as the
+ * real port requires; a probe reports the hash it saw.
+ */
+export function standInDatasetPort(content = "a,b\n1,2\n"): DatasetPort & { requests: Array<{ url: string; sha256: string | null }> } {
+  const sha256 = createHash("sha256").update(content).digest("hex");
+  const requests: Array<{ url: string; sha256: string | null }> = [];
+  return {
+    requests,
+    async acquire(input) {
+      requests.push({ url: input.url, sha256: input.sha256 });
+      if (input.sha256 === null && !input.pinOnFirstFetch) throw new Error("a checksum is required");
+      if (input.sha256 !== null && input.sha256 !== sha256) throw new Error("checksum mismatch");
+      await mkdir(join(input.destinationDir, "download"), { recursive: true });
+      await writeFile(join(input.destinationDir, "download", "data.csv"), content);
+      return {
+        identity: {
+          name: input.name,
+          requestedUrl: input.url,
+          finalUrl: input.url,
+          sha256,
+          bytes: Buffer.byteLength(content),
+          checksumVerified: input.sha256 !== null,
+          extracted: null,
+          fetchedAt: new Date(0).toISOString(),
+        },
+        root: input.destinationDir,
+        labPath: "data/download/data.csv",
+        files: [],
+      };
+    },
+    async release(dataset) {
+      await rm(dataset.root, { recursive: true, force: true });
+      return { removed: true };
+    },
+  };
+}
+
 type ScriptedCall = { name: string; input: unknown };
 
 /**
@@ -463,6 +503,8 @@ export class ScriptedStudyProvider implements ChatProvider {
   };
   /** Changes to the Planner's plan (for policy tests). */
   plan: Record<string, unknown> = {};
+  /** The Planner probes this dataset and plans to download it with the hash the probe reported. */
+  probe: { url: string; extract: boolean } | null = null;
   /** The Supervisor's final proposal; null proposes the computed status. */
   supervisorProposal: string | null = null;
   /** The Supervisor's answer at a checkpoint. */
@@ -573,8 +615,16 @@ export class ScriptedStudyProvider implements ChatProvider {
           warnings: [],
         });
       }
-      case "Reproduction Planner":
+      case "Reproduction Planner": {
         if (turn === 0) return [{ name: "board_read", input: { kinds: ["paper_claim", "repository_mapping"] } }];
+        if (turn === 1 && this.probe) return [{ name: "dataset_probe", input: this.probe }];
+        const probed = this.probe ? last() : null;
+        const dataset = this.probe
+          ? {
+              name: "UCI Urban Land Cover",
+              source: { kind: "download", url: this.probe.url, sha256: probed?.sha256 ?? null, extract: this.probe.extract },
+            }
+          : { name: "UCI Urban Land Cover", source: { kind: "repository", paths: ["train.py"] } };
         return finish({
           status: "ready",
           summary: "Run train.py unchanged from a writable copy; it writes the accuracy to artifacts/result.json.",
@@ -584,7 +634,7 @@ export class ScriptedStudyProvider implements ChatProvider {
           python: "3.11",
           requirements: [],
           compatibilityConstraints: [],
-          dataset: { name: "UCI Urban Land Cover", source: { kind: "repository", paths: ["train.py"] } },
+          dataset,
           metricParser: { source: "json", path: "artifacts/result.json", key: "metrics.accuracyPercent" },
           expectedRuntimeSeconds: 30,
           stopConditions: ["the command exits non-zero"],
@@ -592,6 +642,7 @@ export class ScriptedStudyProvider implements ChatProvider {
           risks: [],
           ...this.plan,
         });
+      }
       case "Lab Engineer": {
         if (turn === 0 && this.tamper) return [{ name: "lab_run", input: { argv: ["touch", "work/.venv/x"] } }];
         const result = last();

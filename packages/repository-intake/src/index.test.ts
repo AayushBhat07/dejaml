@@ -86,6 +86,20 @@ describe("GitHub repository discovery", () => {
     ]);
   });
 
+  it("finds links that PDF extraction split around // or line breaks, and scheme-less mentions", () => {
+    const candidates = discoverGithubRepositories(
+      paperWithPages([
+        "Our code: https:\n//github.com/ChangWeiTan/MultiRocket. We build on https://github.\ncom/angus924/minirocket.",
+        "Available at github.com/zedali16/\nenvsca. Not a link: notgithub.com/a/b or x@github.com/c/d.",
+      ]),
+    );
+    expect(candidates.map((candidate) => candidate.repositoryUrl)).toEqual([
+      "https://github.com/ChangWeiTan/MultiRocket",
+      "https://github.com/angus924/minirocket",
+      "https://github.com/zedali16/envsca",
+    ]);
+  });
+
   it("rejects credentials, lookalike hosts, and non-repository GitHub paths", () => {
     for (const url of [
       "https://token@github.com/owner/repo",

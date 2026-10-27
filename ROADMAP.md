@@ -149,6 +149,18 @@ The stage machine is persisted and resumes after a restart, the claim contract a
 
 See `docs/phases/phase-06/subphase-06-04-multi-agent-study.md`.
 
+### 6.5 Blinded execution — `IN PROGRESS`
+
+The paper's value is sealed under a commitment before any agent starts and revealed only after the observation and the blind review are locked.
+
+See `docs/phases/phase-06/subphase-06-05-blinded-execution.md`.
+
+### 6.6 Any lightweight paper, with no per-paper code — `IN PROGRESS`
+
+An open study (no reviewed case) runs a new paper with nothing written for it. The Planner probes a dataset through the dataset zone and plans with the SHA-256 DéjàML observed, public research-data archives are allowed by default, a hash-pinned built-in notebook runner covers notebook-only repositories, and the Paper Analyst prefers claims that run in minutes on a CPU. It also fixes four bugs from the 15 October no-target runs. Built and verified with tests and real Docker; real-model runs on new papers are pending on the Mac.
+
+See `docs/phases/phase-06/subphase-06-06-open-paper-automation.md`.
+
 ## Change rule
 
 If a completed sub-phase is later reverted or materially changed:
