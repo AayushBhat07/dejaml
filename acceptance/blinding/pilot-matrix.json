@@ -1,0 +1,58 @@
+{
+  "schemaVersion": 1,
+  "name": "blinding-pilot-2026-10",
+  "note": "The 90-run pilot: 5 papers x (4 open-lab arms + 2 locked arms) x 3 replicates. Four papers are listed; add the fifth before the main runs. PDF paths starting with ~ are on the owner's machine (ROCKET and Urban Land Cover are not redistributed here; put them at those paths). Good Classification Measures has no reviewed case, so its agents choose the claim each run; turn it into a reviewed target before the main study so every arm measures the same claim.",
+  "seed": 20261028,
+  "replicates": 3,
+  "papers": [
+    {
+      "id": "rocket-ecg200",
+      "reviewedCaseId": "rocket-ecg200",
+      "pdf": "~/Desktop/ClaudeWork/papers/02_ROCKET.pdf",
+      "sha256": "b58acd66dbd188978fc379f6949a4ea26c3c97aeaf6a27f5f16ccc182628df7a"
+    },
+    {
+      "id": "pyts-boss-gunpoint",
+      "reviewedCaseId": "pyts-boss-gunpoint",
+      "pdf": "../papers/pyts-jmlr-2020-19-763.pdf",
+      "sha256": "5261f92e14eb07c215b03610477d81330bfc34a89ea004a4a0fb1fa339913ea4"
+    },
+    {
+      "id": "urban-land-cover-rf",
+      "reviewedCaseId": "urban-land-cover-random-forest",
+      "pdf": "~/Desktop/ClaudeWork/papers/2609.19010.pdf",
+      "sha256": "13b0c3fb3c2823f78eb650f918aa521493bddd6eccb55a2b9857c37d44d0a6a1"
+    },
+    {
+      "id": "good-classification-measures",
+      "repositoryUrl": "https://github.com/yandex-research/classification-measures",
+      "pdf": "~/Desktop/ClaudeWork/DejaML-no-target-runs/08_good_classification_measures.pdf"
+    }
+  ],
+  "arms": [
+    {
+      "targetVisibility": "blind",
+      "labMode": "open"
+    },
+    {
+      "targetVisibility": "sighted",
+      "labMode": "open"
+    },
+    {
+      "targetVisibility": "sighted_rule",
+      "labMode": "open"
+    },
+    {
+      "targetVisibility": "decoy",
+      "labMode": "open"
+    },
+    {
+      "targetVisibility": "blind",
+      "labMode": "locked"
+    },
+    {
+      "targetVisibility": "sighted",
+      "labMode": "locked"
+    }
+  ]
+}

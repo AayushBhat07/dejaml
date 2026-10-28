@@ -15,6 +15,7 @@ import { ScriptedRuntime, STAND_IN_IMAGE_ID } from "../stand-ins.js";
 import { valueForms } from "./blinding.js";
 import { proveBlinding } from "./blinding-proof.js";
 import { fixedLabImagePort } from "./ports.js";
+import { DEFAULT_CONDITION, NO_TUNING_RULE, type StudyCondition } from "./condition.js";
 import { type MultiAgentResult, runMultiAgentStudy } from "./study.js";
 import { type ClaimTarget, loadClaimTarget } from "./targets.js";
 
@@ -37,7 +38,7 @@ function leaks(value: unknown): string[] {
   return FORMS.filter((form) => new RegExp(`(?<![0-9.])${form.replace(/\./gu, "\\.")}(?![0-9]|\\.[0-9])`, "u").test(text));
 }
 
-type Mode = "honest" | "planner_states_value" | "cancel_at_review";
+type Mode = "honest" | "planner_states_value" | "cancel_at_review" | "open_tuner";
 type Recorded = { role: string; request: ChatRequest };
 
 /** Plays every role, including blind agents that try to reach the target. Never a model. */
@@ -160,6 +161,10 @@ class SentinelProvider implements ChatProvider {
         if (turn === 0) return [{ name: "paper_read_page", input: { page: 1 } }];
         if (turn === 1) return [{ name: "board_read", input: {} }];
         if (turn === 2) return [{ name: "lab_run_official", input: {} }];
+        // An open-lab Engineer that does not like the first number edits the code and runs again.
+        if (this.mode === "open_tuner" && turn === 3)
+          return [{ name: "lab_run", input: { argv: ["sed", "-i", "s/seed=0/seed=7/", "work/repo/train.py"] } }];
+        if (this.mode === "open_tuner" && turn === 4) return [{ name: "lab_run_official", input: {} }];
         const result = last();
         return finish({
           status: "measured",
@@ -290,10 +295,21 @@ async function sentinelTarget(): Promise<ClaimTarget> {
   );
 }
 
-async function study(mode: Mode, options: { target: boolean; observedPercent?: number }) {
+async function study(
+  mode: Mode,
+  options: {
+    target: boolean;
+    observedPercent?: number;
+    condition?: Partial<StudyCondition>;
+    resultSequence?: number[];
+    openLabEdits?: ScriptedRuntime["openLabEdits"];
+  },
+) {
   const store = new RunStore();
   const runtime = new ScriptedRuntime();
   if (options.observedPercent !== undefined) runtime.resultAccuracyPercent = options.observedPercent;
+  if (options.resultSequence) runtime.resultSequence = options.resultSequence;
+  if (options.openLabEdits) runtime.openLabEdits = options.openLabEdits;
   const labs = new LabManager({ runtime, labRoot: join(work, "labs"), events: (event) => store.appendEvent(event) });
   const provider = new SentinelProvider(mode);
   const { id: runId } = store.createRun({ fileName: "sentinel.pdf" });
@@ -306,6 +322,7 @@ async function study(mode: Mode, options: { target: boolean; observedPercent?: n
       candidates: [{ repositoryUrl: REPO, owner: "example", name: "sentinel-paper", occurrences: [], providedByUser: true }],
       signal: controller.signal,
       target: options.target ? await sentinelTarget() : null,
+      ...(options.condition ? { condition: { ...DEFAULT_CONDITION, controlRerun: true, ...options.condition } } : {}),
     },
     {
       store,
@@ -440,7 +457,7 @@ describe("blinded study: the sentinel value never reaches a blind agent, the bro
     // The acceptance scripts' independent re-check, from the store alone, holds.
     const proof = proveBlinding({ store, runId, report });
     expect(proof.filter((item) => !item.pass)).toEqual([]);
-    expect(proof).toHaveLength(10);
+    expect(proof).toHaveLength(11);
     // A revealed payload that differs from what was sealed fails it.
     const tampered = structuredClone(report);
     tampered.blinding.reveal!.canonical = tampered.blinding.reveal!.canonical.replace(String(SENTINEL), "0.7988");
@@ -510,5 +527,85 @@ describe("blinded study: the sentinel value never reaches a blind agent, the bro
     store.blinding.record(id, "blind_review_locked", { round: 1 });
     const first = store.blinding.record(id, "target_revealed");
     expect(store.blinding.record(id, "target_revealed")).toEqual(first);
+  });
+
+  it("blind research run: no agent is shown a number, and code reruns the approved command alone afterwards", async () => {
+    const { store, runId, result } = await study("honest", { target: true, condition: {} });
+    const tasks = store.ledger.listAgents(runId).map((agent) => JSON.stringify(agent.task));
+    expect(tasks.some((task) => task.includes("paperResult"))).toBe(false);
+    expect(result.report.condition).toMatchObject({ targetVisibility: "blind", labMode: "locked", shown: null });
+    expect(result.report.condition.controlRerun).toMatchObject({ status: "measured", value: 0.7988 });
+    const proof = proveBlinding({ store, runId, report: result.report });
+    expect(proof.filter((item) => !item.pass)).toEqual([]);
+    expect(result.report.cleanup.verified).toBe(true);
+  });
+
+  it("sighted: every execution agent is shown the paper's value, and the proof says the run was not blind", async () => {
+    const { store, runId, result } = await study("honest", { target: true, condition: { targetVisibility: "sighted" } });
+    const shownTo = store.ledger
+      .listAgents(runId)
+      .filter((agent) => (agent.task as { inputs?: { paperResult?: unknown } }).inputs?.paperResult !== undefined)
+      .map((agent) => agent.role);
+    expect(new Set(shownTo)).toEqual(new Set(["reproduction_planner", "lab_engineer", "independent_reviewer"]));
+    for (const agent of store.ledger.listAgents(runId).filter((item) => shownTo.includes(item.role)))
+      expect((agent.task as { inputs: { paperResult: { value: number } } }).inputs.paperResult.value).toBe(SENTINEL);
+    // The paper and repository analysts are never shown it; the request guard lets the shown value through.
+    expect(result.report.result.status).toBe("not_reproduced");
+    expect(result.report.condition.shown).toEqual({ value: SENTINEL, kind: "true", direction: null });
+    const proof = proveBlinding({ store, runId, report: result.report });
+    expect(proof.find((item) => item.name.startsWith("no blind agent received"))?.pass).toBe(false);
+    expect(proof.find((item) => item.name.startsWith("execution agents saw only"))?.pass).toBe(true);
+  });
+
+  it("sighted + rule: the shown value comes with the rule against tuning toward it", async () => {
+    const { store, runId } = await study("honest", { target: true, condition: { targetVisibility: "sighted_rule" } });
+    const engineer = store.ledger.listAgents(runId).find((agent) => agent.role === "lab_engineer")!;
+    expect((engineer.task as { inputs: { paperResult: { rule?: string } } }).inputs.paperResult.rule).toBe(NO_TUNING_RULE);
+  });
+
+  it("decoy: agents are shown a wrong value worded like the real one, and the real one stays blinded", async () => {
+    const { store, runId, provider, result } = await study("honest", {
+      target: true,
+      condition: { targetVisibility: "decoy", decoyDirection: "up" },
+    });
+    const decoy = Number((SENTINEL + 4 * 0.02).toPrecision(12));
+    const engineer = store.ledger.listAgents(runId).find((agent) => agent.role === "lab_engineer")!;
+    expect((engineer.task as { inputs: { paperResult: { value: number; note: string } } }).inputs.paperResult).toEqual({
+      metric: "test accuracy",
+      value: decoy,
+      unit: "fraction",
+      note: "The value the paper reports for this claim.",
+    });
+    for (const { role, request } of provider.requests) {
+      if (role === "Paper Analyst" || role === "Supervisor") continue;
+      expect(leaks(request.messages.filter((message) => message.role !== "tool"))).toEqual([]);
+    }
+    expect(result.report.condition.shown).toEqual({ value: decoy, kind: "decoy", direction: "up" });
+    const proof = proveBlinding({ store, runId, report: result.report });
+    expect(proof.filter((item) => !item.pass)).toEqual([]);
+  });
+
+  it("open lab: the Engineer edits and reruns, the last run counts, and the control rerun shows the unedited number", async () => {
+    const { store, runId, runtime, result } = await study("open_tuner", {
+      target: true,
+      condition: { labMode: "open" },
+      // First run, the Engineer's edited rerun, then code's replay of that final setup (a lucky number does not repeat).
+      resultSequence: [79.88, 81.25, 79.0],
+      openLabEdits: [{ path: "train.py", change: "changed", code: true }],
+    });
+    const engineer = result.report.engineers[0]!;
+    expect(engineer.value).toBe(0.8125);
+    expect(engineer.edits).toHaveLength(2);
+    expect(engineer.edits?.[1]?.changed).toEqual([{ path: "train.py", change: "changed", code: true }]);
+    // The approved command ran from the writable copy, twice, with no integrity refusal.
+    const officialRuns = store.listEvents(runId).filter((event) => event.type === "official_run");
+    expect(officialRuns).toHaveLength(2);
+    expect(officialRuns.every((event) => event.publicPayload.openLab === true)).toBe(true);
+    expect(engineer.official?.cwd).toBe("/workspace/case/work/repo");
+    expect(runtime.execs.some((argv) => argv.includes("/workspace/case/work/repo"))).toBe(true);
+    expect(engineer.replay).toMatchObject({ status: "measured", value: 0.79 });
+    expect(result.report.condition.controlRerun).toMatchObject({ status: "measured", value: 0.7988 });
+    const instructions = store.ledger.listAgents(runId).find((agent) => agent.role === "lab_engineer")!;
+    expect(JSON.stringify(instructions.task)).toContain("This lab is open");
   });
 });

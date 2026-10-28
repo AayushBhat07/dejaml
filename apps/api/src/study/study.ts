@@ -55,8 +55,10 @@ import {
   type AcquiredDataset,
   type DatasetPort,
   type DependencyPort,
+  type CommandRecord,
   type EngineerLab,
   type ExportedArtifact,
+  type OfficialEdits,
   LAB_LAYOUT,
   type LabImage,
   type LabImagePort,
@@ -65,6 +67,17 @@ import {
   type StudyConfig,
   type StudyContext,
 } from "./context.js";
+import {
+  conditionRecord,
+  DEFAULT_CONDITION,
+  isDefaultCondition,
+  OPEN_LAB_INSTRUCTIONS,
+  paperResultInput,
+  SHOWN_ROLES,
+  type ShownTarget,
+  shownTarget,
+  type StudyCondition,
+} from "./condition.js";
 import { canonicalJson, reconcile, reviewPolicy, TOLERANCE } from "./contract.js";
 import { measureIntegrity, orchestratorActor, runInLab } from "./lab-tools.js";
 import { convertUnit, parseMetric } from "./metric.js";
@@ -239,8 +252,21 @@ export type MultiAgentReport = {
     Omit<EngineerOutcome, "submission"> & {
       submission: Submission | null;
       artifacts: Array<{ path: string; sha256: string; bytes: number }>;
+      edits?: OfficialEdits[];
+      replay?: ControlRerun | null;
     }
   >;
+  /**
+   * The research condition (see ./condition.ts). `shown` is the number the
+   * agents were told, published only after the reveal; `controlRerun` is the
+   * approved command run once more by code alone, after the agents finished.
+   */
+  condition: {
+    targetVisibility: StudyCondition["targetVisibility"];
+    labMode: StudyCondition["labMode"];
+    shown: { value: number; kind: ShownTarget["kind"]; direction: ShownTarget["direction"] } | null;
+    controlRerun: ControlRerun | null;
+  };
   result: {
     status: ResultStatus;
     computedStatus: ResultStatus;
@@ -339,6 +365,10 @@ type EngineerRecord = EngineerOutcome & {
   artifacts: Array<{ path: string; sha256: string; bytes: number }>;
   environment: EngineerLab["environment"];
   officialStdoutTail: string;
+  /** Open lab only: the edits behind each official run. */
+  edits: OfficialEdits[];
+  /** Open lab only: the Engineer's final setup run once more by code alone, in the same lab. */
+  replay: ControlRerun | null;
 };
 type ExecuteStageOutput = {
   engineers: EngineerRecord[];
@@ -348,6 +378,15 @@ type ReviewStageOutput = {
   reviews: Array<{ engineerAgentId: string; reviewerAgentId: string; status: string; review: Review | null }>;
   /** The round this blind review belongs to (the executing stage's attempt). */
   round?: number;
+};
+/** The agent-free rerun of the approved command in a fresh lab, after the study. */
+export type ControlRerun = {
+  status: "measured" | "not_measured" | "skipped";
+  reason: string | null;
+  value: number | null;
+  receiptId: string | null;
+  exitCode: number | null;
+  stdoutSha256: string | null;
 };
 type DecideStageOutput = {
   status: ResultStatus;
@@ -407,6 +446,8 @@ export async function runMultiAgentStudy(
     signal: AbortSignal;
     /** A reviewed claim target from the server's registry: which claim to investigate, never a result. */
     target?: ClaimTarget | null;
+    /** What the execution agents are told about the result, and how free their lab is (see ./condition.ts). */
+    condition?: StudyCondition;
   },
   deps: MultiAgentDependencies,
 ): Promise<MultiAgentResult> {
@@ -416,6 +457,7 @@ export async function runMultiAgentStudy(
   const owner = deps.owner ?? `orchestrator_${randomUUID().replaceAll("-", "").slice(0, 12)}`;
   const provider = config.provider;
   const target = input.target ?? null;
+  const condition = input.condition ?? DEFAULT_CONDITION;
   const event = (type: string, status: RunEvent["status"], summary: string, payload: Record<string, unknown> = {}): void => {
     store.appendEvent({ runId, actor: "system", type, status, summary, evidence: [], publicPayload: payload });
   };
@@ -436,6 +478,7 @@ export async function runMultiAgentStudy(
       provider,
       platform: config.platform,
       reviewedTarget: target,
+      condition,
     });
   }
   const resumed = stages.stages(runId).some((record) => record.attempt > 0);
@@ -469,6 +512,7 @@ export async function runMultiAgentStudy(
     pinnedCommit: target?.repository.commitSha ?? null,
     projection: null,
     sealedForScan: null,
+    condition,
     contract: null,
     planDigest: null,
     prepared: null,
@@ -480,14 +524,18 @@ export async function runMultiAgentStudy(
   };
   // The revealed, verified target; null until both locks are recorded.
   let revealed = null as SealedTarget | null;
+  // The number this study's condition shows the execution agents (null when blind), and the salt of its public hash.
+  let shown = null as ShownTarget | null;
+  let shownSalt = "";
   const runtime = new BoundedAgentRuntime({
     store,
     provider: () => deps.chatProvider,
     tools: (agent) => buildStudyTools(ctx, agent),
     resultSchema: resultSchemaFor,
-    // Before the reveal, no request of any agent but the Paper Analyst may carry the sealed value.
+    // Before the reveal, no request of any agent but the Paper Analyst may carry the sealed value,
+    // unless the study's condition shows that value to the agents on purpose.
     requestGuard: (agent, text) => {
-      if (agent.role === "paper_analyst" || revealed || !ctx.sealedForScan) return null;
+      if (agent.role === "paper_analyst" || revealed || !ctx.sealedForScan || shown?.kind === "true") return null;
       return findValue(ctx.sealedForScan.value, ctx.sealedForScan.unit, text) ? "it carries the sealed paper value" : null;
     },
   });
@@ -521,6 +569,8 @@ export async function runMultiAgentStudy(
     if (!row) return;
     const sealed = JSON.parse(row.canonical) as SealedTarget;
     ctx.sealedForScan = { value: sealed.reportedValue, unit: sealed.metric.unit };
+    shown = shownTarget(condition, sealed);
+    shownSalt = sealed.nonce;
   }
 
   function seal(input: Omit<SealedTarget, "schemaVersion" | "comparisonRule" | "nonce">): void {
@@ -554,12 +604,28 @@ export async function runMultiAgentStudy(
 
   function agentsStarted(): void {
     if (blinding.find(runId, "agents_started")) return;
+    const conditionFacts = conditionRecord(condition, shown, shownSalt);
     ensurePhase("agents_started", 0, {
       record: {
         blindRoles: ["repository_analyst", "reproduction_planner", "lab_engineer", "debugger", "independent_reviewer", "supervisor"],
+        ...(isDefaultCondition(condition) ? {} : { condition: conditionFacts }),
       },
     });
-    event("agents_started", "started", "Blind agents start: none of them is told the paper's value", {});
+    event(
+      "agents_started",
+      "started",
+      condition.targetVisibility === "blind"
+        ? "Blind agents start: none of them is told the paper's value"
+        : `Agents start under the ${condition.targetVisibility.replaceAll("_", " ")} research condition`,
+      isDefaultCondition(condition) ? {} : { condition: conditionFacts },
+    );
+  }
+
+  /** A text carries the sealed value or the number the condition shows; a plan or adapter must carry neither. */
+  function carriesTargetValue(text: string): boolean {
+    const sealed = sealedView();
+    if (sealed && findValue(sealed.value, sealed.unit, text)) return true;
+    return shown !== null && findValue(shown.value, shown.unit, text) !== null;
   }
 
   /** The sealed value for withholding, when one is sealed. */
@@ -722,15 +788,17 @@ export async function runMultiAgentStudy(
       const handle = await runtime.resumeAgent(agentId);
       return { agentId, done: handle.done as Promise<AgentOutcome<T>> };
     }
+    const instructions = (target ? TARGETED_INSTRUCTIONS[role] : undefined) ?? INSTRUCTIONS[role];
     const handle = await runtime.startAgent<T>({
       runId,
       role,
       agentId,
       parentAgentId: options.parentAgentId ?? null,
       label: options.label,
-      instructions: (target ? TARGETED_INSTRUCTIONS[role] : undefined) ?? INSTRUCTIONS[role],
+      instructions: role === "lab_engineer" && condition.labMode === "open" ? `${instructions}\n\n${OPEN_LAB_INSTRUCTIONS}` : instructions,
       objective: options.objective,
-      inputs: options.inputs,
+      // A sighted or decoy condition shows its number to every execution agent before the reveal, in the same words.
+      inputs: shown && !revealed && SHOWN_ROLES.has(role) ? { ...options.inputs, ...paperResultInput(condition, shown) } : options.inputs,
       grants: [...ROLE_GRANTS[role]],
       limits: ROLE_LIMITS[role],
       result: { schema: options.schema, description: RESULT_DESCRIPTIONS[role] },
@@ -1022,9 +1090,8 @@ export async function runMultiAgentStudy(
       let reconcileErrors: string[] = [];
       if (proposed) {
         // A plan measures; it never states what the result should be. Refused with a neutral reason.
-        const sealed = sealedView();
         const free = [proposed.summary, proposed.blockedReason ?? "", ...proposed.risks, ...proposed.stopConditions].join("\n");
-        if ((sealed && findValue(sealed.value, sealed.unit, JSON.stringify(proposed))) || statesExpectation(free))
+        if (carriesTargetValue(JSON.stringify(proposed)) || statesExpectation(free))
           reconcileErrors.push("the plan states an expected result, which a blinded plan must not do");
         board.post({ kind: "plan", authorAgentId: handle.agentId, authorRole: "reproduction_planner", payload: withhold(proposed) });
       }
@@ -1051,8 +1118,7 @@ export async function runMultiAgentStudy(
         plan = { ...proposed, adapter };
       }
       if (plan?.adapter && reconcileErrors.length === 0) {
-        const sealed = sealedView();
-        if ((sealed && findValue(sealed.value, sealed.unit, plan.adapter.content)) || riggedAdapter(plan.adapter.content))
+        if (carriesTargetValue(plan.adapter.content) || riggedAdapter(plan.adapter.content))
           reconcileErrors.push("the adapter contains a value or a comparison it must not contain");
       }
       if (plan?.status === "ready" && claim && repository && reconcileErrors.length === 0) {
@@ -1530,20 +1596,15 @@ export async function runMultiAgentStudy(
         integrity: { workRepo: null, venv: null, adapter: null },
         environment: item.environment,
         official: null,
+        edits: [],
         dependencyRequest: item.dependencyRequest,
         destroyed: true,
       });
     }
   }
 
-  async function runEngineer(
-    label: string,
-    round: number,
-    contract: ClaimContract,
-    adapter: Plan["adapter"],
-    labImage: LabImage,
-  ): Promise<EngineerRecord> {
-    const agentId = stableAgentId(runId, "executing", generation("executing"), label, round);
+  /** A fresh lab on the execution projection, registered under the agent (or control) id that will use it. */
+  async function createStudyLab(agentId: string, label: string, labImage: LabImage): Promise<EngineerLab> {
     // The lab mounts the execution projection: code and data unchanged, saved notebook outputs removed.
     const inputs: Array<{ hostPath: string; containerPath: string }> = [
       { hostPath: ctx.projection?.dir ?? ctx.repository!.dir, containerPath: LAB_LAYOUT.repoDir },
@@ -1579,11 +1640,26 @@ export async function runMultiAgentStudy(
       integrity: { workRepo: null, venv: null, adapter: null },
       environment: null,
       official: null,
+      edits: [],
       dependencyRequest: null,
       destroyed: false,
     };
     ctx.labsByAgent.set(agentId, lab);
+    return lab;
+  }
+
+  async function runEngineer(
+    label: string,
+    round: number,
+    contract: ClaimContract,
+    adapter: Plan["adapter"],
+    labImage: LabImage,
+  ): Promise<EngineerRecord> {
+    const agentId = stableAgentId(runId, "executing", generation("executing"), label, round);
+    const lab = await createStudyLab(agentId, label, labImage);
     let outcome: AgentOutcome<Submission> | null = null;
+    let beforeReplay = null as Awaited<ReturnType<typeof measureOfficial>> | null;
+    let replay = null as ControlRerun | null;
     try {
       await setUpLab(lab, contract, adapter);
       const engineer = await launch("lab_engineer", {
@@ -1605,36 +1681,76 @@ export async function runMultiAgentStudy(
       // The orchestrator made the lab under this id before the agent existed; the ids match by construction.
       if (engineer.agentId !== agentId) throw new Error("engineer id mismatch");
       outcome = await engineer.done;
+      const last = lab.official;
+      // Open lab: code alone runs the Engineer's final setup once more in the same lab, before it closes.
+      if (
+        condition.labMode === "open" &&
+        condition.controlRerun &&
+        last &&
+        last.exitCode === 0 &&
+        !last.timedOut &&
+        !study.signal.aborted
+      ) {
+        beforeReplay = await measureOfficial(last, contract, await snapshotArtifacts(lab, last));
+        // The replay overwrites the run's outputs; the Engineer's are put back afterwards for the Reviewer and the export.
+        const saved = `${LAB_LAYOUT.workdir}/${LAB_LAYOUT.scratchDir}/.dejaml-before-replay`;
+        const artifactsDir = `${LAB_LAYOUT.workdir}/${LAB_LAYOUT.artifactsDir}`;
+        const copy = (from: string, to: string, clear: boolean) =>
+          runInLab(
+            ctx,
+            lab,
+            orchestratorActor(),
+            [
+              "python",
+              "-I",
+              "-S",
+              "-c",
+              "import os, shutil, sys\nsrc, dst, clear = sys.argv[1], sys.argv[2], sys.argv[3] == '1'\nif clear:\n    for name in os.listdir(dst):\n        path = os.path.join(dst, name)\n        shutil.rmtree(path) if os.path.isdir(path) and not os.path.islink(path) else os.remove(path)\nshutil.copytree(src, dst, symlinks=True, dirs_exist_ok=True)",
+              from,
+              to,
+              clear ? "1" : "0",
+            ],
+            LAB_LAYOUT.workdir,
+            {},
+            300,
+          );
+        await copy(artifactsDir, saved, false);
+        const run = await runInLab(
+          ctx,
+          lab,
+          orchestratorActor(),
+          last.argv,
+          last.cwd,
+          {},
+          Math.min(config.commandTimeoutSeconds, Math.max(120, contract.expectedRuntimeSeconds * 4)),
+          { official: true },
+        );
+        // The Engineer's run stays the measurement; the replay is recorded beside it.
+        lab.official = last;
+        const measured = await measureOfficial(run, contract, await snapshotArtifacts(lab, run));
+        await copy(saved, artifactsDir, true);
+        replay = {
+          status: measured.value === null ? "not_measured" : "measured",
+          reason: measured.metric && !measured.metric.ok ? measured.metric.reason : null,
+          value: measured.value,
+          receiptId: run.receiptId,
+          exitCode: run.exitCode,
+          stdoutSha256: run.stdoutSha256,
+        };
+        event(
+          "final_setup_replay",
+          replay.status === "measured" ? "completed" : "warning",
+          `Code alone ran ${label}'s final setup again in the same lab`,
+          { engineer: label, ...replay },
+        );
+      }
     } finally {
       await finishLab(agentId, `${label} finished`);
     }
     const submission = outcome?.status === "completed" ? (outcome.result ?? null) : null;
     const exported = ctx.exports.get(agentId) ?? [];
-    const official: OfficialRun | null = lab.official
-      ? {
-          receiptId: lab.official.receiptId,
-          argv: lab.official.argv,
-          cwd: lab.official.cwd,
-          exitCode: lab.official.exitCode,
-          timedOut: lab.official.timedOut,
-          durationMs: lab.official.durationMs,
-          stdoutSha256: lab.official.stdoutSha256,
-        }
-      : null;
-    let metric = null;
-    let value: number | null = null;
-    if (lab.official && lab.official.exitCode === 0 && !lab.official.timedOut) {
-      // Only artifacts exactly as the official run wrote them count.
-      const producedBy = new Map(lab.official.artifacts.map((item) => [item.path, item.sha256]));
-      const artifacts = new Map(exported.filter((item) => producedBy.get(item.path) === item.sha256).map((item) => [item.path, item.text]));
-      metric = await parseMetric(contract.metricParser, { stdout: lab.official.stdoutFull ?? "", artifacts });
-      if (metric.ok) value = convertUnit(metric.value, metric.unit, contract.metric.unit);
-      // A number that cannot be this metric (an accuracy of 7, NaN) is not a measurement.
-      const implausible = metric.ok ? (value === null ? null : implausibleValue(value, contract.metric.unit)) : null;
-      if (implausible) {
-        metric = { ok: false as const, reason: implausible };
-        value = null;
-      }
+    const { official, metric, value } = beforeReplay ?? (await measureOfficial(lab.official, contract, exported));
+    if (lab.official && metric) {
       board.post({
         kind: "metric",
         authorAgentId: null,
@@ -1697,11 +1813,70 @@ export async function runMultiAgentStudy(
       artifacts: exported.map((item) => ({ path: item.path, sha256: item.sha256, bytes: item.bytes })),
       environment: lab.environment,
       officialStdoutTail: lab.official?.stdoutTail.slice(-8_000) ?? "",
+      edits: lab.edits,
+      replay,
     };
   }
 
+  /** The artifacts a run wrote, read while the lab is still open (for a measurement taken before the lab closes). */
+  async function snapshotArtifacts(lab: EngineerLab, run: CommandRecord): Promise<ExportedArtifact[]> {
+    const snapshot: ExportedArtifact[] = [];
+    for (const summary of run.artifacts.slice(0, DEFAULT_LAB_LIMITS.maxArtifactFiles)) {
+      try {
+        const artifact = await deps.labs.readArtifact(lab.labId, summary.path);
+        const text = artifact.content.subarray(0, 1024).includes(0) ? null : artifact.content.toString("utf8").slice(0, 200_000);
+        snapshot.push({ path: artifact.path, sha256: artifact.sha256, bytes: artifact.bytes, hostPath: "", text });
+      } catch {
+        // A removed or oversized artifact cannot be read.
+      }
+    }
+    return snapshot;
+  }
+
+  /** The measurement of a lab's last official run, parsed by code from that run's own output and artifacts. */
+  async function measureOfficial(
+    run: CommandRecord | null,
+    contract: ClaimContract,
+    exported: ExportedArtifact[],
+  ): Promise<{ official: OfficialRun | null; metric: Awaited<ReturnType<typeof parseMetric>> | null; value: number | null }> {
+    const official: OfficialRun | null = run
+      ? {
+          receiptId: run.receiptId,
+          argv: run.argv,
+          cwd: run.cwd,
+          exitCode: run.exitCode,
+          timedOut: run.timedOut,
+          durationMs: run.durationMs,
+          stdoutSha256: run.stdoutSha256,
+        }
+      : null;
+    let metric: Awaited<ReturnType<typeof parseMetric>> | null = null;
+    let value: number | null = null;
+    if (run && run.exitCode === 0 && !run.timedOut) {
+      // Only artifacts exactly as the official run wrote them count.
+      const producedBy = new Map(run.artifacts.map((item) => [item.path, item.sha256]));
+      const artifacts = new Map(exported.filter((item) => producedBy.get(item.path) === item.sha256).map((item) => [item.path, item.text]));
+      metric = await parseMetric(contract.metricParser, { stdout: run.stdoutFull ?? "", artifacts });
+      if (metric.ok) value = convertUnit(metric.value, metric.unit, contract.metric.unit);
+      // A number that cannot be this metric (an accuracy of 7, NaN) is not a measurement.
+      const implausible = metric.ok ? (value === null ? null : implausibleValue(value, contract.metric.unit)) : null;
+      if (implausible) {
+        metric = { ok: false as const, reason: implausible };
+        value = null;
+      }
+    }
+    return { official, metric, value };
+  }
+
   /** The orchestrator prepares the lab; the Engineer starts only after this. */
-  async function setUpLab(lab: EngineerLab, contract: ClaimContract, adapter: Plan["adapter"]): Promise<void> {
+  async function setUpLab(
+    lab: EngineerLab,
+    contract: ClaimContract,
+    adapter: Plan["adapter"],
+    options: { control?: boolean } = {},
+  ): Promise<void> {
+    // The agent-free control rerun always runs the plan exactly as approved, even in an open-lab study.
+    const openLab = condition.labMode === "open" && options.control !== true;
     const actor = orchestratorActor;
     const must = async (argv: string[], what: string, outcome: PreparationFailure["outcome"], timeout = 600): Promise<void> => {
       const record = await runInLab(ctx, lab, actor(), argv, LAB_LAYOUT.workdir, {}, timeout);
@@ -1712,7 +1887,8 @@ export async function runMultiAgentStudy(
           outcome,
         );
     };
-    if (contract.command.cwd === LAB_LAYOUT.workRepo) {
+    // An open lab always works on a writable copy; the approved command then runs from it.
+    if (contract.command.cwd === LAB_LAYOUT.workRepo || openLab) {
       await must(
         [
           "python",
@@ -1729,8 +1905,7 @@ export async function runMultiAgentStudy(
     }
     if (adapter) {
       // Scanned again at the moment it enters the lab.
-      const sealed = sealedView();
-      if ((sealed && findValue(sealed.value, sealed.unit, adapter.content)) || riggedAdapter(adapter.content))
+      if (carriesTargetValue(adapter.content) || riggedAdapter(adapter.content))
         throw new PreparationFailure("adapter_refused", "the adapter contains a value or a comparison it must not contain", "inconclusive");
       await deps.labs.writeScratchFile(lab.labId, adapter.path, adapter.content, lab.commands.length + 1);
     }
@@ -1894,6 +2069,72 @@ export async function runMultiAgentStudy(
     finalStatus = decision.status;
   }
   recordFinalStatus();
+  let controlRerun = null as ControlRerun | null;
+  if (condition.controlRerun) controlRerun = await runControlRerun();
+
+  /**
+   * The control: after every agent has finished, code alone runs the approved
+   * command once more on the prepared state, in a fresh lab, and parses the
+   * metric. In an open lab this is what the unedited setup gives; in a locked
+   * lab it shows whether the run repeats.
+   */
+  async function runControlRerun(): Promise<ControlRerun> {
+    const skipped = (reason: string): ControlRerun => ({
+      status: "skipped",
+      reason,
+      value: null,
+      receiptId: null,
+      exitCode: null,
+      stdoutSha256: null,
+    });
+    const contract = ctx.contract;
+    const labImage = prepOut?.labImage ?? null;
+    if (input.signal.aborted || study.signal.aborted) return skipped("the study was cancelled or timed out");
+    if (!contract || !labImage || !execOut?.engineers.length) return skipped("no approved command was run");
+    if (prepOut?.failure) return skipped("the lab was never prepared");
+    const agentId = `control_${stableAgentId(runId, "control").slice(4)}`;
+    try {
+      const lab = await createStudyLab(agentId, "control", labImage);
+      try {
+        await setUpLab(lab, contract, planOut?.plan?.adapter ?? null, { control: true });
+        const [, ...args] = contract.command.argv;
+        await runInLab(
+          ctx,
+          lab,
+          orchestratorActor(),
+          [`${LAB_LAYOUT.venv}/bin/python`, ...args],
+          `${LAB_LAYOUT.workdir}/${contract.command.cwd}`,
+          {},
+          Math.min(config.commandTimeoutSeconds, Math.max(120, contract.expectedRuntimeSeconds * 4)),
+          { official: true },
+        );
+      } finally {
+        await finishLab(agentId, "control rerun finished");
+      }
+      const measured = await measureOfficial(lab.official, contract, ctx.exports.get(agentId) ?? []);
+      const result: ControlRerun = {
+        status: measured.value === null ? "not_measured" : "measured",
+        reason: measured.metric && !measured.metric.ok ? measured.metric.reason : measured.official ? null : "the command did not run",
+        value: measured.value,
+        receiptId: measured.official?.receiptId ?? null,
+        exitCode: measured.official?.exitCode ?? null,
+        stdoutSha256: measured.official?.stdoutSha256 ?? null,
+      };
+      event(
+        "control_rerun",
+        result.status === "measured" ? "completed" : "warning",
+        result.status === "measured"
+          ? `Code alone ran the approved command again in a fresh lab: ${contract.metric.name} ${String(result.value)}`
+          : `Code alone ran the approved command again in a fresh lab, with no measurement (${result.reason ?? "unknown"})`,
+        result,
+      );
+      return result;
+    } catch (error) {
+      const result = skipped(`the control rerun failed: ${errorText(error)}`);
+      event("control_rerun", "warning", result.reason!, result);
+      return result;
+    }
+  }
 
   /**
    * The reveal: only after both locks, never on a cancelled or stopped study.
@@ -2202,6 +2443,13 @@ export async function runMultiAgentStudy(
     return {
       runtime: "native autonomous agent runtime",
       provider,
+      condition: {
+        targetVisibility: condition.targetVisibility,
+        labMode: condition.labMode,
+        // The shown number would let a reader of a decoy study work out the sealed value, so it waits for the reveal too.
+        shown: shown && open ? { value: shown.value, kind: shown.kind, direction: shown.direction } : null,
+        controlRerun,
+      },
       agents: agents.map((agent) => ({
         agentId: agent.id,
         role: agent.role as AgentRole,

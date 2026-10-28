@@ -38,6 +38,7 @@ import {
   type MultiAgentResult,
   proveBlinding,
   runMultiAgentStudy,
+  type StudyCondition,
   type StudyConfig,
   publicTargetSummary,
 } from "./study/index.js";
@@ -139,9 +140,11 @@ export async function runStudy(
     /** Whose model key drives the agents; recorded without the key itself. Keys are only ever the server's. */
     modelSource?: "server";
     /** Resume a study after a restart from its saved inputs, skipping intake and discovery. */
-    resume?: { paper: PaperDocument; candidates: RepositoryCandidate[]; target?: ClaimTarget | null };
+    resume?: { paper: PaperDocument; candidates: RepositoryCandidate[]; target?: ClaimTarget | null; condition?: StudyCondition | null };
     /** A reviewed claim target the server resolved from its own registry by case id; never built from the request. */
     target?: ClaimTarget;
+    /** A research condition (see ./study/condition.ts); omitted, the study is the normal blinded one. */
+    condition?: StudyCondition;
     /** The configured provider and model the agents use; the key stays inside the provider. */
     agents?: { provider: ChatProvider; selection: { id: string; model: string } };
   },
@@ -207,7 +210,7 @@ export async function runStudy(
         finish("failed");
         return await finalize();
       }
-      return await multiAgentStudy(paper, candidates, deps.multiAgent, input.resume.target ?? null);
+      return await multiAgentStudy(paper, candidates, deps.multiAgent, input.resume.target ?? null, input.resume.condition ?? undefined);
     }
     // 1. Paper intake.
     store.transitionRun(runId, "ingesting");
@@ -266,7 +269,7 @@ export async function runStudy(
         finish("inconclusive");
         return await finalize();
       }
-      return await multiAgentStudy(paper, candidates, deps.multiAgent, target);
+      return await multiAgentStudy(paper, candidates, deps.multiAgent, target, input.condition);
     }
     const provided = input.repositoryUrl;
     const candidates: RepositoryCandidate[] = provided
@@ -523,6 +526,7 @@ export async function runStudy(
     candidates: RepositoryCandidate[],
     options: MultiAgentOptions,
     target: ClaimTarget | null,
+    condition?: StudyCondition,
   ): Promise<StudyReport> {
     const agents = input.agents;
     if (!agents) {
@@ -545,7 +549,7 @@ export async function runStudy(
     );
     if (target) report.caseId = target.caseId;
     const result = await runMultiAgentStudy(
-      { runId, paper, candidates, signal, target },
+      { runId, paper, candidates, signal, target, ...(condition ? { condition } : {}) },
       {
         store,
         labs: deps.labs,

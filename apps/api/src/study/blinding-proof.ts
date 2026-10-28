@@ -1,6 +1,9 @@
+import type { AgentRole } from "@dejaml/agent-runtime";
 import { type RunStore, sha256Hex } from "@dejaml/run-store";
 
 import { compareRevealed, lockObservation, type Observation, revealTarget, type SealedTarget, valueForms } from "./blinding.js";
+import { SHOWN_ROLES } from "./condition.js";
+import { canonicalJson } from "./contract.js";
 import type { MultiAgentReport } from "./study.js";
 import { DOWNGRADES } from "./verdict.js";
 
@@ -140,6 +143,9 @@ export function proveBlinding(input: { store: RunStore; runId: string; report: M
   for (const agent of blindAgents) {
     if (agent.createdAt >= revealAt) continue;
     scan(`${agent.role} task`, agent.task, true);
+    // A sighted study's shown value is a leak by structure, even when the value has no distinctive written form.
+    const shownValue = (agent.task as { inputs?: { paperResult?: { value?: unknown } } }).inputs?.paperResult?.value;
+    if (target && shownValue === target.reportedValue) leaks.push(`${agent.role} task: the paper's value as paperResult`);
     for (const turn of store.ledger.listTurns(agent.id)) {
       const role = (turn.message as { role?: string }).role;
       if (role === "assistant" || turn.createdAt >= revealAt) continue;
@@ -209,5 +215,33 @@ export function proveBlinding(input: { store: RunStore; runId: string; report: M
       (report.result.status === computed || DOWNGRADES[computed].includes(report.result.status)),
     `blind verdicts ${comparison?.blindVerdicts.join(", ")}; computed ${computed}; final ${report.result.status}`,
   );
+
+  // 11. The study condition: the execution agents were shown exactly what it allows, and nothing else.
+  // A sighted study fails check 6 by design; this check says what it showed instead.
+  const visibility = report.condition?.targetVisibility ?? "blind";
+  const shown = report.condition?.shown ?? null;
+  const recorded = (first("agents_started")?.record as { condition?: { shownValueSha256?: string | null } } | undefined)?.condition;
+  const shownTo = blindAgents
+    .filter((agent) => agent.createdAt < revealAt && SHOWN_ROLES.has(agent.role as AgentRole))
+    .map((agent) => (agent.task as { inputs?: { paperResult?: { value?: unknown } } }).inputs?.paperResult?.value ?? null);
+  const anyShown = blindAgents.some((agent) => (agent.task as { inputs?: { paperResult?: unknown } }).inputs?.paperResult !== undefined);
+  let conditionOk: boolean;
+  let conditionInfo: string;
+  if (visibility === "blind") {
+    conditionOk = !anyShown;
+    conditionInfo = anyShown ? "a blind study showed an agent a paper result" : "blind: no agent was shown a paper result";
+  } else {
+    const hashOk =
+      shown !== null &&
+      target !== null &&
+      recorded?.shownValueSha256 === sha256Hex(canonicalJson({ value: shown.value, salt: target.nonce }));
+    const kindOk =
+      shown !== null &&
+      target !== null &&
+      (visibility === "decoy" ? shown.kind === "decoy" && shown.value !== target.reportedValue : shown.value === target.reportedValue);
+    conditionOk = hashOk && kindOk && shownTo.length > 0 && shownTo.every((value) => value === shown?.value);
+    conditionInfo = `${visibility}: shown ${shown?.value ?? "nothing"} (${shown?.kind ?? "none"}${shown?.direction ? `, ${shown.direction}` : ""}) to ${shownTo.length} execution agent(s); hash ${hashOk ? "matches" : "does not match"} the pre-start record`;
+  }
+  check("execution agents saw only what the study condition allows", conditionOk, conditionInfo);
   return checks;
 }

@@ -19,7 +19,15 @@ import type { StructuredModelClient } from "@dejaml/research-runtime";
 import { InProcessJobDispatcher, type JobDispatcher } from "./boundaries.js";
 import { runStudy, type PipelineDependencies, type StudyReport } from "./pipeline.js";
 import { ChatStructuredClient } from "./structured.js";
-import { CASE_ID, type ClaimTarget, removeStaleStudyDirs } from "./study/index.js";
+import {
+  CASE_ID,
+  type ClaimTarget,
+  DEFAULT_CONDITION,
+  LAB_MODES,
+  removeStaleStudyDirs,
+  type StudyCondition,
+  TARGET_VISIBILITIES,
+} from "./study/index.js";
 
 const MAX_UPLOAD_BYTES = MAX_PDF_BYTES + 64 * 1024;
 const HEARTBEAT_MS = 15_000;
@@ -58,6 +66,12 @@ export type ApiOptions = Omit<PipelineDependencies, "model"> & {
    * the study never revealed it. Unset: the endpoint does not exist.
    */
   adminToken?: string | null;
+  /**
+   * Accepts the research-condition fields (targetVisibility, labMode,
+   * decoyDirection) for the blinding study. Off by default: a public server
+   * never shows agents the paper's value.
+   */
+  researchConditions?: boolean;
 };
 
 export type ApiServer = {
@@ -143,6 +157,34 @@ type Selection = { providerId: string; model: string };
 
 /** The only fields a study upload may carry. The model is chosen by provider id and model name alone. */
 const UPLOAD_FIELDS: ReadonlySet<string> = new Set(["paper", "providerId", "modelName", "repositoryUrl", "reviewedCaseId"]);
+/** Research-condition fields; accepted only when the server enables research conditions. */
+const CONDITION_FIELDS: ReadonlySet<string> = new Set(["targetVisibility", "labMode", "decoyDirection"]);
+
+/**
+ * Reads a research condition from the upload. Without one of its fields the
+ * study is the normal blinded one. The fields are refused unless the
+ * administrator enabled research conditions, because a sighted or decoy study
+ * deliberately shows the agents a number. A research study always ends with
+ * the agent-free control rerun.
+ */
+function parseCondition(upload: Upload, enabled: boolean): StudyCondition | undefined {
+  const present = [...CONDITION_FIELDS].filter((name) => upload.field(name) !== null);
+  if (present.length === 0) return undefined;
+  if (!enabled) throw new HttpError(400, "Research conditions are not enabled on this server.");
+  const pick = <T extends string>(name: string, allowed: readonly T[], fallback: T): T => {
+    const value = upload.field(name);
+    if (value === null) return fallback;
+    if (!(allowed as readonly string[]).includes(value)) throw new HttpError(400, `${name} must be one of ${allowed.join(", ")}.`);
+    return value as T;
+  };
+  return {
+    ...DEFAULT_CONDITION,
+    targetVisibility: pick("targetVisibility", TARGET_VISIBILITIES, DEFAULT_CONDITION.targetVisibility),
+    labMode: pick("labMode", LAB_MODES, DEFAULT_CONDITION.labMode),
+    decoyDirection: pick("decoyDirection", ["up", "down"] as const, DEFAULT_CONDITION.decoyDirection),
+    controlRerun: true,
+  };
+}
 const KEY_FIELD = /key|token|secret|password|credential|auth/iu;
 const ENDPOINT_FIELD = /url|endpoint|host|base/iu;
 /** Request headers that would carry a provider key; never accepted from a browser. */
@@ -160,7 +202,7 @@ function parseSelection(upload: Upload, config: LoadedProviderConfig, request: I
     throw new HttpError(400, "API keys are configured on the server; do not send one with a study.");
   }
   for (const name of upload.names) {
-    if (UPLOAD_FIELDS.has(name)) continue;
+    if (UPLOAD_FIELDS.has(name) || CONDITION_FIELDS.has(name)) continue;
     if (KEY_FIELD.test(name)) throw new HttpError(400, "API keys are configured on the server; do not send one with a study.");
     if (ENDPOINT_FIELD.test(name)) {
       throw new HttpError(400, "Model endpoints are configured by the server administrator; choose one of the listed providers.");
@@ -237,6 +279,7 @@ export function createApiServer(options: ApiOptions): ApiServer {
     if (busy) throw new HttpError(409, "Another study is still running. Try again when it finishes.");
     const upload = await readUpload(request);
     const selection = parseSelection(upload, options.providers, request);
+    const condition = parseCondition(upload, options.researchConditions === true);
     const rawRepository = upload.field("repositoryUrl");
     let repositoryUrl: string | undefined;
     if (rawRepository) {
@@ -295,6 +338,7 @@ export function createApiServer(options: ApiOptions): ApiServer {
               signal,
               ...(repositoryUrl ? { repositoryUrl } : {}),
               ...(target ? { target } : {}),
+              ...(condition ? { condition } : {}),
               modelSource: "server",
               agents: { provider, selection: { id: selection.providerId, model: selection.model } },
             },
@@ -472,6 +516,7 @@ export function createApiServer(options: ApiOptions): ApiServer {
       candidates?: RepositoryCandidate[];
       provider?: { id: string; model: string };
       reviewedTarget?: ClaimTarget | null;
+      condition?: StudyCondition | null;
     };
     const fail = (summary: string): void => {
       store.appendEvent({ runId, actor: "system", type: "run_resume_failed", status: "failed", summary, evidence: [], publicPayload: {} });
@@ -498,7 +543,12 @@ export function createApiServer(options: ApiOptions): ApiServer {
           signal,
           modelSource: "server",
           agents: { provider, selection: inputs.provider },
-          resume: { paper: inputs.paperDocument, candidates: inputs.candidates, target: inputs.reviewedTarget ?? null },
+          resume: {
+            paper: inputs.paperDocument,
+            candidates: inputs.candidates,
+            target: inputs.reviewedTarget ?? null,
+            condition: inputs.condition ?? null,
+          },
         },
         { ...options, model },
       );
