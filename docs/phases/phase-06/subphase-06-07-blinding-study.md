@@ -3,7 +3,7 @@
 **Status:** `IN PROGRESS` (built and verified with deterministic tests and real Docker; the 90-run real-model pilot is pending on the owner's machine)
 **Completed:** `—`
 **Commit:** `fill after the pilot`
-**Owner:** `Claude`
+**Owner:** `aayush`
 
 ## Objective
 
