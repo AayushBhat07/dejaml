@@ -185,6 +185,15 @@ describe("study tools", () => {
     expect(search.content).not.toContain("root:");
   });
 
+  it("reads a checkout whose path runs through a symlink, as macOS temp folders do", async () => {
+    await symlink(join(dir, "repo"), join(dir, "linked"));
+    ctx.projection = { ...ctx.projection!, dir: join(dir, "linked") };
+    await expect(call("repo_read", { path: "src/train.py" })).resolves.toMatchObject({ summary: "Read src/train.py" });
+    await expect(call("repo_read", { path: "leak" })).rejects.toThrow(/outside the repository/u);
+    expect((await call("repo_list", { path: "src" })).content).toContain("src/train.py");
+    expect((await call("repo_search", { query: "accuracy", path: "src" })).content).toContain("src/train.py:1:");
+  });
+
   it("acquires only the paper's candidate repositories", async () => {
     ctx.repository = null;
     await expect(call("repo_acquire", { repositoryUrl: "https://github.com/attacker/other" })).rejects.toThrow(

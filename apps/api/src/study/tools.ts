@@ -40,10 +40,13 @@ async function resolveInside(root: string, requested: string): Promise<string> {
   const real = await realpath(target).catch(() => {
     throw new ToolDenied(`${cleaned} does not exist`);
   });
-  if (real !== root && !real.startsWith(`${root}${sep}`)) {
+  // The root may itself sit behind a symlink (macOS: /var → /private/var), so compare real paths.
+  const realRoot = await realpath(root);
+  if (real !== realRoot && !real.startsWith(`${realRoot}${sep}`)) {
     throw new ToolDenied(`${cleaned} resolves outside the repository`);
   }
-  return real;
+  // Callers build relative paths from `root`, so answer in its terms.
+  return join(root, relative(realRoot, real));
 }
 
 async function listTree(root: string, start: string, depth: number): Promise<{ entries: string[]; truncated: boolean }> {
