@@ -116,8 +116,12 @@ describe("Cheaper Inference configuration", () => {
     expect(publicProviders(loadProviderConfig({ DEJAML_CHEAPER_INFERENCE_MODELS: MODEL }))).toEqual([]);
   });
 
-  it("permits only claude-sonnet-5.5 in DEJAML_CHEAPER_INFERENCE_MODELS", () => {
+  it("permits only claude-sonnet-5.5 and claude-haiku-4.5 in DEJAML_CHEAPER_INFERENCE_MODELS, and enables only Sonnet by default", () => {
     expect(publicProviders(loadProviderConfig({ ...ENV, DEJAML_CHEAPER_INFERENCE_MODELS: ` ${MODEL} ` }))[0]?.models).toEqual([MODEL]);
+    expect(
+      publicProviders(loadProviderConfig({ ...ENV, DEJAML_CHEAPER_INFERENCE_MODELS: `${MODEL},claude-haiku-4.5` }))[0]?.models,
+    ).toEqual([MODEL, "claude-haiku-4.5"]);
+    expect(publicProviders(loadProviderConfig(ENV))[0]?.models).toEqual([MODEL]);
     for (const models of ["claude-opus-5-5", "claude-sonnet-5-5", `${MODEL},claude-opus-5-5`, "gpt-fixture-1"]) {
       expect(() => loadProviderConfig({ ...ENV, DEJAML_CHEAPER_INFERENCE_MODELS: models })).toThrow(ProviderConfigError);
     }
@@ -125,7 +129,7 @@ describe("Cheaper Inference configuration", () => {
       loadProviderConfig({ ...ENV, DEJAML_CHEAPER_INFERENCE_MODELS: "claude-opus-5-5" });
     } catch (err) {
       expect((err as ProviderConfigError).problems).toEqual([
-        'DEJAML_CHEAPER_INFERENCE_MODELS lists "claude-opus-5-5", which is not permitted for Cheaper Inference (allowed: claude-sonnet-5.5)',
+        'DEJAML_CHEAPER_INFERENCE_MODELS lists "claude-opus-5-5", which is not permitted for Cheaper Inference (allowed: claude-sonnet-5.5, claude-haiku-4.5)',
       ]);
     }
   });
@@ -263,7 +267,7 @@ describe("Cheaper Inference over the guarded fetch", () => {
     ]);
   });
 
-  it("refuses any model but claude-sonnet-5.5 without sending anything", async () => {
+  it("refuses a model that is not enabled without sending anything", async () => {
     const gw = await gateway((res) => json(res, 200, COMPLETION));
     const config = loadProviderConfig(ENV);
     expect(() => createChatProvider(config, "cheaper_inference", "claude-opus-5-5", { netGuard: gw.netGuard })).toThrow(
