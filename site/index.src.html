@@ -1,0 +1,639 @@
+<title>Inside DéjàML</title>
+<meta name="description" content="How DéjàML reproduces a machine-learning paper: one real study, followed room by room through its Research Campus.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400..600;1,6..72,400..600&family=Schibsted+Grotesk:wght@400..700&family=JetBrains+Mono:wght@400;500;600&display=swap">
+<style>
+/* Layout: DéjàML's Research Campus, built as an architectural model, fills the window. Lab-notebook cards scroll over it on the left;
+   one top bar carries the wordmark, the study's pipeline strip and the section menu, and the paper's number stays redacted from the seal until the reveal. */
+:root {
+  --bg: #eceef4;          /* the model table */
+  --bg-a: 236, 238, 244;  /* same, as rgb for washes */
+  --paper: #fbfcfe;       /* notebook cards */
+  --ink: #151a2d;
+  --muted: #586078;
+  --faint: #8a91a6;
+  --rule: #d6dbe7;
+  --indigo: #3a4fd8;      /* DéjàML's own accent: the system */
+  --indigo-ink: #2c3db5;
+  --indigo-soft: #e7eafd;
+  --seal: #d9480f;        /* sealing wax: the paper's number */
+  --seal-ink: #b23a0a;    /* the same wax, dark enough for small text */
+  --seal-soft: #fdeae0;
+  --seal-line: #f3c3a8;
+  --ok: #127a4a; --ok-soft: #e1f3ea;
+  --warn: #8f5400; --warn-soft: #fbf0d9;
+  --neg: #b42318; --neg-soft: #fde8e6;
+  --term: #11141d; --term-ink: #d7dde8;
+  --r-p: #3a5be0; --r-c: #7655d6; --r-r: #b07d06; --r-l: #0d8a7f; --r-d: #64748b; --r-v: #d6336c; --r-s: #334155;
+  --f-display: "Newsreader", "Iowan Old Style", "Palatino Linotype", Georgia, serif;
+  --f-body: "Schibsted Grotesk", "Segoe UI", system-ui, sans-serif;
+  --f-mono: "JetBrains Mono", ui-monospace, Menlo, Consolas, monospace;
+  --gut: max(16px, env(safe-area-inset-left, 0px));
+  --gut-r: max(16px, env(safe-area-inset-right, 0px));
+  --bar: 60px;            /* height of the top bar, safe area excluded */
+  --shadow-card: 0 1px 0 rgba(21, 26, 45, .04), 0 30px 60px -34px rgba(21, 26, 45, .45);
+  color-scheme: light;
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; overflow-x: clip; scroll-padding-top: calc(var(--bar) + env(safe-area-inset-top, 0px) + 12px); }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 400 16px/1.6 var(--f-body); -webkit-font-smoothing: antialiased; }
+a { color: var(--indigo); text-underline-offset: 3px; }
+:focus-visible { outline: 2px solid var(--indigo); outline-offset: 3px; border-radius: 3px; }
+code, .mono { font-family: var(--f-mono); }
+.sr { position: absolute !important; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.skip { position: fixed; z-index: 9; left: var(--gut); top: calc(env(safe-area-inset-top, 0px) + 10px); background: var(--ink); color: #fff; font: 600 13px/1 var(--f-body);
+  padding: 12px 14px; border-radius: 6px; text-decoration: none; transform: translateY(-160%); }
+.skip:focus { transform: none; }
+
+#stage { position: fixed; inset: 0; width: 100%; height: 100%; display: block; z-index: 0; }
+#labels { position: fixed; inset: 0; z-index: 2; pointer-events: none; overflow: hidden; }
+.no-gl #stage, .no-gl #labels { display: none; }
+
+/* ── campus labels, styled like DéjàML's own Research Campus ── */
+.rl { position: absolute; left: 0; top: 0; display: flex; gap: 8px; align-items: center; background: var(--paper); border: 1px solid var(--rule); border-radius: 8px;
+  padding: 6px 10px 6px 7px; box-shadow: 0 6px 16px -10px rgba(21, 26, 45, .45); white-space: nowrap; transition: opacity .3s; will-change: transform; }
+.rl > i { display: grid; place-items: center; min-width: 20px; height: 20px; padding: 0 4px; border-radius: 5px; background: var(--c); color: #fff; font: 600 11px/1 var(--f-mono); font-style: normal; }
+.rl b { display: block; font: 600 12.5px/1.25 var(--f-body); }
+.rl span { display: block; font: 400 11px/1.3 var(--f-mono); color: var(--muted); }
+.rl em { font: 600 9.5px/1 var(--f-mono); font-style: normal; letter-spacing: .06em; text-transform: uppercase; color: var(--ink); background: #e6e8ef; border-radius: 3px; padding: 3px 5px; }
+.rl em.reads { color: var(--seal-ink); background: var(--seal-soft); }
+.rl.on { border-color: var(--c); box-shadow: 0 0 0 2px color-mix(in srgb, var(--c) 30%, transparent), 0 6px 16px -10px rgba(21, 26, 45, .45); }
+
+/* ── the top bar: wordmark · study strip · sections ── */
+.mast { position: fixed; top: 0; left: 0; right: 0; z-index: 6; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 12px;
+  min-height: calc(var(--bar) + env(safe-area-inset-top, 0px)); padding: calc(env(safe-area-inset-top, 0px) + 10px) var(--gut-r) 10px var(--gut); pointer-events: none; }
+.mast::before { content: ""; position: absolute; left: 0; right: 0; top: 0; bottom: -30px; z-index: -1; pointer-events: none;
+  background: linear-gradient(to bottom, rgba(var(--bg-a), .97) 0%, rgba(var(--bg-a), .9) 58%, rgba(var(--bg-a), 0) 100%); }
+.mast > * { pointer-events: auto; }
+.word { justify-self: start; font: 500 24px/1 var(--f-display); color: var(--ink); text-decoration: none; letter-spacing: -.01em; background: var(--paper); padding: 7px 11px 8px; border-radius: 8px; border: 1px solid var(--rule); }
+.word i { font-style: italic; }
+.word b { font: 600 15px var(--f-mono); color: var(--indigo); margin-left: 1px; }
+
+.strip { justify-self: center; min-width: 0; display: flex; align-items: center; gap: 12px; background: var(--paper); border: 1px solid var(--rule); border-radius: 999px;
+  padding: 6px 6px 6px 14px; box-shadow: 0 10px 24px -18px rgba(21, 26, 45, .5); transition: opacity .35s, visibility .35s; }
+.strip.off { opacity: 0; visibility: hidden; }
+.stages { display: flex; align-items: center; margin: 0; padding: 0; list-style: none; }
+.stages li { display: flex; align-items: center; gap: 6px; font: 500 10.5px/1 var(--f-mono); color: var(--indigo); white-space: nowrap; }
+.stages li i { width: 9px; height: 9px; border-radius: 50%; border: 1.5px solid #b7bdcc; display: block; flex: none; }
+.stages li span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+.stages li.done i { background: var(--indigo); border-color: var(--indigo); }
+.stages li.now i { border-color: var(--indigo); box-shadow: 0 0 0 3px var(--indigo-soft); background: #fff; }
+.stages li.now span { position: static; width: auto; height: auto; overflow: visible; clip: auto; margin-right: 2px; }
+.stages li + li::before { content: ""; width: 12px; height: 1.5px; background: #c9cedb; display: block; margin: 0 4px 0 0; }
+.stages li.done + li::before, .stages li.done + li.now::before { background: var(--indigo); }
+.chip { display: inline-flex; align-items: center; gap: 7px; font: 500 11px/1 var(--f-mono); border-radius: 999px; padding: 8px 11px; background: #eef0f6; color: var(--muted); white-space: nowrap; }
+.chip b { font-weight: 600; color: var(--ink); }
+.chip .ch { font: inherit; opacity: .8; margin-left: -7px; }
+.chip.sealed { background: var(--seal-soft); color: var(--seal-ink); }
+.chip.sealed b { color: transparent; background: var(--seal); border-radius: 2px; padding: 0 1px; }
+.chip.revealed { background: var(--ok-soft); color: var(--ok); }
+
+.navlist { display: flex; margin: 0; padding: 0; list-style: none; background: var(--paper); border: 1px solid var(--rule); border-radius: 8px; overflow: hidden; }
+.navlist a, .menu ul a { font: 500 12.5px/1 var(--f-body); color: var(--ink); text-decoration: none; display: block; padding: 11px 12px; }
+.navlist a:focus-visible { outline-offset: -3px; }
+.navlist a:hover, .navlist a[aria-current="true"] { background: var(--indigo); color: #fff; }
+.menu { display: none; position: relative; }
+.menu summary { list-style: none; cursor: pointer; display: flex; align-items: center; gap: 8px; font: 600 13px/1 var(--f-body); background: var(--paper); border: 1px solid var(--rule); border-radius: 8px; padding: 11px 12px; }
+.menu summary::-webkit-details-marker { display: none; }
+.menu summary::after { content: ""; width: 7px; height: 7px; border-right: 1.5px solid currentColor; border-bottom: 1.5px solid currentColor; transform: translateY(-2px) rotate(45deg); }
+.menu[open] summary::after { transform: translateY(1px) rotate(-135deg); }
+.menu ul { position: absolute; right: 0; top: calc(100% + 6px); margin: 0; padding: 6px; list-style: none; min-width: 190px; background: var(--paper); border: 1px solid var(--rule); border-radius: 8px;
+  box-shadow: 0 18px 36px -20px rgba(21, 26, 45, .55); }
+.menu ul a { border-radius: 5px; padding: 11px 10px; }
+.menu ul a:hover, .menu ul a[aria-current="true"] { background: var(--indigo-soft); color: var(--indigo-ink); }
+
+/* ── sections + cards ── */
+main { position: relative; z-index: 3; pointer-events: none; }
+.sec { min-height: 120vh; display: flex; align-items: center; padding-block: calc(18vh + var(--bar) / 2) calc(18vh - var(--bar) / 2); padding-left: var(--gut); padding-right: var(--gut-r); }
+.sec > * { pointer-events: auto; }
+.card { width: min(472px, 100%); margin-left: max(0px, 3vw); background: var(--paper); border: 1px solid var(--rule); border-radius: 8px; padding: 22px 24px 24px; box-shadow: var(--shadow-card); }
+.card :where(p) { margin: 0; max-width: 62ch; }
+.card :where(p, dd, li) code { overflow-wrap: anywhere; }
+.card > * { margin-block: 0; }
+.card > * + * { margin-top: 12px; }
+.card > .tab + h2 { margin-top: 12px; }
+.card > h2 + * { margin-top: 12px; }
+.card > .who { margin-top: 20px; }
+.card > .who + p { margin-top: 6px; }
+.card > .tools { margin-top: 10px; }
+.card > .facts, .card > .gate, .card > .sealbox, .card > .dv, .card > .ladder, .card > pre, .card > .rcpts, .card > .tbl-wrap, .card > .cta, .card > .note { margin-top: 16px; }
+
+.tab { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; font: 500 11px/1.4 var(--f-mono); color: var(--muted); }
+.tab b { color: var(--indigo); font-weight: 600; border: 1px solid color-mix(in srgb, var(--indigo) 45%, white); border-radius: 4px; padding: 2px 6px 1px; }
+.tab code { background: var(--indigo-soft); color: var(--indigo-ink); padding: 3px 6px; border-radius: 4px; font-size: 10.5px; }
+h1, h2 { font-family: var(--f-display); font-weight: 500; letter-spacing: -.012em; margin: 0; text-wrap: balance; }
+h2 { font-size: clamp(30px, 2.9vw, 40px); line-height: 1.05; }
+h2 em, h1 em { font-style: italic; }
+h3 { font: 600 11px/1.3 var(--f-mono); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); margin: 0; }
+.small, .note { font-size: 13.5px; line-height: 1.55; color: var(--muted); }
+.def { position: relative; white-space: nowrap; border-bottom: 1px dotted currentColor; cursor: help; }
+.def:focus-visible { outline: 2px solid var(--indigo); outline-offset: 2px; border-radius: 2px; }
+.def::after { content: attr(data-def); position: absolute; z-index: 4; left: 50%; top: calc(100% + 8px); width: max-content; max-width: min(260px, calc(100vw - 32px));
+  transform: translateX(calc(-50% + var(--dx, 0px))); background: var(--ink); color: #fff; font: 400 12.5px/1.45 var(--f-body); letter-spacing: 0; text-align: left; white-space: normal;
+  padding: 8px 10px; border-radius: 6px; box-shadow: 0 12px 26px -14px rgba(21, 26, 45, .55); pointer-events: none; display: none; }
+.def:hover::after, .def:focus::after { display: block; }
+.sv { color: var(--seal-ink); font-family: var(--f-mono); font-weight: 600; font-size: .9em; white-space: nowrap; }
+html:not(.revealed) .sv.hide { color: transparent; background: var(--ink); border-radius: 2px; user-select: none; }
+strong { font-weight: 600; }
+
+.facts { margin: 0; border-top: 1px solid var(--rule); }
+.facts div { display: grid; grid-template-columns: 108px minmax(0, 1fr); gap: 12px; padding: 9px 0; border-bottom: 1px solid var(--rule); font-size: 13.5px; line-height: 1.5; }
+.facts dt { font: 500 11px/1.75 var(--f-mono); color: var(--muted); }
+.facts dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.facts dd code { font-size: 11.5px; }
+.facts .wheels { display: flex; flex-wrap: wrap; gap: 4px 6px; }
+.facts .wheels code { background: #f1f3f8; border-radius: 3px; padding: 1px 5px; }
+.tools { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; }
+.tools .tl { font: 600 10px/1 var(--f-mono); letter-spacing: .08em; text-transform: uppercase; color: var(--faint); margin-right: 3px; }
+.tools code { font-size: 11px; color: color-mix(in srgb, var(--c, var(--indigo)) 80%, black); background: color-mix(in srgb, var(--c, var(--indigo)) 8%, white);
+  border: 1px solid color-mix(in srgb, var(--c, var(--indigo)) 28%, white); padding: 3px 6px; border-radius: 4px; }
+.who { display: flex; align-items: center; gap: 8px; font: 600 13.5px/1.3 var(--f-body); }
+.who i { display: grid; place-items: center; width: 22px; height: 22px; border-radius: 6px; background: var(--c); color: #fff; font: 600 11px/1 var(--f-mono); font-style: normal; flex: none; }
+.who span { font-weight: 400; color: var(--muted); }
+pre.cmd { background: var(--term); color: var(--term-ink); font: 400 11.5px/1.7 var(--f-mono); padding: 12px 14px; border-radius: 6px; overflow-x: auto; }
+pre.cmd .k { color: #8fa2ff; } pre.cmd .c { color: #8a93a6; }
+.sealbox { padding: 12px 14px; border-radius: 6px; background: var(--seal-soft); border: 1px solid var(--seal-line); font: 400 11.5px/1.6 var(--f-mono); color: #5c2306; }
+.sealbox > b { display: block; font: 600 10.5px/1.4 var(--f-mono); letter-spacing: .08em; text-transform: uppercase; color: var(--seal-ink); margin-bottom: 6px; }
+.sealbox dl { margin: 0; display: grid; gap: 4px; }
+.sealbox dl div { display: grid; grid-template-columns: 92px minmax(0, 1fr); gap: 8px; }
+.sealbox dt { color: #8a4a2b; }
+.sealbox dd { margin: 0; min-width: 0; }
+.sealbox code { overflow-wrap: anywhere; color: var(--ink); }
+.sealbox .sv { font-size: 1em; }
+.verify-out { display: flex; flex-wrap: wrap; gap: 2px 12px; }
+.verify-out code { overflow-wrap: anywhere; color: var(--ink); }
+.ok-line { color: var(--ok); font-weight: 600; }
+.bad-line { color: var(--neg); font-weight: 600; }
+
+.btn { display: inline-flex; align-items: center; gap: 8px; font: 600 14px/1 var(--f-body); text-decoration: none; color: #fff; background: var(--indigo); border: 1px solid var(--indigo); border-radius: 7px; padding: 13px 17px; cursor: pointer; }
+.btn:hover { background: var(--indigo-ink); border-color: var(--indigo-ink); }
+.btn.ghost { background: var(--paper); color: var(--ink); border-color: var(--rule); }
+.btn.ghost:hover { border-color: var(--indigo); color: var(--indigo); }
+.cta { display: flex; flex-wrap: wrap; gap: 10px; }
+.credits { font: 400 11px/1.5 var(--f-mono); color: var(--muted); letter-spacing: .01em; }
+.card > .note + .credits { margin-top: 8px; }
+
+/* ── hero ── */
+.hero { position: relative; min-height: 100vh; padding-top: calc(var(--bar) + env(safe-area-inset-top, 0px) + 6vh); }
+.hero::before { content: ""; position: absolute; inset: 0; z-index: -1; pointer-events: none;
+  background: linear-gradient(90deg, rgba(var(--bg-a), .96) 0%, rgba(var(--bg-a), .92) 30%, rgba(var(--bg-a), .6) 44%, rgba(var(--bg-a), 0) 60%); }
+.hero-copy { max-width: 680px; margin-left: max(0px, 3vw); }
+.eyebrow { font: 500 12px/1.4 var(--f-mono); color: var(--indigo); letter-spacing: .02em; margin: 0 0 16px; text-wrap: balance; }
+.hero h1 { font-size: clamp(50px, 6.6vw, 100px); line-height: .94; margin-bottom: 26px; }
+:is(h1, h2) .ghost { position: relative; display: inline-block; }
+:is(h1, h2) .ghost::after { content: attr(data-t); position: absolute; left: .045em; top: .03em; white-space: nowrap; color: var(--seal); opacity: .3; pointer-events: none; mix-blend-mode: multiply; }
+.lede { font-size: 19px; line-height: 1.55; max-width: 40ch; margin: 0 0 26px; }
+.hero .cue { display: flex; align-items: center; gap: 10px; margin: 22px 0 0; max-width: 46ch; font-size: 13.5px; color: var(--muted); text-wrap: pretty; }
+.hero .cue::before { content: ""; width: 1.5px; height: 30px; background: linear-gradient(var(--indigo), transparent); flex: none; }
+
+/* ── policy gate toy ── */
+.gate { border: 1px solid var(--rule); border-radius: 8px; padding: 6px 14px 14px; margin-inline: 0; }
+.gate legend { font: 600 10.5px/1 var(--f-mono); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); padding: 0 6px; }
+.gate .hint { font-size: 12.5px; color: var(--muted); margin: 6px 0 4px; }
+.gate label { display: flex; gap: 10px; align-items: center; font-size: 14px; line-height: 1.35; padding: 7px 0; cursor: pointer; border-top: 1px dashed var(--rule); }
+.gate label:first-of-type { border-top: 0; }
+.gate input { width: 17px; height: 17px; accent-color: var(--seal); margin: 0; flex: none; }
+.gate-out { display: block; margin-top: 8px; padding: 10px 12px; border-radius: 6px; font: 500 12px/1.55 var(--f-mono); }
+.gate-out.pass { background: var(--ok-soft); color: var(--ok); }
+.gate-out.block { background: var(--neg-soft); color: var(--neg); }
+.gate-out.refuse { background: #eceef4; color: #3b4256; }
+.gate-out b { display: block; font-size: 12.5px; margin-bottom: 2px; }
+
+/* ── the reveal: two numerals, one double exposure ── */
+.dv { margin: 0; display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; column-gap: 18px; }
+.dv .numline { grid-column: 1 / -1; }
+.dv .dejavu-key { flex-direction: column; gap: 5px; margin: 0; }
+.dejavu { position: relative; width: 2.75em; height: 1.2em; font: 500 84px/1 var(--f-display); letter-spacing: -.02em; font-variant-numeric: lining-nums; }
+.dejavu span { position: absolute; left: 0; top: 0; white-space: nowrap; }
+.dejavu .m { color: var(--indigo); }
+.dejavu .p { color: var(--seal); mix-blend-mode: multiply; opacity: .78; transform: translate(.035em, .025em);
+  background: linear-gradient(var(--ink), var(--ink)) no-repeat 0 58% / 100% 0;
+  transition: transform 1.2s cubic-bezier(.2, .7, .2, 1), color .5s .25s, background-size .45s, opacity .5s; }
+html:not(.revealed) .dejavu .p { color: transparent; opacity: .92; mix-blend-mode: normal; transform: translate(.34em, .18em); background-size: 100% .66em; }
+.dejavu .p::after { content: "sealed"; position: absolute; left: 50%; top: 58%; transform: translate(-50%, -50%); font: 600 11px/1 var(--f-mono); letter-spacing: .14em; text-transform: uppercase;
+  color: #fff; opacity: 0; transition: opacity .3s; }
+html:not(.revealed) .dejavu .p::after { opacity: 1; }
+.dejavu-key { display: flex; flex-wrap: wrap; gap: 6px 16px; font: 500 11.5px/1.4 var(--f-mono); margin: 10px 0 0; }
+.dejavu-key span::before { content: ""; display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 6px; vertical-align: -1px; background: var(--c); }
+.numline { width: 100%; height: auto; display: block; margin: 10px 0 0; overflow: visible; }
+.numline text { font: 500 10px var(--f-mono); fill: var(--muted); }
+.numline .lab { font-size: 11px; font-weight: 600; }
+.numline .rv { transition: opacity .6s .3s; }
+html:not(.revealed) .numline .rv { opacity: 0; transition-delay: 0s; }
+.verdict { display: inline-block; font: 600 12px/1 var(--f-mono); color: var(--warn); background: var(--warn-soft); border-radius: 999px; padding: 5px 9px 4px; vertical-align: 1px; white-space: nowrap; }
+
+/* ── the supervisor's one-way ladder ── */
+.ladder { border: 1px solid var(--rule); border-radius: 8px; padding: 12px 14px 14px; }
+.ladder .track { margin: 10px 0 12px; padding: 0; list-style: none; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 4px; counter-reset: none; }
+.ladder .track li { position: relative; font: 500 11.5px/1.25 var(--f-body); color: var(--muted); background: #f3f4f8; border-radius: 5px; padding: 8px 8px 9px; min-height: 52px; }
+.ladder .track li small { display: block; font: 600 9.5px/1 var(--f-mono); letter-spacing: .06em; text-transform: uppercase; margin-top: 5px; color: var(--faint); }
+.ladder .track li.cur { background: var(--warn-soft); color: var(--warn); font-weight: 600; box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--warn) 45%, white); }
+.ladder .track li.cur small { color: var(--warn); }
+.ladder .track li.final { background: #eef0f6; color: var(--ink); font-weight: 600; box-shadow: inset 0 0 0 1.5px var(--ink); }
+.ladder .track li.final small, .ladder .track li.refused small { color: inherit; }
+.ladder .track li.refused { background: var(--neg-soft); color: var(--neg); animation: nope .45s; }
+@keyframes nope { 20%, 60% { transform: translateX(-3px); } 40%, 80% { transform: translateX(3px); } }
+.ladder .dir { display: flex; justify-content: space-between; font: 500 10.5px/1 var(--f-mono); color: var(--faint); margin: -4px 0 12px; }
+.ladder .dir span:last-child::after { content: " →"; }
+.ladder .row { display: flex; flex-wrap: wrap; gap: 6px; }
+.ladder button { font: 500 12.5px/1 var(--f-body); background: var(--paper); border: 1px solid var(--rule); border-radius: 6px; padding: 9px 11px; cursor: pointer; color: var(--ink); }
+.ladder button:hover { border-color: var(--indigo); color: var(--indigo); }
+.ladder output { display: block; margin-top: 10px; font: 500 12px/1.5 var(--f-mono); min-height: 1.5em; }
+#reveal { flex-direction: column; align-items: flex-start; justify-content: center; }
+.card.sub { position: relative; margin-top: 28px; }
+.card.sub::before { content: ""; position: absolute; left: 36px; top: -29px; height: 28px; border-left: 1.5px dashed #aab1c3; }
+.card.sub > .ladder { border: 0; padding: 0; margin-top: 10px; }
+.card.sub .ladder h3 { font: 500 24px/1.15 var(--f-display); letter-spacing: -.01em; text-transform: none; color: var(--ink); text-wrap: balance; }
+/* §09 holds two cards: start the first just under the bar when the camera arrives */
+@media (min-width: 761px) { html:not(.no-gl) #reveal { padding-top: calc(20vh + var(--bar) + 24px); } }
+.no-gl #reveal { align-items: center; }
+
+/* ── receipts + verdicts ── */
+.rcpts { list-style: none; padding: 0; display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.rcpts li { border: 1px dashed #c3c9d8; border-radius: 6px; padding: 9px 10px 10px; font-size: 13.5px; line-height: 1.35; background: #fff; }
+.rcpts li small { display: block; font: 400 10.5px/1.4 var(--f-mono); color: var(--muted); margin-top: 4px; overflow-wrap: anywhere; }
+.tbl-wrap { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-size: 13px; }
+caption { text-align: left; }
+th { text-align: left; font: 600 10.5px/1.3 var(--f-mono); letter-spacing: .05em; text-transform: uppercase; color: var(--muted); padding: 6px 8px 6px 0; border-bottom: 1px solid var(--rule); white-space: nowrap; }
+td { padding: 9px 8px 9px 0; border-bottom: 1px solid var(--rule); vertical-align: top; line-height: 1.4; }
+td.n { font-family: var(--f-mono); font-variant-numeric: tabular-nums; white-space: nowrap; font-size: 12.5px; }
+.pill { display: inline-block; font: 600 10.5px/1 var(--f-mono); padding: 4px 7px; border-radius: 999px; white-space: nowrap; }
+.pill.part { background: var(--warn-soft); color: var(--warn); }
+.statuses { list-style: none; padding: 0; display: grid; gap: 8px; font-size: 13.5px; line-height: 1.45; }
+.statuses li { display: grid; grid-template-columns: 10px minmax(0, 1fr); gap: 10px; }
+.statuses li::before { content: ""; width: 10px; height: 10px; border-radius: 50%; margin-top: 5px; background: var(--dot); }
+.statuses b { font-weight: 600; }
+.card > h3 { margin-top: 22px; }
+.card > h3 + * { margin-top: 10px; }
+
+/* ── agent tooltip ── */
+#tip { position: fixed; z-index: 7; left: 0; top: 0; width: min(290px, calc(100vw - 24px)); overflow-wrap: anywhere; background: var(--paper); border: 1px solid var(--rule); border-radius: 8px; padding: 12px 14px;
+  box-shadow: 0 16px 36px -20px rgba(21, 26, 45, .6); font-size: 13px; line-height: 1.45; pointer-events: none; }
+#tip :where(p) { margin: 0; }
+#tip .who { margin: 0 0 6px; }
+#tip .tools { margin-top: 8px; }
+#tip small { display: block; font: 400 11px/1.4 var(--f-mono); color: var(--muted); margin-top: 6px; }
+
+/* ── narrower screens ── */
+@media (min-width: 761px) and (max-height: 860px) {
+  .card { padding: 18px 20px 20px; }
+  .card > * + *, .card > .tab + h2, .card > h2 + * { margin-top: 10px; }
+  .card > .facts, .card > .gate, .card > .sealbox, .card > .dv, .card > .ladder, .card > pre, .card > .rcpts, .card > .tbl-wrap, .card > .cta, .card > .note { margin-top: 12px; }
+  .card > h3 { margin-top: 16px; }
+  .card > p:not([class]) { font-size: 15px; line-height: 1.52; }
+  h2 { font-size: clamp(28px, 2.5vw, 34px); }
+  .gate label { padding: 5px 0; }
+  .statuses { gap: 5px; line-height: 1.4; }
+  .facts div { padding: 7px 0; }
+  td { padding-block: 7px; }
+  .dejavu { font-size: 76px; }
+  .card.sub { margin-top: 22px; }
+  .card.sub::before { top: -23px; height: 22px; }
+}
+@media (max-width: 1199px) {
+  .navlist { display: none; }
+  .menu { display: block; }
+  .hero::before { background: linear-gradient(90deg, rgba(var(--bg-a), .96) 0%, rgba(var(--bg-a), .93) 58%, rgba(var(--bg-a), .55) 74%, rgba(var(--bg-a), 0) 90%); }
+}
+@media (max-width: 999px) {
+  .chip .ch { display: none; }
+}
+@media (max-width: 899px) {
+  .stages li.now span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+  .stages li + li::before { width: 8px; }
+}
+@media (max-width: 760px) {
+  :root { --bar: 52px; }
+  .mast { gap: 8px; padding-top: calc(env(safe-area-inset-top, 0px) + 8px); padding-bottom: 8px; }
+  .word { font-size: 21px; padding: 6px 9px 7px; }
+  .word b { font-size: 13.5px; }
+  .strip { justify-self: end; background: none; border: 0; box-shadow: none; padding: 0; }
+  .stages { display: none; }
+  .chip { padding: 9px 10px; }
+  .chip .ck { display: none; }
+  .menu summary { padding: 10px 11px; }
+  .sec { min-height: 0; padding-top: 56vh; padding-bottom: 12vh; align-items: flex-end; }
+  .card { margin-left: 0; padding: 20px 18px 22px; }
+  .hero { padding-top: calc(var(--bar) + env(safe-area-inset-top, 0px) + 28px); padding-bottom: 8vh; align-items: flex-start; }
+  .hero::before { background: linear-gradient(to bottom, rgba(var(--bg-a), .96) 0%, rgba(var(--bg-a), .93) 78%, rgba(var(--bg-a), 0) 100%); }
+  .hero .cue { background: rgba(var(--bg-a), .88); border-radius: 6px; padding: 6px 10px 6px 0; }
+  .hero-copy { margin-left: 0; }
+  .lede { font-size: 17px; }
+  .dejavu { font-size: 70px; }
+  .dv { display: block; }
+  .dv .dejavu-key { flex-direction: row; margin-top: 10px; }
+  .rcpts { grid-template-columns: 1fr; }
+  table { font-size: 12.5px; }
+  th { font-size: 9.5px; letter-spacing: .02em; padding-right: 6px; }
+  th:first-child { white-space: normal; }
+  td { padding-right: 6px; }
+  td.n { font-size: 11px; }
+  .pill { font-size: 10px; padding: 4px 6px; }
+  .facts div { grid-template-columns: 90px minmax(0, 1fr); }
+  .ladder .track { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .ladder .dir { display: none; }
+  .rl { padding: 5px 8px 5px 6px; }
+  .rl span { display: none; }
+}
+@media (max-width: 380px) {
+  .word { font-size: 19px; }
+  .chip { font-size: 10.5px; padding: 9px 8px; }
+  .facts div { grid-template-columns: 1fr; gap: 2px; }
+}
+
+/* ── no WebGL: the same story as a plain document ── */
+.no-gl .sec { min-height: 0; padding-block: 6vh; justify-content: center; }
+.no-gl .hero { padding-top: calc(var(--bar) + env(safe-area-inset-top, 0px) + 8vh); }
+.no-gl .hero::before { display: none; }
+.no-gl .card, .no-gl .hero-copy { margin-left: 0; width: min(640px, 100%); max-width: 640px; }
+.no-gl .hero-copy { width: min(640px, 100%); }
+
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  .strip, .dejavu .p, .dejavu .p::after, .numline .rv { transition: none; }
+  .ladder .track li.refused { animation: none; }
+}
+</style>
+<script type="importmap">{ "imports": { "three": "./vendor/three.module.js" } }</script>
+
+<a class="skip" href="#problem">Skip to the study</a>
+<canvas id="stage" aria-hidden="true"></canvas>
+<div id="labels" aria-hidden="true"></div>
+<div id="tip" hidden></div>
+
+<header class="mast">
+  <a class="word" href="#top" aria-label="DéjàML, back to top"><i>Déjà</i><b>ML</b></a>
+  <div class="strip off" id="strip" role="group" aria-label="Study progress">
+    <ol class="stages" id="stages" aria-label="Pipeline stages">
+      <li data-s="ingesting"><i></i><span>ingesting</span></li>
+      <li data-s="analyzing"><i></i><span>analyzing</span></li>
+      <li data-s="reconciling"><i></i><span>reconciling</span></li>
+      <li data-s="policy_review"><i></i><span>policy_review</span></li>
+      <li data-s="preparing"><i></i><span>preparing</span></li>
+      <li data-s="executing"><i></i><span>executing</span></li>
+      <li data-s="reviewing"><i></i><span>reviewing</span></li>
+      <li data-s="deciding"><i></i><span>deciding</span></li>
+    </ol>
+    <span class="chip" id="chip" aria-live="polite"><span class="ck">Paper value</span> <b>0.906</b></span>
+  </div>
+  <nav aria-label="Sections">
+    <ul class="navlist"><li><a href="#seal">The seal</a></li><li><a href="#analyse">The agents</a></li><li><a href="#lab">The lab</a></li><li><a href="#reveal">The reveal</a></li><li><a href="__PAPER_URL__">Research paper</a></li><li><a href="https://github.com/AayushBhat07/dejaml" target="_blank" rel="noopener">GitHub ↗</a></li></ul>
+    <details class="menu"><summary>Sections</summary>
+      <ul><li><a href="#problem">The question</a></li><li><a href="#seal">The seal</a></li><li><a href="#analyse">The agents</a></li><li><a href="#lab">The lab</a></li><li><a href="#reveal">The reveal</a></li><li><a href="#verdicts">Results</a></li><li><a href="__PAPER_URL__">Research paper</a></li><li><a href="https://github.com/AayushBhat07/dejaml" target="_blank" rel="noopener">GitHub ↗</a></li></ul>
+    </details>
+  </nav>
+</header>
+
+<main>
+  <!-- 0 -->
+  <section id="top" class="sec hero" data-station="hero">
+    <div class="hero-copy">
+      <p class="eyebrow">DéjàML · checks whether ML papers' results hold up</p>
+      <h1>Same claim.<br><em class="ghost" data-t="One more run.">One more run.</em></h1>
+      <p class="lede">DéjàML takes a machine-learning paper, finds its code, and runs the experiment again in a sealed, offline lab. The AI agents doing the work never see the result the paper reported. At the end you learn whether the number came back, with evidence for every step.</p>
+      <div class="cta"><a class="btn" href="#problem">Follow one study</a><a class="btn ghost" href="https://github.com/AayushBhat07/dejaml" target="_blank" rel="noopener">GitHub ↗</a></div>
+      <p class="cue">The 3D model is DéjàML's Research Campus. Scroll to follow one real study through it, room by room.</p>
+    </div>
+  </section>
+
+  <!-- 1 -->
+  <section id="problem" class="sec" data-station="problem" aria-labelledby="h-problem">
+    <article class="card">
+      <p class="tab"><b>§01</b> the question</p>
+      <h2 id="h-problem">A paper says it got <span class="sv">0.906</span>. Did it?</h2>
+      <p>Checking one number from a paper is slow and error-prone. The code is often a notebook, not a script. Seeds go unset, file names don't match the public dataset, and library versions drift.</p>
+      <p>Worse, anyone who already knows the target may nudge the setup until it appears, often without meaning to.</p>
+      <p>DéjàML asks one narrow question. With this paper's exact code version, this dataset and this setup, what did we actually run, and how did the result compare?</p>
+      <dl class="facts">
+        <div><dt>paper</dt><dd>ROCKET: Exceptionally Fast and Accurate Time Series Classification Using Random Convolutional Kernels</dd></div>
+        <div><dt>what it is</dt><dd>ROCKET classifies time series. ECG200 is a small benchmark of 100 training and 100 test series.</dd></div>
+        <div><dt>claim</dt><dd>Page 25, Table 1, row ECG200: mean test accuracy <span class="sv">0.906</span> over 10 runs</dd></div>
+      </dl>
+    </article>
+  </section>
+
+  <!-- 2 -->
+  <section id="ingest" class="sec" data-station="ingest" aria-labelledby="h-ingest">
+    <article class="card">
+      <p class="tab"><b>§02</b> stage <code>ingesting</code></p>
+      <h2 id="h-ingest">Upload the paper</h2>
+      <p>A researcher drops in the PDF. DéjàML records its SHA-256 <span class="def" tabindex="0" data-def="A SHA-256 hash: a short code computed from the data. Change one byte and it changes completely.">fingerprint</span>, so the exact file is on record. It extracts the text page by page and finds the GitHub repository the paper cites.</p>
+      <dl class="facts">
+        <div><dt>fingerprint</dt><dd><code>b58acd66dbd188978fc379f6949a4ea26c3c97aeaf6a27f5f16ccc182628df7a</code></dd></div>
+        <div><dt>repository</dt><dd><code>github.com/angus924/rocket</code>, found in the paper itself</dd></div>
+      </dl>
+    </article>
+  </section>
+
+  <!-- 3 -->
+  <section id="seal" class="sec" data-station="seal" aria-labelledby="h-seal">
+    <article class="card">
+      <p class="tab"><b>§03</b> blinding <code>target_sealed</code></p>
+      <h2 id="h-seal">Seal the number <em>before anyone looks</em></h2>
+      <p>Before any agent starts, DéjàML seals the paper's number away. It runs the number, its <span class="def" tabindex="0" data-def="The tolerance: how far the re-run may differ from the paper and still count.">allowed margin</span> of error and 32 random bytes through SHA-256, which produces a fingerprint that can't be reversed. Only the fingerprint stays in view, so no agent can steer the experiment toward the answer.</p>
+      <div class="sealbox" aria-live="polite">
+        <b>Sealed in your browser just now, with DéjàML's own algorithm</b>
+        <dl>
+          <div><dt>fingerprint</dt><dd><code data-commit-full>computing…</code></dd></div>
+          <div><dt>random bytes</dt><dd><span class="sv hide" data-nonce>32 random bytes</span></dd></div>
+        </dl>
+      </div>
+      <p>Why add random bytes? Without them, an agent could hash likely numbers like 0.906 until one matched the fingerprint. With them, the seal can't be guessed, even for a value as simple as 1.000.</p>
+      <p><strong>From here on the agents work blind, and so does this page.</strong> The number is now blacked out at the top of the screen until §09.</p>
+    </article>
+  </section>
+
+  <!-- 4 -->
+  <section id="analyse" class="sec" data-station="analyse" aria-labelledby="h-analyse">
+    <article class="card">
+      <p class="tab"><b>§04</b> stages <code>analyzing_paper</code> ∥ <code>analyzing_repository</code></p>
+      <h2 id="h-analyse">Two analysts, working apart</h2>
+      <p class="who" style="--c: var(--r-p)"><i>P</i>Paper Analyst <span>· Reading Room</span></p>
+      <p>Reads the PDF and confirms the claim under test: page 25, Table 1, row ECG200. This claim was reviewed in advance. On a new paper, this agent picks the one result that an ordinary CPU-only run could re-check. It is the only agent that sees the paper's number before the reveal, <span class="sv hide">0.906</span>, and that number is stripped from everything it hands on.</p>
+      <p class="tools" style="--c: var(--r-p)"><span class="tl">tools</span><code>paper_list_pages</code><code>paper_read_page</code><code>paper_search</code></p>
+      <p class="who" style="--c: var(--r-c)"><i>C</i>Repository Analyst <span>· Repo Room</span></p>
+      <p>At the same time, it clones <code>angus924/rocket</code> at commit <code>36bd908</code> and maps it: the script that runs the experiment (<code>code/<wbr>reproduce_experiments_ucr.py</code>), the data, and where the result is written. It also flags that the repository doesn't list exact library versions.</p>
+      <p class="tools" style="--c: var(--r-c)"><span class="tl">tools</span><code>repo_acquire</code><code>repo_list</code><code>repo_read</code><code>repo_search</code><code>dependency_discover</code></p>
+      <p class="note">The two can't see each other. Their findings meet only on a shared evidence board, in a fixed format.</p>
+    </article>
+  </section>
+
+  <!-- 5 -->
+  <section id="plan" class="sec" data-station="plan" aria-labelledby="h-plan">
+    <article class="card">
+      <p class="tab"><b>§05</b> stages <code>reconciling</code> → <code>policy_review</code></p>
+      <h2 id="h-plan">A plan, checked by code, <em>not by a model</em></h2>
+      <p class="who" style="--c: var(--r-r)"><i>R</i>Reproduction Planner <span>· Planning Room</span></p>
+      <p>Turns both reports into one exact plan, kept inside the environment, dataset and <span class="def" tabindex="0" data-def="An adapter: a small reviewed script DéjàML adds when the original code can't run as is.">helper script</span> reviewed for this claim: the command, Python 3.11, seven library packages at fixed versions, the dataset and its fingerprint, and the one field the result is read from (<code>metrics.accuracyMean</code> in <code>artifacts/result.json</code>).</p>
+      <p>The gate is plain code with fixed rules, so no AI decides whether its own plan is safe. Tick a box to break a rule.</p>
+      <fieldset class="gate" id="gate">
+        <legend>The policy gate</legend>
+        <label><input type="checkbox" data-rule="gpu"> It installs a GPU package (CUDA or ROCm)</label>
+        <label><input type="checkbox" data-rule="host"> It downloads from a site that isn't on the allowlist</label>
+        <label><input type="checkbox" data-rule="time"> It expects to run past the lab's 15-minute command limit</label>
+        <label><input type="checkbox" data-rule="adapter"> It runs a helper script that nobody reviewed</label>
+        <label><input type="checkbox" data-rule="expect"> It slips the expected result into the command</label>
+        <output class="gate-out pass" id="gate-out" aria-live="polite">Checking…</output>
+      </fieldset>
+    </article>
+  </section>
+
+  <!-- 6 -->
+  <section id="prepare" class="sec" data-station="prepare" aria-labelledby="h-prepare">
+    <article class="card">
+      <p class="tab"><b>§06</b> stage <code>preparing</code></p>
+      <h2 id="h-prepare">Every input, verified by hash</h2>
+      <p>Python packages are fetched by short-lived helper containers that reach approved sites only through a filtering proxy. The dataset is downloaded only from an allowlisted site over HTTPS. Every file has to match its known fingerprint. The lab's system image is fixed by fingerprint too, and the lab never downloads anything itself.</p>
+      <dl class="facts">
+        <div><dt>packages</dt><dd class="wheels"><code>numpy==1.23.5</code> <code>scipy==1.9.3</code> <code>scikit-learn==1.1.3</code> <code>joblib==1.2.0</code> <code>threadpoolctl==3.1.0</code> <code>numba==0.57.1</code> <code>llvmlite==0.40.1</code></dd></div>
+        <div><dt>dataset</dt><dd>UCR ECG200, 100 train / 100 test series<br><code>sha256 755937ea37849346ea20033666b19d17345bb039971e8fa33458b16b62c09380</code></dd></div>
+        <div><dt>allowed host</dt><dd><code>timeseriesclassification.com</code></dd></div>
+      </dl>
+      <p class="note">Why these old versions? The repository doesn't name any, and newer scikit-learn removed the <code>RidgeClassifierCV(normalize=True)</code> the code relies on.</p>
+    </article>
+  </section>
+
+  <!-- 7 -->
+  <section id="lab" class="sec" data-station="lab" aria-labelledby="h-lab">
+    <article class="card">
+      <p class="tab"><b>§07</b> stage <code>executing</code></p>
+      <h2 id="h-lab">The disposable lab</h2>
+      <p>Code from a paper's repository could do anything, so it runs in a locked box. One to three Lab Engineers each get their own disposable Docker container with no internet, a read-only system, no admin rights, and hard limits of 2 CPUs, 4 GB of memory and 256 processes. The real settings:</p>
+      <pre class="cmd"><span class="k">docker create</span> --network none --read-only \
+  --cap-drop ALL --security-opt no-new-privileges \
+  --cpus 2 --memory 4096m --memory-swap 4096m \
+  --pids-limit 256 --pull never --init \
+  --tmpfs /tmp:rw,noexec,nosuid,nodev,uid=10001 …
+<span class="c"># no network, read-only system, non-root user, every command time-capped (8 min for this run)</span></pre>
+      <p class="who" style="--c: var(--r-l)"><i>L</i>Lab Engineers <span>· Disposable Lab</span></p>
+      <p>They run the approved command: 10 runs of ROCKET with 10,000 random kernels each. Then plain code reads the result from the file the run wrote, so no AI ever types the number. If a run breaks, a Debugger can be called in to read the logs.</p>
+      <p class="tools" style="--c: var(--r-l)"><span class="tl">tools</span><code>lab_run_official</code><code>lab_logs</code><code>lab_artifacts</code><code>request_debugging</code><code>lab_destroy</code><code>+ 8 more</code></p>
+    </article>
+  </section>
+
+  <!-- 8 -->
+  <section id="review" class="sec" data-station="review" aria-labelledby="h-review">
+    <article class="card">
+      <p class="tab"><b>§08</b> blinding <code>observation_locked</code> → <code>blind_review_locked</code></p>
+      <h2 id="h-review">Lock it, then <em>judge it blind</em></h2>
+      <p>First the measurement gets its own fingerprint, so it can't change once judging starts. Then an Independent Reviewer checks whether the run was faithful to the paper's method, still without knowing <span class="sv hide">0.906</span>.</p>
+      <p class="who" style="--c: var(--r-v)"><i>V</i>Independent Reviewer <span>· Verification Desk</span></p>
+      <dl class="facts">
+        <div><dt>command ran</dt><dd>the approved command finished with exit code 0 (no errors)</dd></div>
+        <div><dt>data + split</dt><dd>the verified UCR ECG200 fixed train/test files</dd></div>
+        <div><dt>protocol</dt><dd>10 independent runs, 10,000 upstream ROCKET kernels per run</dd></div>
+        <div><dt>metric</dt><dd>read from the newly written result file</dd></div>
+        <div><dt>concern</dt><dd>DéjàML's own single-dataset helper script, because the original script crashes on a one-dataset list</dd></div>
+        <div><dt>judgement</dt><dd>partially equivalent: faithful, with one declared change</dd></div>
+      </dl>
+    </article>
+  </section>
+
+  <!-- 9 -->
+  <section id="reveal" class="sec" data-station="reveal" aria-labelledby="h-reveal">
+    <article class="card">
+      <p class="tab"><b>§09</b> blinding <code>target_revealed</code> → <code>deterministic_comparison</code></p>
+      <h2 id="h-reveal">Open the seal. <em class="ghost" data-t="Déjà vu?">Déjà vu?</em></h2>
+      <p>Only now is the seal opened. DéjàML hashes the revealed number again, and it has to match the fingerprint from §03, or the study fails. That proves nobody changed the target along the way.</p>
+      <div class="sealbox" aria-live="polite"><b>Recomputed in your browser</b><span class="verify-out" data-verify>The seal opens when you reach this point in the study.</span></div>
+      <figure class="dv">
+        <div class="dejavu" aria-hidden="true"><span class="m">0.904</span><span class="p">0.906</span></div>
+        <figcaption class="dejavu-key"><span style="--c: var(--indigo)">0.904 measured, blind</span><span style="--c: var(--seal)">0.906 from the paper, sealed</span></figcaption>
+        <svg class="numline" viewBox="0 0 420 70" role="img" aria-label="Number line: the measured 0.904 falls inside the allowed margin, 0.906 plus or minus 0.0053">
+          <rect class="rv" x="66.9" y="22" width="296.8" height="18" rx="3" fill="#fdeae0" stroke="#f3c3a8"/>
+          <line x1="10" y1="40" x2="410" y2="40" stroke="#b7bdcc" stroke-width="1.5"/>
+          <g fill="#b7bdcc"><rect x="9" y="36" width="1.5" height="8"/><rect x="59" y="36" width="1.5" height="8"/><rect x="109" y="36" width="1.5" height="8"/><rect x="159" y="36" width="1.5" height="8"/><rect x="209" y="36" width="1.5" height="8"/><rect x="259" y="36" width="1.5" height="8"/><rect x="309" y="36" width="1.5" height="8"/><rect x="359" y="36" width="1.5" height="8"/><rect x="409" y="36" width="1.5" height="8"/></g>
+          <text x="10" y="58" text-anchor="middle">0.898</text><text x="110" y="58" text-anchor="middle">0.902</text><text x="210" y="58" text-anchor="middle">0.906</text><text x="310" y="58" text-anchor="middle">0.910</text><text x="410" y="58" text-anchor="middle">0.914</text>
+          <circle cx="160" cy="31" r="6" fill="#3a4fd8"/><text class="lab" x="160" y="14" text-anchor="middle" style="fill: #3a4fd8">0.904</text>
+          <g class="rv"><rect x="208.5" y="22" width="3" height="18" fill="#d9480f"/><text class="lab" x="226" y="14" text-anchor="start" style="fill: #b23a0a">0.906 ± 0.0053</text></g>
+        </svg>
+      </figure>
+      <p><span class="mono">|0.904 − 0.906| = 0.002</span>. The allowed margin, sealed before the run, was 0.0053. That's about how far two 10-run averages can drift apart by chance (a 95% allowance). So the result came back. The run needed DéjàML's own helper script, so the verdict is capped at <strong class="verdict">Partially reproduced</strong>. DéjàML never claims more than its evidence supports.</p>
+    </article>
+    <article class="card sub" aria-labelledby="h-ladder">
+      <p class="tab"><b>§09</b> after the comparison</p>
+      <div class="ladder" id="ladder">
+        <h3 id="h-ladder">The Supervisor can only lower a verdict</h3>
+        <ol class="track" aria-label="Verdicts, from strongest to most cautious">
+          <li data-st="reproduced">Reproduced</li>
+          <li data-st="partially_reproduced" class="cur">Partially reproduced<small>computed</small></li>
+          <li data-st="not_reproduced">Not reproduced</li>
+          <li data-st="inconclusive">Inconclusive</li>
+        </ol>
+        <p class="dir" aria-hidden="true"><span>stronger</span><span>more cautious</span></p>
+        <div class="row"><button type="button" data-p="reproduced">Propose “Reproduced”</button><button type="button" data-p="inconclusive">Propose “Inconclusive”</button></div>
+        <output aria-live="polite"></output>
+      </div>
+    </article>
+  </section>
+
+  <!-- 10 -->
+  <section id="receipts" class="sec" data-station="receipts" aria-labelledby="h-receipts">
+    <article class="card">
+      <p class="tab"><b>§10</b> cleanup</p>
+      <h2 id="h-receipts">Every lab destroyed. <em>Every step on file.</em></h2>
+      <p>When the study ends, even after a failure or a cancel, every lab is destroyed and DéjàML checks it's really gone. What stays is a report where every step has a receipt you can check:</p>
+      <ul class="rcpts">
+        <li>Page and excerpt<small>p.25, Table 1, ECG200</small></li>
+        <li>Repository commit<small>36bd908b4f38…</small></li>
+        <li>Plan fingerprint<small>checked at every later stage</small></li>
+        <li>Package fingerprints<small>seven pinned packages</small></li>
+        <li>Dataset checksum<small>755937ea…</small></li>
+        <li>Exit code and log hashes<small>from the official run</small></li>
+        <li>The blinding log<small>sealed → revealed, in order</small></li>
+        <li>Proof the lab was destroyed<small>container gone, network gone</small></li>
+      </ul>
+    </article>
+  </section>
+
+  <!-- 11 -->
+  <section id="verdicts" class="sec" data-station="verdicts" aria-labelledby="h-verdicts">
+    <article class="card">
+      <p class="tab"><b>§11</b> results from real model runs</p>
+      <h2 id="h-verdicts">Three papers, three honest verdicts</h2>
+      <div class="tbl-wrap"><table>
+        <caption class="sr">Results from real model runs: paper value, measured value, allowed margin and verdict</caption>
+        <thead><tr><th scope="col">Paper and claim</th><th scope="col">Paper</th><th scope="col">Measured</th><th scope="col">Margin</th><th scope="col">Verdict</th></tr></thead>
+        <tbody>
+          <tr><td>pyts BOSS on GunPoint, test accuracy</td><td class="n">1.000</td><td class="n">1.000</td><td class="n">±0.02</td><td><span class="pill part">Partial</span></td></tr>
+          <tr><td>ROCKET on UCR ECG200, mean of 10 runs</td><td class="n">0.906</td><td class="n">0.904</td><td class="n">±0.0053</td><td><span class="pill part">Partial</span></td></tr>
+          <tr><td>Urban Land Cover Random Forest, test accuracy</td><td class="n">81.66%</td><td class="n">79.88%</td><td class="n">±2 pp</td><td><span class="pill part">Partial</span></td></tr>
+        </tbody>
+      </table></div>
+      <p>All three came back within their margin. Each is capped at Partially reproduced because its run needed a declared change, a helper script or a compatibility fix.</p>
+      <h3>Every possible verdict</h3>
+      <ul class="statuses">
+        <li style="--dot: var(--ok)"><span><b>Reproduced:</b> official code, within tolerance, an equivalent protocol, no deviations.</span></li>
+        <li style="--dot: var(--warn)"><span><b>Partially reproduced:</b> the number matches, with declared deviations.</span></li>
+        <li style="--dot: var(--neg)"><span><b>Not reproduced:</b> a valid, equivalent run landed outside tolerance.</span></li>
+        <li style="--dot: var(--faint)"><span><b>Inconclusive:</b> the claim couldn't be measured in a way DéjàML can stand behind, for example missing data or no clear entry point.</span></li>
+        <li style="--dot: var(--ink)"><span><b>Policy blocked:</b> the plan broke a rule, such as asking for a GPU or an unknown download site.</span></li>
+        <li style="--dot: #c3c9d8"><span><b>Failed or cancelled:</b> an infrastructure error or a user cancel. Labs are still destroyed.</span></li>
+      </ul>
+    </article>
+  </section>
+
+  <!-- 12 -->
+  <section id="build" class="sec" data-station="build" aria-labelledby="h-build">
+    <article class="card">
+      <p class="tab"><b>§12</b> under the hood</p>
+      <h2 id="h-build">Run it yourself</h2>
+      <p>Seven AI agents, each with its own history, tools and budget, share findings only through the evidence board. A Node.js orchestrator moves the study from stage to stage and saves its place, so it can resume after a restart. The web app streams the study live into a 3D Research Campus. The campus on this page is modelled on it, with intake, policy-gate and prep stations added to show those stages.</p>
+      <pre class="cmd"><span class="c"># macOS or Linux: Node.js 24+, Python 3 and a running Docker engine</span>
+<span class="k">git clone</span> https://github.com/AayushBhat07/dejaml.git
+<span class="k">cd</span> dejaml
+<span class="k">npm run</span> bootstrap</pre>
+      <p>The bootstrap needs no model account. It builds and tests everything, then runs the real Urban Land Cover experiment offline in a non-root lab and checks its 79.88% result and cleanup receipt.</p>
+      <div class="cta"><a class="btn" href="https://github.com/AayushBhat07/dejaml" target="_blank" rel="noopener">DéjàML on GitHub ↗</a><a class="btn ghost" href="https://drive.google.com/file/d/1UcDQmQssNe_REx6-ZFwt4cVscvJiiDXD/view?usp=sharing" target="_blank" rel="noopener">Working report ↗</a><a class="btn ghost" href="__PAPER_URL__">The research paper trail</a></div>
+      <p class="note">Built by <a href="https://github.com/AayushBhat07" target="_blank" rel="noopener">Aayush Bhat</a>. Every number on this page comes from DéjàML's repository: its README, its ROCKET acceptance case and its source code.</p>
+      <p class="credits">Robot model: RobotExpressive by Tomás Laulhé (Quaternius), CC0 1.0, with modifications by Don McCurdy. Campus and props drawn in three.js.</p>
+    </article>
+  </section>
+</main>
+
+<script type="module">
+import * as THREE from 'three';
+/*__APP__*/
+</script>

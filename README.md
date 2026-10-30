@@ -13,6 +13,7 @@ offline Docker lab with blinded AI agents, and tells you honestly whether the
 result came back.
 
 Built by [Aayush Bhat](https://aayush-receipts.vercel.app/#exhibit-a) ·
+[How it works](https://aayushbhat07.github.io/dejaml/) ·
 [Case study](https://aayushbhat.vercel.app/projects/dejaml) ·
 [GitHub](https://github.com/AayushBhat07/dejaml) ·
 [YouTube](https://www.youtube.com/@ParthNaukudkar-q5g) ·
@@ -32,6 +33,11 @@ continuous camera move from a cloud grid into a Linux node, its job queue, a
 single Docker lab and its resource limits, and back out. Click the image to open
 the video ([direct link](docs/media/dejaml-feasibility-and-viability.mp4)); the
 full report is linked under [Reports and links](#reports-and-links).
+
+To see how it works step by step, open
+**[Inside DéjàML](https://aayushbhat07.github.io/dejaml/)**: a scroll-driven 3D
+explainer that follows one real study through the Research Campus, with a live
+SHA-256 seal and a policy gate you can try to break.
 
 ## What is DéjàML?
 
@@ -172,6 +178,7 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for the full design.
 | Resource | Link |
 |---|---|
 | GitHub repository | <https://github.com/AayushBhat07/dejaml> |
+| Inside DéjàML, the interactive 3D explainer | <https://aayushbhat07.github.io/dejaml/> ([source](site/)) |
 | YouTube | <https://www.youtube.com/@ParthNaukudkar-q5g> |
 | Instagram | [@de_ja_ml](https://www.instagram.com/de_ja_ml/?hl=en) |
 | DéjàML Working Report | [Google Drive](https://drive.google.com/file/d/1UcDQmQssNe_REx6-ZFwt4cVscvJiiDXD/view?usp=sharing) |
