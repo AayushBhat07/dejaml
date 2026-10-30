@@ -326,8 +326,9 @@ describe("Live Run Dashboard: blinding", () => {
       // Rendered text, attributes (titles, tooltips), and the state the page derives.
       expect(document.body.innerHTML).not.toMatch(SENTINEL_TEXT);
       expect(JSON.stringify(analyzeRun(prefix))).not.toMatch(SENTINEL_TEXT);
-      // The downloadable event log holds only what the stream said.
-      expect(JSON.stringify(buildReport(props.runId, prefix, null))).not.toMatch(SENTINEL_TEXT);
+      // The downloadable event log holds only what the stream said. Its generatedAt is the wall clock,
+      // which can read like the sentinel (18:30:31.418 holds "31.4"), so it is left out of the match.
+      expect(JSON.stringify({ ...buildReport(props.runId, prefix, null), generatedAt: null })).not.toMatch(SENTINEL_TEXT);
     }
     // Everything up to the review lock is on screen, with no comparison.
     expect(within(panel()).getByText("Paper target sealed", { selector: "strong" })).toBeTruthy();
