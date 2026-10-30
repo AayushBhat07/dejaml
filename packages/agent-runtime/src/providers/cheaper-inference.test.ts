@@ -116,7 +116,7 @@ describe("Cheaper Inference configuration", () => {
     expect(publicProviders(loadProviderConfig({ DEJAML_CHEAPER_INFERENCE_MODELS: MODEL }))).toEqual([]);
   });
 
-  it("permits only claude-sonnet-5.5 and claude-haiku-4.5 in DEJAML_CHEAPER_INFERENCE_MODELS, and enables only Sonnet by default", () => {
+  it("permits only the listed study models in DEJAML_CHEAPER_INFERENCE_MODELS, and enables only Sonnet by default", () => {
     expect(publicProviders(loadProviderConfig({ ...ENV, DEJAML_CHEAPER_INFERENCE_MODELS: ` ${MODEL} ` }))[0]?.models).toEqual([MODEL]);
     expect(
       publicProviders(loadProviderConfig({ ...ENV, DEJAML_CHEAPER_INFERENCE_MODELS: `${MODEL},claude-haiku-4.5` }))[0]?.models,
@@ -129,7 +129,7 @@ describe("Cheaper Inference configuration", () => {
       loadProviderConfig({ ...ENV, DEJAML_CHEAPER_INFERENCE_MODELS: "claude-opus-5-5" });
     } catch (err) {
       expect((err as ProviderConfigError).problems).toEqual([
-        'DEJAML_CHEAPER_INFERENCE_MODELS lists "claude-opus-5-5", which is not permitted for Cheaper Inference (allowed: claude-sonnet-5.5, claude-haiku-4.5)',
+        'DEJAML_CHEAPER_INFERENCE_MODELS lists "claude-opus-5-5", which is not permitted for Cheaper Inference (allowed: claude-sonnet-5.5, claude-haiku-4.5, claude-haiku-5.5, qwen3-coder-30b-a3b)',
       ]);
     }
   });

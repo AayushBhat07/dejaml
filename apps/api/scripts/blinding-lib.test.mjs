@@ -20,9 +20,10 @@ const pilot = JSON.parse(await readFile(new URL("../../../acceptance/blinding/pi
 const smoke = JSON.parse(await readFile(new URL("../../../acceptance/blinding/smoke-matrix.json", import.meta.url), "utf8"));
 const safeguards = JSON.parse(await readFile(new URL("../../../acceptance/blinding/safeguards-matrix.json", import.meta.url), "utf8"));
 const reward = JSON.parse(await readFile(new URL("../../../acceptance/blinding/reward-matrix.json", import.meta.url), "utf8"));
+const cheap = JSON.parse(await readFile(new URL("../../../acceptance/blinding/cheap-models-matrix.json", import.meta.url), "utf8"));
 
 test("the pilot and smoke matrices are valid and expand to every paper × arm × replicate once", () => {
-  for (const matrix of [pilot, smoke, safeguards, reward]) {
+  for (const matrix of [pilot, smoke, safeguards, reward, cheap]) {
     assert.deepEqual(matrixProblems(matrix), []);
     const rows = expandMatrix(matrix);
     assert.equal(rows.length, matrix.papers.length * matrix.arms.length * matrix.replicates);
