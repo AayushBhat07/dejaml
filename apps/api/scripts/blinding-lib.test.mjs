@@ -17,12 +17,20 @@ import {
 } from "./blinding-lib.mjs";
 
 const pilot = JSON.parse(await readFile(new URL("../../../acceptance/blinding/pilot-matrix.json", import.meta.url), "utf8"));
+const smoke = JSON.parse(await readFile(new URL("../../../acceptance/blinding/smoke-matrix.json", import.meta.url), "utf8"));
 
-test("the pilot matrix is valid and expands to every paper × arm × replicate once", () => {
-  assert.deepEqual(matrixProblems(pilot), []);
-  const rows = expandMatrix(pilot);
-  assert.equal(rows.length, pilot.papers.length * pilot.arms.length * pilot.replicates);
-  assert.equal(new Set(rows.map(runKey)).size, rows.length);
+test("the pilot and smoke matrices are valid and expand to every paper × arm × replicate once", () => {
+  for (const matrix of [pilot, smoke]) {
+    assert.deepEqual(matrixProblems(matrix), []);
+    const rows = expandMatrix(matrix);
+    assert.equal(rows.length, matrix.papers.length * matrix.arms.length * matrix.replicates);
+    assert.equal(new Set(rows.map(runKey)).size, rows.length);
+  }
+  assert.equal(expandMatrix(smoke).length, 12);
+});
+
+test("the smoke test gives each paper the same decoy direction as the pilot", () => {
+  for (const paper of smoke.papers) assert.equal(decoyDirection(smoke.seed, paper.id), decoyDirection(pilot.seed, paper.id));
 });
 
 test("the order is shuffled, and the same for the same seed", () => {

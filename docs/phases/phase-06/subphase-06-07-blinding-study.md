@@ -124,6 +124,10 @@ study's inputs and survives a restart.
 - `acceptance/blinding/pilot-matrix.json` is the pilot: four papers so far ×
   six arms (open: blind, sighted, sighted + rule, decoy; locked: blind,
   sighted) × 3 replicates.
+- `acceptance/blinding/smoke-matrix.json` is a 12-run smoke test to run before
+  the pilot: Urban Land Cover, ROCKET/ECG200 and pyts BOSS/GunPoint × (blind,
+  decoy) in the open lab × 2 replicates, at roughly $4–8. It checks the harness
+  on real models and gives a first look at decoy drift. It is not a result.
 
 ## Verification
 
@@ -196,7 +200,9 @@ New tests:
 1. `npm ci && npm run build`
 2. `npm run test:blinding` — must pass before any real run.
 3. Start the API with `DEJAML_RESEARCH_CONDITIONS=1` and a provider key in its
-   own environment, then run
+   own environment. Run the smoke test first,
+   `node apps/api/scripts/blinding-study.mjs acceptance/blinding/smoke-matrix.json ~/Desktop/ClaudeWork/DejaML-blinding-smoke`,
+   then the pilot,
    `node apps/api/scripts/blinding-study.mjs acceptance/blinding/pilot-matrix.json ~/Desktop/ClaudeWork/DejaML-blinding-pilot`.
 4. `node apps/api/scripts/blinding-analysis.mjs ~/Desktop/ClaudeWork/DejaML-blinding-pilot/results.jsonl`
 

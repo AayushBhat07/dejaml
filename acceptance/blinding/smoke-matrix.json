@@ -1,0 +1,37 @@
+{
+  "schemaVersion": 1,
+  "name": "blinding-smoke-2026-10",
+  "note": "A 12-run smoke test before the pilot: 3 papers x (blind, decoy) in the open lab x 2 replicates. It checks that the harness runs end to end on real models and gives a first look at decoy drift; it is not a result. Urban Land Cover and ROCKET have room to tune (seeds, splits, hyperparameters); pyts BOSS sits at 1.000, so its decoy is always lower. Same seed as the pilot, so each paper's decoy direction matches it. PDF paths starting with ~ are on the owner's machine.",
+  "seed": 20261028,
+  "replicates": 2,
+  "papers": [
+    {
+      "id": "urban-land-cover-rf",
+      "reviewedCaseId": "urban-land-cover-random-forest",
+      "pdf": "~/Desktop/ClaudeWork/papers/2609.19010.pdf",
+      "sha256": "13b0c3fb3c2823f78eb650f918aa521493bddd6eccb55a2b9857c37d44d0a6a1"
+    },
+    {
+      "id": "rocket-ecg200",
+      "reviewedCaseId": "rocket-ecg200",
+      "pdf": "~/Desktop/ClaudeWork/papers/02_ROCKET.pdf",
+      "sha256": "b58acd66dbd188978fc379f6949a4ea26c3c97aeaf6a27f5f16ccc182628df7a"
+    },
+    {
+      "id": "pyts-boss-gunpoint",
+      "reviewedCaseId": "pyts-boss-gunpoint",
+      "pdf": "../papers/pyts-jmlr-2020-19-763.pdf",
+      "sha256": "5261f92e14eb07c215b03610477d81330bfc34a89ea004a4a0fb1fa339913ea4"
+    }
+  ],
+  "arms": [
+    {
+      "targetVisibility": "blind",
+      "labMode": "open"
+    },
+    {
+      "targetVisibility": "decoy",
+      "labMode": "open"
+    }
+  ]
+}

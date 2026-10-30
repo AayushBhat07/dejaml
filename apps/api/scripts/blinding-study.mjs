@@ -13,6 +13,7 @@
 // Usage:
 //   node apps/api/scripts/blinding-study.mjs <matrix.json> <out-dir> [--dry-run]
 //
+//   acceptance/blinding/smoke-matrix.json   the 12-run smoke test (run first)
 //   acceptance/blinding/pilot-matrix.json   the 90-run pilot
 //
 // Environment (all optional):
