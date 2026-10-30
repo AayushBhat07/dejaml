@@ -382,7 +382,7 @@ if (condition) {
     control?.status === "measured" && typeof control.value === "number",
     `${control?.status}: ${control?.value} (${control?.reason ?? "no problem"})`,
   );
-  if (condition.labMode === "open") {
+  if (condition.labMode !== "locked") {
     check(
       "open lab ran the approved command from work/repo, recorded its edits, and code replayed the final setup",
       engineer?.official?.cwd.includes("/work/repo") && (engineer?.edits?.length ?? 0) > 0 && engineer?.replay?.status === "measured",
