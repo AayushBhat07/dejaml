@@ -12,6 +12,7 @@ code, re-runs the experiment behind one of its published numbers in a sealed,
 offline Docker lab with blinded AI agents, and tells you honestly whether the
 result came back.
 
+Built by [Aayush Bhat](https://aayush-receipts.vercel.app/#exhibit-a) ·
 [Case study](https://aayushbhat.vercel.app/projects/dejaml) ·
 [GitHub](https://github.com/AayushBhat07/dejaml) ·
 [YouTube](https://www.youtube.com/@ParthNaukudkar-q5g) ·
