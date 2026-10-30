@@ -369,7 +369,7 @@ check(
   engineer?.review?.verdict === "approve",
   `${engineer?.reviewerAgentId}: ${engineer?.review?.verdict} (${engineer?.review?.equivalence})`,
 );
-const sighted = condition?.targetVisibility === "sighted" || condition?.targetVisibility === "sighted_rule";
+const sighted = condition?.targetVisibility?.startsWith("sighted") ?? false;
 for (const item of proveBlinding({ store, runId: run.id, report: study })) {
   // A sighted study shows the agents the value on purpose: the leak check must fail, and says so.
   const expectedFail = sighted && item.name.startsWith("no blind agent received");
