@@ -461,6 +461,16 @@ describe.skipIf(!hasOpenssl())("acquireLabDataset against a local TLS server", (
     expect(hits).toEqual([]);
   });
 
+  it("saves a download whose URL name has an encoded + under a safe name", async () => {
+    handler = (_request, response) => {
+      response.writeHead(200, { "Content-Type": "application/zip", "Content-Length": ZIP.length }).end(ZIP);
+    };
+    const dataset = await acquire(options({ url: url("/static/urban%2Bland%2Bcover.zip"), expectedSha256: sha(ZIP), extract: true }));
+    expect(dataset.identity.fileName).toBe("urban-land-cover.zip");
+    expect(dataset.downloadPath).toBe("download/urban-land-cover.zip");
+    expect(dataset.identity.extracted?.files.map((file) => file.path)).toEqual(["iris/LICENSE", "iris/train.csv"]);
+  });
+
   it("refuses unsafe names and paths before any request", async () => {
     for (const bad of [
       { fileName: "../x" },
