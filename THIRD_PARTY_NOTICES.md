@@ -26,3 +26,13 @@ No OpenClaw source files are copied into this repository at this phase. Operator
 - Kokoro: <https://huggingface.co/hexgrad/Kokoro-82M>
 
 The video is not part of the MIT-licensed source code.
+
+## Inside DéjàML explainer (`site/`)
+
+- RobotExpressive model by Tomás Laulhé (Quaternius), modified by Don McCurdy,
+  from the three.js examples: CC0 1.0. Stored in `site/models/` and embedded
+  into the built page.
+- three.js r169 (MIT) is loaded from jsDelivr at run time and is not copied
+  into this repository.
+- Newsreader, Schibsted Grotesk and JetBrains Mono (SIL Open Font License 1.1)
+  are loaded from Google Fonts at run time.
