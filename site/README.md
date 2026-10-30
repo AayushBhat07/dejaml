@@ -38,17 +38,49 @@ Every number on the page comes from the root README,
 | `models/RobotExpressive.glb` | The agents' robot (CC0, see `models/RobotExpressive-README.md`), embedded into the page at build time. |
 | `build.mjs` | Concatenates `js/NN_*.js` into one module and writes `dist/index.html`. |
 
+## The Research Road
+
+`research-paper/` on the site is a second page: DéjàML's timeline as one raised
+walkway on the same model table, with a robot that walks it as you scroll. The
+indigo line is drawn up to "now":
+
+1. **The hackathon brief** that started it.
+2. **The plan**: architecture, roadmap and three principles (28 Sep).
+3. **The first working slice**: one curated paper, end to end.
+4. **A shortcut taken back out** after review (29 Sep).
+5. **The blind agent team** with the sealed target (PR #4, 2 Oct).
+6. **Three real results**, each Partially reproduced.
+7. **Showing the work**: the live campus, the README and this site.
+8. **Any lightweight paper**: the open-paper work in review.
+9. **The research question**: does seeing the number bias the agent? Four
+   lanes fork off the road for blind, sighted, sighted + rule and decoy.
+10. **Now**: the conditions are built and the 12-run smoke test is running.
+
+Past "now" the road is a dashed plan with see-through models: the 90-run pilot,
+the full study and the paper. Edit `research/progress.json` as the study
+moves (`now` is the stop where the line ends; `smoke` and `paper` fill the
+cards), then rebuild.
+
+| Path | What it is |
+|---|---|
+| `research/index.src.html` | Markup and CSS. Head material, then `<!--BODY-->`, then the page. |
+| `research/js/10_page.js` | The stops, the progress line in the top bar, and the cards filled from `progress.json`. |
+| `research/js/20_road.js` | The 3D road: scene, stops and their models, the robots, camera views and pins. |
+| `research/progress.json` | Where the study stands. |
+| `research/build.mjs` | Writes `dist/research-paper/index.html`. `site/build.mjs` runs it. |
+
 ## Build and preview
 
 ```bash
-node site/build.mjs        # → site/dist/index.html
+node site/build.mjs        # → site/dist/index.html + site/dist/research-paper/index.html
 npx serve site/dist        # open http://localhost:3000
 ```
 
 The page needs no install. three.js r169 loads from jsDelivr and the fonts
 (Newsreader, Schibsted Grotesk, JetBrains Mono) from Google Fonts, so previews
-need a network connection. `node site/build.mjs --paper=URL` also shows the
-"Research paper" links, pointing at `URL`; without it they are left out.
+need a network connection. The explainer's "Research paper" links point at
+`research-paper/`; `--paper=URL` points them elsewhere and `--paper=none` hides
+them.
 
 ## Publishing
 

@@ -1,0 +1,20 @@
+{
+  "_help": "Edit this as the study moves, then rebuild with: node site/build.mjs. 'now' is the stop where the robot waits and the indigo line ends (one of: open, question, now, pilot, full, paper). Step status is done, now or next.",
+  "updated": "2026-10-30",
+  "now": "now",
+  "smoke": {
+    "total": 12,
+    "done": 1,
+    "note": "First paid run: pyts BOSS on GunPoint, blind, measured 1.000 against the paper's 1.000, for about $0.37. The other 11 are running."
+  },
+  "paper": [
+    { "label": "Research question and gap check", "status": "done", "when": "28 Oct" },
+    { "label": "Conditions built into DéjàML", "status": "done", "when": "30 Oct" },
+    { "label": "12-run smoke test", "status": "now", "when": "Running" },
+    { "label": "90-run pilot", "status": "next", "when": null },
+    { "label": "Preregistration on OSF", "status": "next", "when": null },
+    { "label": "Full study, about 600 runs", "status": "next", "when": null },
+    { "label": "Draft and preprint on arXiv", "status": "next", "when": null },
+    { "label": "Submit to an ICLR or ICML 2027 workshop, or TMLR", "status": "next", "when": null }
+  ]
+}

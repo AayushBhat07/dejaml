@@ -1,13 +1,13 @@
-// Builds the "Inside DéjàML" explainer into one static page.
-//   node site/build.mjs                    → site/dist/index.html
-//   node site/build.mjs --paper=/research-paper/   also shows the "Research paper" links, pointing at that URL
+// Builds the "Inside DéjàML" explainer and its Research Road page.
+//   node site/build.mjs                    → site/dist/index.html + site/dist/research-paper/index.html (see research/build.mjs)
+//   node site/build.mjs --paper=URL        points the "Research paper" links somewhere else; --paper=none hides them
 // Sources: index.src.html (markup + CSS, page head before the skip link) and js/NN_*.js (concatenated, in order, into one module scope).
 // three.js r169 loads from jsDelivr and the fonts from Google Fonts; the robot model is embedded, so the page needs no other files.
 import { readFileSync, writeFileSync, readdirSync, mkdirSync } from "node:fs";
 
 const here = new URL("./", import.meta.url);
 const arg = (k) => process.argv.find((x) => x.startsWith(`--${k}=`))?.slice(k.length + 3);
-const paper = arg("paper");
+const paper = arg("paper") ?? "research-paper/";
 
 const dir = new URL("./js/", here);
 const parts = readdirSync(dir)
@@ -25,7 +25,7 @@ html = html.replace(
   () =>
     '<script type="importmap">{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.169.0/build/three.module.js", "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.169.0/examples/jsm/" } }</script>',
 );
-html = paper
+html = paper !== "none"
   ? html.replaceAll("__PAPER_URL__", paper)
   : html
       .replace(/<li><a href="__PAPER_URL__">[^<]*<\/a><\/li>/g, "")
@@ -45,3 +45,6 @@ const doc =
 mkdirSync(new URL("./dist/", here), { recursive: true });
 writeFileSync(new URL("./dist/index.html", here), doc);
 console.log(`site/dist/index.html ${(doc.length / 1024).toFixed(0)} KB · ${parts.join(" + ")}`);
+
+// the Research Road page, linked from the explainer
+await import("./research/build.mjs");
