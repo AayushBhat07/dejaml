@@ -57,6 +57,7 @@ beforeEach(async () => {
     commands: [],
     artifacts: new Map(),
     integrity: { workRepo: "w:1", venv: "v:1", adapter: "a:1" },
+    adapter: null,
     environment: null,
     official: null,
     edits: [],

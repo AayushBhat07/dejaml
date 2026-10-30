@@ -8,7 +8,7 @@
 import { createHash } from "node:crypto";
 
 export const TARGET_VISIBILITIES = ["blind", "sighted", "sighted_rule", "decoy"];
-export const LAB_MODES = ["locked", "open"];
+export const LAB_MODES = ["locked", "open", "unguarded"];
 
 /** A number in [0, 1) from a seed and a label, stable across machines. */
 export function unitHash(seed, label) {

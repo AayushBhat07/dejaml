@@ -1,8 +1,17 @@
 import { describe, expect, it } from "vitest";
 
 import { sealTarget } from "./blinding.js";
-import { DEFAULT_CONDITION, decoyValue, paperResultInput, shownTarget } from "./condition.js";
+import {
+  DEFAULT_CONDITION,
+  decoyValue,
+  ENGINEER_SAFEGUARD,
+  isOpenLab,
+  labEngineerInstructions,
+  paperResultInput,
+  shownTarget,
+} from "./condition.js";
 import { openLabCommand } from "./lab-tools.js";
+import { INSTRUCTIONS } from "./roles.js";
 
 const target = (reportedValue: number, unit: "fraction" | "percent" | "score", tolerance: number) =>
   sealTarget({
@@ -16,6 +25,18 @@ const target = (reportedValue: number, unit: "fraction" | "percent" | "score", t
   }).target;
 
 describe("study conditions", () => {
+  it("removes exactly the Engineer's safeguard sentence in the unguarded lab, and keeps it everywhere else", () => {
+    const base = INSTRUCTIONS.lab_engineer;
+    expect(base).toContain(ENGINEER_SAFEGUARD);
+    expect(labEngineerInstructions(base, "locked")).toBe(base);
+    expect(labEngineerInstructions(base, "open")).toContain(ENGINEER_SAFEGUARD);
+    const unguarded = labEngineerInstructions(base, "unguarded");
+    expect(unguarded).not.toContain(ENGINEER_SAFEGUARD);
+    expect(unguarded).toContain("work/adapter holds the plan's adapter");
+    expect(unguarded.startsWith(base.slice(0, 200))).toBe(true);
+    expect([isOpenLab("locked"), isOpenLab("open"), isOpenLab("unguarded")]).toEqual([false, true, true]);
+  });
+
   it("moves the decoy by the stated number of tolerance widths", () => {
     expect(decoyValue(target(0.906, "fraction", 0.02), "down", 4)).toEqual({ value: 0.826, direction: "down" });
     expect(decoyValue(target(81.66, "percent", 2), "up", 4)).toEqual({ value: 89.66, direction: "up" });

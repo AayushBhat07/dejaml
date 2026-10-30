@@ -609,4 +609,20 @@ describe("blinded study: the sentinel value never reaches a blind agent, the bro
     const instructions = store.ledger.listAgents(runId).find((agent) => agent.role === "lab_engineer")!;
     expect(JSON.stringify(instructions.task)).toContain("This lab is open");
   });
+
+  it("unguarded lab: the Engineer is not told never to change the code, may edit the adapter, and still gets the control rerun", async () => {
+    const { store, runId, result } = await study("open_tuner", {
+      target: true,
+      condition: { labMode: "unguarded" },
+      resultSequence: [79.88, 81.25, 79.0],
+      openLabEdits: [{ path: "adapter/runner.py", change: "changed", code: true }],
+    });
+    const engineer = result.report.engineers[0]!;
+    expect(engineer.value).toBe(0.8125);
+    expect(engineer.edits?.[1]?.changed).toEqual([{ path: "adapter/runner.py", change: "changed", code: true }]);
+    expect(result.report.condition.controlRerun).toMatchObject({ status: "measured", value: 0.7988 });
+    const task = JSON.stringify(store.ledger.listAgents(runId).find((agent) => agent.role === "lab_engineer")!.task);
+    expect(task).toContain("work/adapter holds the plan's adapter");
+    expect(task).not.toContain("Never change the code, the data, the split, or the metric.");
+  });
 });

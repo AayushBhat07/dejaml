@@ -71,7 +71,8 @@ import {
   conditionRecord,
   DEFAULT_CONDITION,
   isDefaultCondition,
-  OPEN_LAB_INSTRUCTIONS,
+  isOpenLab,
+  labEngineerInstructions,
   paperResultInput,
   SHOWN_ROLES,
   type ShownTarget,
@@ -795,7 +796,7 @@ export async function runMultiAgentStudy(
       agentId,
       parentAgentId: options.parentAgentId ?? null,
       label: options.label,
-      instructions: role === "lab_engineer" && condition.labMode === "open" ? `${instructions}\n\n${OPEN_LAB_INSTRUCTIONS}` : instructions,
+      instructions: role === "lab_engineer" ? labEngineerInstructions(instructions, condition.labMode) : instructions,
       objective: options.objective,
       // A sighted or decoy condition shows its number to every execution agent before the reveal, in the same words.
       inputs: shown && !revealed && SHOWN_ROLES.has(role) ? { ...options.inputs, ...paperResultInput(condition, shown) } : options.inputs,
@@ -1597,6 +1598,7 @@ export async function runMultiAgentStudy(
         environment: item.environment,
         official: null,
         edits: [],
+        adapter: null,
         dependencyRequest: item.dependencyRequest,
         destroyed: true,
       });
@@ -1641,6 +1643,7 @@ export async function runMultiAgentStudy(
       environment: null,
       official: null,
       edits: [],
+      adapter: null,
       dependencyRequest: null,
       destroyed: false,
     };
@@ -1684,7 +1687,7 @@ export async function runMultiAgentStudy(
       const last = lab.official;
       // Open lab: code alone runs the Engineer's final setup once more in the same lab, before it closes.
       if (
-        condition.labMode === "open" &&
+        isOpenLab(condition.labMode) &&
         condition.controlRerun &&
         last &&
         last.exitCode === 0 &&
@@ -1876,7 +1879,7 @@ export async function runMultiAgentStudy(
     options: { control?: boolean } = {},
   ): Promise<void> {
     // The agent-free control rerun always runs the plan exactly as approved, even in an open-lab study.
-    const openLab = condition.labMode === "open" && options.control !== true;
+    const openLab = isOpenLab(condition.labMode) && options.control !== true;
     const actor = orchestratorActor;
     const must = async (argv: string[], what: string, outcome: PreparationFailure["outcome"], timeout = 600): Promise<void> => {
       const record = await runInLab(ctx, lab, actor(), argv, LAB_LAYOUT.workdir, {}, timeout);
@@ -1908,6 +1911,8 @@ export async function runMultiAgentStudy(
       if (carriesTargetValue(adapter.content) || riggedAdapter(adapter.content))
         throw new PreparationFailure("adapter_refused", "the adapter contains a value or a comparison it must not contain", "inconclusive");
       await deps.labs.writeScratchFile(lab.labId, adapter.path, adapter.content, lab.commands.length + 1);
+      // Kept so an open lab's edit record can show what the Engineer changed in it.
+      lab.adapter = { path: adapter.path, content: adapter.content };
     }
     if (ctx.prepared?.installerWheel) {
       const { offlineInstallCommands } = await import("@dejaml/prep");

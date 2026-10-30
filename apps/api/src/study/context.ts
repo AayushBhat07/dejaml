@@ -177,6 +177,8 @@ export type EngineerLab = {
   official: CommandRecord | null;
   /** Open lab only: what each official run changed in work/repo relative to the checkout. */
   edits: OfficialEdits[];
+  /** The approved adapter as written into the lab, so an open lab's edit record can diff it. */
+  adapter: { path: string; content: string } | null;
   dependencyRequest: { requirements: string[]; reason: string } | null;
   destroyed: boolean;
 };
