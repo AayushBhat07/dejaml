@@ -3,8 +3,10 @@ import { readdir, readFile } from "node:fs/promises";
 import { isAbsolute, join, normalize, relative } from "node:path";
 
 import { type MetricParser, MetricParserSchema, PythonVersionSchema } from "@dejaml/contracts";
+import { LAB_DATASET_DOWNLOAD_DIR, LAB_DATASET_EXTRACTED_DIR } from "@dejaml/net-guard";
 import { z } from "zod";
 
+import { LAB_LAYOUT } from "./context.js";
 import { canonicalJson, checkExcerpt } from "./contract.js";
 import type { Adapter, PaperClaim } from "./roles.js";
 
@@ -232,6 +234,17 @@ export function repositoryAnalystTarget(target: ClaimTarget): Record<string, unk
   };
 }
 
+/**
+ * Where a reviewed download's files will sit in the lab, as absolute paths, so
+ * a plan's arguments never guess the `data/extracted/` prefix.
+ */
+function labDataFiles(target: ClaimTarget): string[] | null {
+  const source = target.dataset.source;
+  if (source.kind !== "download" || !source.files?.length) return null;
+  const dir = source.extract ? LAB_DATASET_EXTRACTED_DIR : LAB_DATASET_DOWNLOAD_DIR;
+  return source.files.map((file) => `${LAB_LAYOUT.workdir}/${LAB_LAYOUT.dataDir}/${dir}/${file}`);
+}
+
 /** What the Planner is told: the reviewed limits its plan must fit. Never the value, tolerance, or paper reference. */
 export function plannerTarget(target: ClaimTarget): Record<string, unknown> {
   return {
@@ -245,6 +258,7 @@ export function plannerTarget(target: ClaimTarget): Record<string, unknown> {
     repository: target.repository,
     environment: target.environment,
     dataset: target.dataset,
+    ...(labDataFiles(target) ? { labDataFiles: labDataFiles(target) } : {}),
     metricParser: target.metricParser,
     expectedRuntimeCeilingSeconds: target.expectedRuntimeCeilingSeconds,
     reviewedAdapter: target.adapter

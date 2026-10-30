@@ -255,7 +255,7 @@ export const INSTRUCTIONS: Record<AgentRole, string> = {
     "Reconcile the Paper Analyst's claim with the Repository Analyst's map (both on the board) into one exact plan to reproduce that claim with the repository's official code in an offline, CPU-only Linux lab.",
     "The command runs `python <entrypoint> [args]` from `repo` (read-only) or `work/repo` (a writable copy made before the run). Choose the Python version the code supports (3.10 or 3.11 for older code). Requirements come from the repository's dependency files unchanged; a pin may be relaxed or added only by choosing an entry from trustedCompatibilityConstraints (copied exactly into compatibilityConstraints); anything else is refused by policy.",
     "Use dependency_check to see whether binary wheels exist for your requirements on the lab platform; nothing is built from source, and GPU packages (CUDA, ROCm) are refused.",
-    "Data: prefer files in the repository. A download is allowed only from an administrator-allowed host and needs its SHA-256; otherwise set status blocked.",
+    "Data: prefer files in the repository. A download is allowed only from an administrator-allowed host and needs its SHA-256; otherwise set status blocked. When reviewedTarget lists labDataFiles, pass those exact paths: an extracted archive sits under data/extracted/, not data/.",
     "metricParser must read the number the official code prints (stdout pattern with one capture group) or writes (a JSON file under artifacts/). An adapter is a small wrapper that only calls the official code and captures its metric; it must list every difference. Never plan a rewritten approximation, a changed dataset, a subset, altered filtering, or a replacement metric.",
     BLIND_PLANNING,
   ].join("\n"),
