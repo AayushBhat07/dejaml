@@ -51,6 +51,10 @@ export class ScriptedRuntime implements ContainerRuntime {
   readonly containers = new Set<string>();
   execStarted: (() => void) | null = null;
   createArgs: string[] = [];
+  /** Per lab, the metric of the first, second, ... experiment run; after the last, the last repeats. Overrides resultAccuracyPercent. */
+  resultSequence: number[] | null = null;
+  /** What the open-lab edit record reports as changed in work/repo. */
+  openLabEdits: Array<{ path: string; change: "added" | "changed" | "removed"; code: boolean }> = [];
   /** Make the first experiment run in each lab fail, to exercise recovery. */
   failFirstRun = false;
   /** Every `docker exec` argv, for assertions. */
@@ -149,6 +153,10 @@ export class ScriptedRuntime implements ContainerRuntime {
       const program = inner[0] ?? "";
       // The study's own setup steps: copying the checkout and measuring integrity.
       if (inner[1] === "-I" && inner[4]?.includes("copytree")) return ok();
+      if (inner[1] === "-I" && inner[4]?.includes("difflib")) {
+        const diff = this.openLabEdits.map((item) => `--- a/${item.path}\n+++ b/${item.path}\n`).join("");
+        return ok(JSON.stringify({ changed: this.openLabEdits, diff, diffSha256: "f".repeat(64), diffTruncated: false }));
+      }
       if (inner[1] === "-I" && inner[4]?.includes("hashlib"))
         return ok(JSON.stringify({ workRepo: `${"d".repeat(64)}:3`, venv: `${"e".repeat(64)}:${mounts.tampered ? 2 : 1}` }));
       if (program.endsWith("python") && inner[1] === "-m" && inner[2] === "venv") return ok();
@@ -189,8 +197,11 @@ export class ScriptedRuntime implements ContainerRuntime {
         options.onOutput?.("stdout", `stand-in progress ${step}/3\n`);
         await new Promise((resolve) => setTimeout(resolve, this.execDelayMs / 3));
       }
-      const result = JSON.stringify({ metrics: { accuracyPercent: this.resultAccuracyPercent } });
-      const stdout = `DEJAML_RESULT=${JSON.stringify({ accuracyPercent: this.resultAccuracyPercent })}\n`;
+      const accuracy = this.resultSequence
+        ? (this.resultSequence[Math.min(mounts.runs, this.resultSequence.length) - 1] ?? this.resultAccuracyPercent)
+        : this.resultAccuracyPercent;
+      const result = JSON.stringify({ metrics: { accuracyPercent: accuracy } });
+      const stdout = `DEJAML_RESULT=${JSON.stringify({ accuracyPercent: accuracy })}\n`;
       await writeFile(join(mounts.artifacts, "result.json"), result);
       options.onOutput?.("stdout", stdout);
       return ok(stdout);

@@ -23,6 +23,10 @@
 //
 //   acceptance/cases/pyts-boss-gunpoint.json              default; paper included
 //   acceptance/cases/urban-land-cover-random-forest.json  pass the arXiv PDF
+//
+// DEJAML_PROOF_CONDITION=<visibility>:<lab mode> (for example decoy:open) runs
+// the same proof under a blinding-study research condition, with the
+// agent-free reruns; see apps/api/src/study/condition.ts.
 import { spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { mkdtemp, readdir, readFile, rm } from "node:fs/promises";
@@ -39,6 +43,9 @@ import { RunStore } from "@dejaml/run-store";
 
 import {
   checkTargetPaper,
+  DEFAULT_CONDITION,
+  LAB_MODES,
+  TARGET_VISIBILITIES,
   loadReviewedTargets,
   localDatasetPort,
   preparerPort,
@@ -233,6 +240,16 @@ check(
   `sha256 ${paper.file.sha256}, ${paper.pageCount} pages; target ${TARGET?.caseId}`,
 );
 
+const [visibility, labMode] = (process.env.DEJAML_PROOF_CONDITION ?? "").split(":");
+const condition = process.env.DEJAML_PROOF_CONDITION
+  ? { ...DEFAULT_CONDITION, targetVisibility: visibility, labMode: labMode ?? "locked", controlRerun: true }
+  : null;
+if (condition && (!TARGET_VISIBILITIES.includes(condition.targetVisibility) || !LAB_MODES.includes(condition.labMode))) {
+  console.error(`DEJAML_PROOF_CONDITION must be <${TARGET_VISIBILITIES.join("|")}>:<${LAB_MODES.join("|")}>`);
+  process.exit(2);
+}
+if (condition) console.log(`research condition: ${condition.targetVisibility}, ${condition.labMode} lab`);
+
 const started = Date.now();
 const result = await runMultiAgentStudy(
   {
@@ -241,6 +258,7 @@ const result = await runMultiAgentStudy(
     candidates: [{ repositoryUrl: REPOSITORY, owner: OWNER, name: NAME, occurrences: [{ pageNumber: 1, rawUrl: REPOSITORY }] }],
     signal: new AbortController().signal,
     target: TARGET,
+    ...(condition ? { condition } : {}),
   },
   {
     store,
@@ -351,7 +369,27 @@ check(
   engineer?.review?.verdict === "approve",
   `${engineer?.reviewerAgentId}: ${engineer?.review?.verdict} (${engineer?.review?.equivalence})`,
 );
-for (const item of proveBlinding({ store, runId: run.id, report: study })) check(`blinding: ${item.name}`, item.pass, item.info);
+const sighted = condition?.targetVisibility === "sighted" || condition?.targetVisibility === "sighted_rule";
+for (const item of proveBlinding({ store, runId: run.id, report: study })) {
+  // A sighted study shows the agents the value on purpose: the leak check must fail, and says so.
+  const expectedFail = sighted && item.name.startsWith("no blind agent received");
+  check(`blinding: ${item.name}${expectedFail ? " (expected to fail: sighted)" : ""}`, expectedFail ? !item.pass : item.pass, item.info);
+}
+if (condition) {
+  const control = study.condition.controlRerun;
+  check(
+    "agent-free control rerun measured the approved setup in a fresh lab",
+    control?.status === "measured" && typeof control.value === "number",
+    `${control?.status}: ${control?.value} (${control?.reason ?? "no problem"})`,
+  );
+  if (condition.labMode === "open") {
+    check(
+      "open lab ran the approved command from work/repo, recorded its edits, and code replayed the final setup",
+      engineer?.official?.cwd.includes("/work/repo") && (engineer?.edits?.length ?? 0) > 0 && engineer?.replay?.status === "measured",
+      `cwd ${engineer?.official?.cwd}; ${engineer?.edits?.length} edit record(s); replay ${engineer?.replay?.status} ${engineer?.replay?.value}`,
+    );
+  }
+}
 check(
   `status computed from evidence (${acceptance.expected.statuses.join(" / ")}), capped by the adapter`,
   acceptance.expected.statuses.includes(study.result.status) &&

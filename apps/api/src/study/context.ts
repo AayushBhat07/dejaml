@@ -16,6 +16,7 @@ import type { RunStore } from "@dejaml/run-store";
 import type { z } from "zod";
 
 import type { SealedTarget } from "./blinding.js";
+import type { StudyCondition } from "./condition.js";
 import type { Projection } from "./projection.js";
 
 export type ResourceBudget = z.infer<typeof ResourceBudgetSchema>;
@@ -174,8 +175,24 @@ export type EngineerLab = {
   integrity: { workRepo: string | null; venv: string | null; adapter: string | null };
   environment: { python: string | null; distributions: Array<{ name: string; version: string }> } | null;
   official: CommandRecord | null;
+  /** Open lab only: what each official run changed in work/repo relative to the checkout. */
+  edits: OfficialEdits[];
   dependencyRequest: { requirements: string[]; reason: string } | null;
   destroyed: boolean;
+};
+
+export type OfficialEdits = {
+  receiptId: string;
+  /**
+   * Files added, changed or removed in work/repo relative to the read-only
+   * checkout, at the moment of the run. `code` marks code and configuration;
+   * outputs an earlier run left behind are listed too, with `code` false.
+   */
+  changed: Array<{ path: string; change: "added" | "changed" | "removed"; code: boolean }>;
+  /** A unified diff of the text files, capped; its full digest is kept even when it is cut. */
+  diff: string;
+  diffSha256: string;
+  diffTruncated: boolean;
 };
 
 export type ExportedArtifact = ArtifactSummary & { hostPath: string; text: string | null };
@@ -205,6 +222,8 @@ export type StudyContext = {
    * and to refuse any agent request that carries it. No tool returns it.
    */
   sealedForScan: { value: number; unit: SealedTarget["metric"]["unit"] } | null;
+  /** What the execution agents are told about the paper's result, and how free their lab is. */
+  condition: StudyCondition;
   pinnedCommit: string | null;
   contract: ClaimContract | null;
   planDigest: string | null;

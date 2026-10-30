@@ -76,6 +76,8 @@ const recovery = await recoverAfterRestart({ store, labs, workRoot: dataDir, res
 const api = createApiServer({
   store,
   adminToken: process.env.DEJAML_ADMIN_TOKEN?.trim() || null,
+  // The blinding study's sighted and decoy conditions; never on a public server.
+  researchConditions: process.env.DEJAML_RESEARCH_CONDITIONS === "1",
   labs,
   providers,
   cases: await loadCases(projectRoot),

@@ -49,6 +49,8 @@ async function startServer(
     reviewedTargets?: Map<string, ClaimTarget>;
     /** Enables the administrator's audit download. */
     adminToken?: string;
+    /** Accepts the blinding study's research-condition fields. */
+    researchConditions?: boolean;
   } = {},
 ): Promise<void> {
   // A private project root holding the reviewed adapter and placeholder data files.
@@ -89,6 +91,7 @@ async function startServer(
     ...(options.labAgentEnabled ? { labAgentEnabled: true } : {}),
     ...(options.reviewedTargets ? { reviewedTargets: options.reviewedTargets } : {}),
     ...(options.adminToken ? { adminToken: options.adminToken } : {}),
+    ...(options.researchConditions ? { researchConditions: true } : {}),
     ...(options.autonomous
       ? {
           multiAgent: {
@@ -529,6 +532,34 @@ describe("Run API", () => {
     // A request can name a case, never carry one.
     expect((await upload(paper, "paper.pdf", { reviewedCaseId: "fixture-rf-accuracy", claimContract: "{}" })).status).toBe(400);
     expect(store.listActiveRuns()).toHaveLength(0);
+  });
+
+  it("refuses research conditions unless the server enables them, and runs one when it does", async () => {
+    const paper = await paperPdf(false);
+    const options = {
+      autonomous: true,
+      repositoryUrl: "https://github.com/example/new-paper",
+      commitSha: "7f8b1c4cbe5b4caf2f6cc8bc0d6fc31ce2f6bd71",
+      reviewedTargets: await fixtureTarget(paper),
+    };
+    await startServer(options);
+    expect((await upload(paper, "paper.pdf", { targetVisibility: "sighted" })).status).toBe(400);
+    expect((await upload(paper, "paper.pdf", { labMode: "open" })).status).toBe(400);
+    expect(store.listActiveRuns()).toHaveLength(0);
+    await api.close();
+    store.close();
+    serverStarted = false;
+    await startServer({ ...options, researchConditions: true });
+    expect((await upload(paper, "paper.pdf", { targetVisibility: "peek" })).status).toBe(400);
+    const response = await upload(paper, "paper.pdf", { targetVisibility: "decoy", decoyDirection: "down" });
+    expect(response.status).toBe(202);
+    const { runId } = (await response.json()) as { runId: string };
+    await api.idle();
+    const report = (await (await fetch(`${base}/api/runs/${runId}/report`)).json()) as StudyReport;
+    expect(report.study?.condition).toMatchObject({ targetVisibility: "decoy", labMode: "locked", shown: { kind: "decoy" } });
+    expect(report.study?.condition.controlRerun?.status).toBe("measured");
+    expect(report.blindingProof?.find((item) => item.name.startsWith("execution agents saw only"))?.pass).toBe(true);
+    expect(runtime.containers.size).toBe(0);
   });
 
   it("requires an explicit claim when one paper has multiple reviewed cases", async () => {

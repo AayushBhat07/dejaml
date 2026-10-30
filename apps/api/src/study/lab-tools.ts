@@ -8,7 +8,7 @@ import { z } from "zod";
 
 import { executionContract } from "./blinding.js";
 
-import { type CommandRecord, type EngineerLab, LAB_LAYOUT, PreparationFailure, type StudyContext } from "./context.js";
+import { type CommandRecord, type EngineerLab, LAB_LAYOUT, type OfficialEdits, PreparationFailure, type StudyContext } from "./context.js";
 import { DiagnosisSchema, INSTRUCTIONS, RESULT_DESCRIPTIONS, ROLE_GRANTS, ROLE_LIMITS } from "./roles.js";
 import { failed, MAX_READ_BYTES, MAX_SEARCH_MATCHES, ok, RelativePathInput, tail } from "./tool-helpers.js";
 
@@ -186,6 +186,96 @@ export async function measureIntegrity(ctx: StudyContext, lab: EngineerLab, data
   return { workRepo: parsed.workRepo, venv: parsed.venv, adapter: parsed.adapter ?? null };
 }
 
+/**
+ * Open lab only: what the Engineer changed in work/repo relative to the
+ * read-only checkout, as a list of files and a capped unified diff of the text
+ * files. Recorded before each official run, so every reported number comes
+ * with the code that produced it.
+ */
+const EDITS_SCRIPT = [
+  "import difflib, hashlib, json, os, sys",
+  "base, work, cap = sys.argv[1], sys.argv[2], int(sys.argv[3])",
+  "def files(root):",
+  "    out = {}",
+  "    for d, dirs, names in os.walk(root):",
+  "        dirs[:] = sorted(x for x in dirs if x not in ('__pycache__', '.git'))",
+  "        for name in sorted(names):",
+  "            path = os.path.join(d, name)",
+  "            if os.path.islink(path) or name.endswith('.pyc'): continue",
+  "            out[os.path.relpath(path, root)] = path",
+  "    return out",
+  "a, b = files(base), files(work)",
+  "def read(path):",
+  "    with open(path, 'rb') as handle: return handle.read()",
+  "CODE = ('.py', '.pyx', '.pxd', '.pth', '.so', '.c', '.cc', '.cpp', '.h', '.sh', '.cfg', '.ini', '.toml', '.yaml', '.yml', '.json', '.ipynb', '.txt')",
+  "changed, chunks = [], []",
+  "for rel in sorted(set(a) | set(b)):",
+  "    old = read(a[rel]) if rel in a else None",
+  "    new = read(b[rel]) if rel in b else None",
+  "    if old == new: continue",
+  "    changed.append({'path': rel, 'change': 'added' if old is None else 'removed' if new is None else 'changed', 'code': rel.endswith(CODE)})",
+  "    try:",
+  "        lines = lambda raw: [] if raw is None else raw.decode('utf-8').splitlines(keepends=True)",
+  "        chunks.append(''.join(difflib.unified_diff(lines(old), lines(new), 'a/' + rel, 'b/' + rel)))",
+  "    except UnicodeDecodeError:",
+  "        chunks.append('Binary file ' + rel + ' differs\\n')",
+  "diff = ''.join(chunks)",
+  "print(json.dumps({'changed': changed, 'diff': diff[:cap], 'diffSha256': hashlib.sha256(diff.encode()).hexdigest(), 'diffTruncated': len(diff) > cap}))",
+].join("\n");
+
+/** Records what an open-lab Engineer changed in work/repo just before an official run (the diff is capped to fit the output tail). */
+async function recordEdits(ctx: StudyContext, lab: EngineerLab, receiptId: string): Promise<OfficialEdits> {
+  const record = await runInLab(
+    ctx,
+    lab,
+    orchestratorActor(),
+    ["python", "-I", "-S", "-c", EDITS_SCRIPT, LAB_LAYOUT.repoDir, LAB_LAYOUT.workRepo, String(6_000)],
+    LAB_LAYOUT.workdir,
+    {},
+    300,
+  );
+  let parsed: Omit<OfficialEdits, "receiptId"> = { changed: [], diff: "", diffSha256: "", diffTruncated: false };
+  if (record.exitCode === 0) {
+    try {
+      const read = JSON.parse(record.stdoutTail) as Partial<typeof parsed>;
+      parsed = {
+        changed: Array.isArray(read.changed) ? read.changed : [],
+        diff: typeof read.diff === "string" ? read.diff : "",
+        diffSha256: typeof read.diffSha256 === "string" ? read.diffSha256 : "",
+        diffTruncated: read.diffTruncated === true,
+      };
+    } catch {
+      parsed = { ...parsed, diff: "the edit record could not be read" };
+    }
+  } else {
+    parsed = { ...parsed, diff: `the edit record failed: ${record.stderrTail.slice(-300)}` };
+  }
+  const edits = { receiptId, ...parsed };
+  lab.edits.push(edits);
+  return edits;
+}
+
+/**
+ * In an open lab the approved command runs from the writable copy, so the
+ * Engineer's edits take effect. A plan cwd under `repo` moves to the same
+ * place under `work/repo`; that is one directory deeper, so an argument that
+ * climbs out of the cwd (`../work/adapter/x.py`) is made absolute from the
+ * plan's own cwd, pointing into the writable copy when it stays inside the
+ * repository.
+ */
+export function openLabCommand(args: string[], cwd: string): { args: string[]; cwd: string } {
+  const parts = cwd.split("/").filter((part) => part && part !== ".");
+  if (parts[0] !== LAB_LAYOUT.repoDir) return { args, cwd };
+  const planned = posix.join(LAB_LAYOUT.workdir, ...parts);
+  const repo = posix.join(LAB_LAYOUT.workdir, LAB_LAYOUT.repoDir);
+  const work = posix.join(LAB_LAYOUT.workdir, LAB_LAYOUT.workRepo);
+  const moved = (path: string) => (path === repo || path.startsWith(`${repo}/`) ? work + path.slice(repo.length) : path);
+  return {
+    args: args.map((arg) => (arg.startsWith("../") ? moved(posix.resolve(planned, arg)) : arg)),
+    cwd: [LAB_LAYOUT.workRepo, ...parts.slice(1)].join("/"),
+  };
+}
+
 export function labTools(ctx: StudyContext): ToolDefinition[] {
   const inspect = async (agentId: string, request: Parameters<StudyContext["labs"]["inspectFiles"]>[1]) => {
     const lab = requireLab(ctx, agentId);
@@ -216,6 +306,43 @@ export function labTools(ctx: StudyContext): ToolDefinition[] {
     stderr: tail(record.stderrTail, bytes),
     artifacts: record.artifacts,
   });
+
+  /** The open lab's official run: no integrity check and no limit on reruns, but every run records the edits behind it. */
+  const runOpenOfficial = async (lab: EngineerLab, approved: ReturnType<typeof contract>, context: ToolContext) => {
+    const receiptId = context.receiptId;
+    const edits = await recordEdits(ctx, lab, receiptId);
+    const command = openLabCommand(approved.command.argv.slice(1), approved.command.cwd);
+    const timeout = Math.min(ctx.config.commandTimeoutSeconds, Math.max(120, approved.expectedRuntimeSeconds * 4));
+    const record = await runInLab(
+      ctx,
+      lab,
+      context,
+      [`${LAB_LAYOUT.venv}/bin/python`, ...command.args],
+      posix.join(LAB_LAYOUT.workdir, command.cwd),
+      {},
+      timeout,
+      { official: true },
+    );
+    ctx.event(
+      "official_run",
+      record.exitCode === 0 ? "completed" : "warning",
+      `${lab.label} ran the approved command in the open lab: exit ${String(record.exitCode)}${record.timedOut ? " (timed out)" : ""}, ${edits.changed.length} file(s) changed`,
+      {
+        engineer: lab.label,
+        receiptId: record.receiptId,
+        exitCode: record.exitCode,
+        durationMs: record.durationMs,
+        openLab: true,
+        filesChanged: edits.changed.length,
+        diffSha256: edits.diffSha256,
+      },
+    );
+    const summary = `approved command exit ${String(record.exitCode)}${record.timedOut ? " (timed out)" : ""}`;
+    const view = { ...commandView(record), filesChanged: edits.changed.map((item) => item.path) };
+    return record.exitCode === 0
+      ? ok(summary, view, { exitCode: record.exitCode, official: true })
+      : failed(summary, view, { exitCode: record.exitCode, official: true });
+  };
 
   return [
     defineTool({
@@ -299,11 +426,14 @@ export function labTools(ctx: StudyContext): ToolDefinition[] {
     defineTool({
       name: "lab_run_official",
       description:
-        "Run the approved command exactly as the claim contract states it (the plan's argv with the prepared Python, from the plan's cwd). The lab first checks that the code, the plan's data files, and the Python environment are unchanged since setup, and refuses otherwise. The metric is parsed from this run by the lab.",
+        ctx.condition.labMode === "open"
+          ? "Run the approved command (the plan's argv with the prepared Python) from work/repo, with whatever you have changed there. You may run it as many times as you need; the last official run is the one that counts. The metric is parsed from that run by the lab."
+          : "Run the approved command exactly as the claim contract states it (the plan's argv with the prepared Python, from the plan's cwd). The lab first checks that the code, the plan's data files, and the Python environment are unchanged since setup, and refuses otherwise. The metric is parsed from this run by the lab.",
       input: z.object({}),
       async run(_input, context) {
         const lab = ownLab(context);
         const approved = contract();
+        if (ctx.condition.labMode === "open") return runOpenOfficial(lab, approved, context);
         if (lab.official && lab.official.exitCode === 0 && !lab.official.timedOut) {
           throw new ToolDenied(`the approved command already succeeded (receipt ${lab.official.receiptId}); finish with that receipt`);
         }

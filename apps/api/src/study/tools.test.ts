@@ -7,6 +7,7 @@ import { buildPlatformSpec } from "@dejaml/contracts";
 import { RunStore } from "@dejaml/run-store";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
+import { DEFAULT_CONDITION } from "./condition.js";
 import type { EngineerLab, StudyContext } from "./context.js";
 import { buildStudyTools } from "./tools.js";
 
@@ -58,6 +59,7 @@ beforeEach(async () => {
     integrity: { workRepo: "w:1", venv: "v:1", adapter: "a:1" },
     environment: null,
     official: null,
+    edits: [],
     dependencyRequest: null,
     destroyed: false,
   };
@@ -122,6 +124,7 @@ beforeEach(async () => {
       fileCount: 0,
     },
     sealedForScan: null,
+    condition: DEFAULT_CONDITION,
     pinnedCommit: null,
     contract: {
       schemaVersion: 1,
