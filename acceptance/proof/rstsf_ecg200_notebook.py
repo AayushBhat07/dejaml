@@ -3,7 +3,8 @@ r-STSF ECG200 claim.
 
 It executes the code cells of the OFFICIAL notebook history_arxiv/code/r-STSF.ipynb
 (stevcabello/r-STSF at b094a6bf4c2bf356b27dd5bac2581c3a7b7fdb11) in order, in one
-namespace, from history_arxiv/code (where the notebook expects to run).
+namespace, from history_arxiv/code (where the notebook expects to run; started from the
+repository root, the adapter moves there itself).
 
 The only interventions:
 1. The notebook's active dataset line, dset_names = ["ItalyPowerDemand"], selects
@@ -33,6 +34,12 @@ def main() -> None:
     parser.add_argument("--dataset", default="ECG200")
     parser.add_argument("--output", required=True)
     args = parser.parse_args()
+    # The notebook reads sampleUCRdatasets/ relative to history_arxiv/code; from the
+    # repository root, move there (the output path is fixed first, so it stays put).
+    args.output = os.path.abspath(args.output)
+    code_dir = os.path.join("history_arxiv", "code")
+    if not os.path.isfile(args.notebook) and os.path.isfile(os.path.join(code_dir, args.notebook)):
+        os.chdir(code_dir)
 
     notebook = json.load(open(args.notebook))
     sys.path.insert(0, os.getcwd())
