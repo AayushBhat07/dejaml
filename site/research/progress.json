@@ -4,8 +4,8 @@
   "now": "now",
   "smoke": {
     "total": 12,
-    "done": 1,
-    "note": "First paid run: pyts BOSS on GunPoint, blind, measured 1.000 against the paper's 1.000, for about $0.37. The other 11 are running."
+    "done": 4,
+    "note": "First pass: 4 runs measured, all on pyts BOSS / GunPoint. Every one measured 1.000, the paper's value, and the decoy runs showed no pull toward the wrong number. The 8 ROCKET and Urban Land Cover runs were stopped because their dataset host wasn't on the allowlist, and are being rerun."
   },
   "paper": [
     { "label": "Research question and gap check", "status": "done", "when": "28 Oct" },
