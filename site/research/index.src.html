@@ -1,0 +1,366 @@
+<title>DéjàML Research Road</title>
+<meta name="description" content="How DéjàML got here, from a hackathon brief to a study of whether showing AI agents a paper's number biases their reproduction, and what comes next.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400..600;1,6..72,400..600&family=Schibsted+Grotesk:wght@400..700&family=JetBrains+Mono:wght@400;500;600&display=swap">
+<!--LOCALFONTS-->
+<style>
+/* The Research Road: DéjàML's history as one raised walkway on the same architectural-model table as the campus page.
+   The indigo line is the work done so far, drawn as you scroll; past the "now" marker the road is a dashed plan. */
+:root {
+  --bg: #eceef4; --bg-a: 236, 238, 244; --paper: #fbfcfe; --ink: #151a2d; --muted: #586078; --faint: #8a91a6; --rule: #d6dbe7;
+  --indigo: #3a4fd8; --indigo-ink: #2c3db5; --indigo-soft: #e7eafd;
+  --seal: #d9480f; --seal-ink: #b23a0a; --seal-soft: #fdeae0;
+  --ok: #127a4a; --ok-soft: #e1f3ea; --warn: #8f5400; --warn-soft: #fbf0d9; --neg: #b42318; --neg-soft: #fde8e6;
+  --c-blind: #3a4fd8; --c-sighted: #d9480f; --c-rule: #9a6c00; --c-decoy: #b5357a;
+  --f-display: "Newsreader", "Iowan Old Style", "Palatino Linotype", Georgia, serif;
+  --f-body: "Schibsted Grotesk", "Segoe UI", system-ui, sans-serif;
+  --f-mono: "JetBrains Mono", ui-monospace, Menlo, Consolas, monospace;
+  --gut: max(16px, env(safe-area-inset-left, 0px)); --gut-r: max(16px, env(safe-area-inset-right, 0px));
+  --bar: 60px;
+  --shadow-card: 0 1px 0 rgba(21, 26, 45, .04), 0 30px 60px -34px rgba(21, 26, 45, .45);
+  color-scheme: light;
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; overflow-x: clip; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 400 16px/1.6 var(--f-body); -webkit-font-smoothing: antialiased; }
+a { color: var(--indigo); text-underline-offset: 3px; }
+:focus-visible { outline: 2px solid var(--indigo); outline-offset: 3px; border-radius: 3px; }
+.skip { position: fixed; z-index: 9; left: var(--gut); top: calc(env(safe-area-inset-top, 0px) + 10px); background: var(--ink); color: #fff; font: 600 13px/1 var(--f-body);
+  padding: 12px 14px; border-radius: 6px; text-decoration: none; transform: translateY(-160%); }
+.skip:focus { transform: none; }
+
+#stage { position: fixed; inset: 0; width: 100%; height: 100%; display: block; z-index: 0; }
+#pins { position: fixed; inset: 0; z-index: 2; pointer-events: none; overflow: hidden; }
+.no-gl #stage, .no-gl #pins { display: none; }
+
+/* pins over the road, styled like the campus room labels */
+.pin { position: absolute; left: 0; top: 0; background: var(--paper); border: 1px solid var(--rule); border-radius: 8px; padding: 6px 10px 7px; white-space: nowrap;
+  box-shadow: 0 6px 16px -10px rgba(21, 26, 45, .45); transition: opacity .3s; will-change: transform; opacity: 0; }
+.pin b { display: block; font: 600 12.5px/1.25 var(--f-body); }
+.pin span { display: block; font: 400 11px/1.3 var(--f-mono); color: var(--muted); }
+.pin.on { border-color: var(--indigo); box-shadow: 0 0 0 2px color-mix(in srgb, var(--indigo) 28%, transparent), 0 6px 16px -10px rgba(21, 26, 45, .45); }
+.pin.plan { border-style: dashed; background: rgba(251, 252, 254, .9); }
+.pin.plan b { color: var(--muted); }
+.pin.now { background: var(--indigo); border-color: var(--indigo); color: #fff; }
+.pin.now span { color: #d8ddfb; }
+
+/* top bar: wordmark · progress line · back link */
+.mast { position: fixed; top: 0; left: 0; right: 0; z-index: 6; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 12px;
+  min-height: calc(var(--bar) + env(safe-area-inset-top, 0px)); padding: calc(env(safe-area-inset-top, 0px) + 10px) var(--gut-r) 10px var(--gut); pointer-events: none; }
+.mast::before { content: ""; position: absolute; left: 0; right: 0; top: 0; bottom: -30px; z-index: -1; pointer-events: none;
+  background: linear-gradient(to bottom, rgba(var(--bg-a), .97) 0%, rgba(var(--bg-a), .9) 58%, rgba(var(--bg-a), 0) 100%); }
+.mast > * { pointer-events: auto; }
+.word { justify-self: start; font: 500 24px/1 var(--f-display); color: var(--ink); text-decoration: none; letter-spacing: -.01em; background: var(--paper); padding: 7px 11px 8px; border-radius: 8px; border: 1px solid var(--rule); }
+.word i { font-style: italic; }
+.word b { font: 600 15px var(--f-mono); color: var(--indigo); margin-left: 1px; }
+.line { justify-self: center; min-width: 0; display: flex; align-items: center; background: var(--paper); border: 1px solid var(--rule); border-radius: 999px; padding: 10px 16px;
+  box-shadow: 0 10px 24px -18px rgba(21, 26, 45, .5); margin: 0; list-style: none; }
+.line li { display: flex; align-items: center; font: 500 10.5px/1 var(--f-mono); color: var(--faint); white-space: nowrap; }
+.line li a { color: inherit; text-decoration: none; display: flex; align-items: center; gap: 6px; padding: 2px 0; }
+.line li i { width: 9px; height: 9px; border-radius: 50%; border: 1.5px dashed #a9b0c2; display: block; flex: none; }
+.line li span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+.line li.done { color: var(--indigo); }
+.line li.done i { background: var(--indigo); border: 1.5px solid var(--indigo); }
+.line li.today i { border: 1.5px solid var(--indigo); background: #fff; box-shadow: 0 0 0 3px var(--indigo-soft); }
+.line li.here span { position: static; width: auto; height: auto; overflow: visible; clip: auto; color: var(--ink); margin-right: 2px; }
+.line li + li::before { content: ""; width: 14px; height: 1.5px; background: repeating-linear-gradient(90deg, #c2c8d6 0 3px, transparent 3px 6px); display: block; margin: 0 5px 0 5px; }
+.line li.done + li::before { background: var(--indigo); }
+.back { justify-self: end; font: 500 12.5px/1 var(--f-body); color: var(--ink); text-decoration: none; background: var(--paper); border: 1px solid var(--rule); border-radius: 8px; padding: 11px 12px; white-space: nowrap; }
+.back:hover { background: var(--indigo); color: #fff; border-color: var(--indigo); }
+
+/* sections + cards */
+main { position: relative; z-index: 3; pointer-events: none; }
+.sec { min-height: 120vh; display: flex; align-items: center; padding-block: calc(16vh + var(--bar) / 2) calc(16vh - var(--bar) / 2); padding-left: var(--gut); padding-right: var(--gut-r); }
+.sec > * { pointer-events: auto; }
+.card { width: min(480px, 100%); margin-left: max(0px, 3vw); background: var(--paper); border: 1px solid var(--rule); border-radius: 8px; padding: 22px 24px 24px; box-shadow: var(--shadow-card); }
+.card > * { margin-block: 0; }
+.card > * + * { margin-top: 12px; }
+.card > blockquote, .card > .tbl, .card > .pillars, .card > .conds, .card > .steps, .card > .cta { margin-top: 16px; }
+.card p { max-width: 62ch; }
+.card.plan { border: 1.5px dashed #b4bbcc; background: rgba(251, 252, 254, .96); }
+.tab { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; font: 500 11px/1.4 var(--f-mono); color: var(--muted); }
+.tab b { color: var(--indigo); font-weight: 600; border: 1px solid color-mix(in srgb, var(--indigo) 45%, white); border-radius: 4px; padding: 2px 6px 1px; }
+.st { border-radius: 4px; padding: 2px 6px 1px; font-weight: 600; }
+.st.done { background: var(--ok-soft); color: var(--ok); }
+.st.now { background: var(--indigo); color: #fff; }
+.st.open { background: var(--warn-soft); color: var(--warn); }
+.st.next { background: #eef0f6; color: var(--muted); outline: 1px dashed #b4bbcc; outline-offset: -1px; }
+h1, h2 { font-family: var(--f-display); font-weight: 500; letter-spacing: -.012em; margin: 0; text-wrap: balance; }
+h2 { font-size: clamp(30px, 2.9vw, 40px); line-height: 1.05; }
+h1 em, h2 em { font-style: italic; }
+h3 { font: 600 11px/1.3 var(--f-mono); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); margin: 0; }
+.card > h3 { margin-top: 18px; }
+.small { font-size: 13.5px; line-height: 1.55; color: var(--muted); }
+blockquote { margin: 0; padding: 2px 0 2px 14px; border-left: 2px solid var(--indigo); font: italic 400 18px/1.45 var(--f-display); color: var(--ink); }
+blockquote cite { display: block; margin-top: 4px; font: 500 11px/1.4 var(--f-mono); font-style: normal; color: var(--muted); }
+ul.pts { margin: 0; padding: 0; list-style: none; display: grid; gap: 6px; }
+ul.pts li { position: relative; padding-left: 18px; font-size: 14.5px; line-height: 1.5; }
+ul.pts li::before { content: ""; position: absolute; left: 2px; top: .58em; width: 7px; height: 7px; border-radius: 50%; background: var(--indigo); }
+.plan ul.pts li::before { background: transparent; border: 1.5px dashed var(--faint); }
+.pillars { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.pillars div { border: 1px solid var(--rule); border-radius: 6px; padding: 9px 10px; }
+.pillars b { display: block; font: 600 12.5px/1.3 var(--f-body); }
+.pillars span { display: block; font-size: 12px; line-height: 1.45; color: var(--muted); margin-top: 3px; }
+.tbl { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; font-size: 13px; line-height: 1.4; }
+th { font: 600 10px/1.3 var(--f-mono); letter-spacing: .06em; text-transform: uppercase; color: var(--muted); text-align: left; padding: 0 8px 6px 0; border-bottom: 1px solid var(--rule); }
+td { padding: 7px 8px 7px 0; border-bottom: 1px solid var(--rule); vertical-align: top; }
+td.n { font-family: var(--f-mono); font-size: 12px; white-space: nowrap; }
+td.p { color: var(--seal-ink); } td.o { color: var(--indigo-ink); font-weight: 600; }
+.conds { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.conds div { border: 1px solid var(--rule); border-left: 4px solid var(--c); border-radius: 6px; padding: 8px 10px; }
+.conds b { display: block; font: 600 13px/1.3 var(--f-body); color: var(--c); }
+.conds span { display: block; font-size: 12.5px; line-height: 1.45; color: var(--muted); margin-top: 2px; }
+.runs { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 8px; }
+.runs i { width: 22px; height: 22px; border-radius: 4px; border: 1.5px dashed #a9b0c2; display: block; }
+.runs i.d { background: var(--indigo); border: 1.5px solid var(--indigo); }
+.meter { font: 500 12px/1.4 var(--f-mono); color: var(--muted); }
+.steps { margin: 0; padding: 0; list-style: none; border-top: 1px solid var(--rule); }
+.steps li { display: grid; grid-template-columns: 78px minmax(0, 1fr); gap: 10px; padding: 9px 0; border-bottom: 1px solid var(--rule); font-size: 13.5px; line-height: 1.45; }
+.steps li > .st { font: 600 10px/1.3 var(--f-mono); letter-spacing: .04em; text-transform: uppercase; align-self: start; padding: 3px 6px 2px; text-align: center; }
+.steps b { font-weight: 600; }
+.steps em { font-style: normal; color: var(--muted); }
+.cta { display: flex; flex-wrap: wrap; gap: 10px; }
+.btn { display: inline-flex; align-items: center; gap: 8px; font: 600 14px/1 var(--f-body); text-decoration: none; color: #fff; background: var(--indigo); border: 1px solid var(--indigo); border-radius: 7px; padding: 13px 17px; }
+.btn:hover { background: var(--indigo-ink); }
+.btn.ghost { background: var(--paper); color: var(--ink); border-color: var(--rule); }
+.btn.ghost:hover { border-color: var(--indigo); color: var(--indigo); }
+.credits { font: 400 11px/1.5 var(--f-mono); color: var(--muted); }
+
+/* hero */
+.hero { position: relative; min-height: 100vh; padding-top: calc(var(--bar) + env(safe-area-inset-top, 0px) + 6vh); }
+.hero::before { content: ""; position: absolute; inset: 0; z-index: -1; pointer-events: none;
+  background: linear-gradient(90deg, rgba(var(--bg-a), .96) 0%, rgba(var(--bg-a), .92) 30%, rgba(var(--bg-a), .55) 46%, rgba(var(--bg-a), 0) 62%); }
+.hero-copy { max-width: 640px; margin-left: max(0px, 3vw); }
+.eyebrow { font: 500 12px/1.4 var(--f-mono); color: var(--indigo); margin: 0 0 16px; }
+.hero h1 { font-size: clamp(50px, 6.4vw, 96px); line-height: .94; margin-bottom: 24px; }
+.lede { font-size: 19px; line-height: 1.55; max-width: 40ch; margin: 0 0 22px; }
+.key { display: flex; flex-wrap: wrap; gap: 8px 18px; margin: 0; padding: 0; list-style: none; font: 500 12px/1.3 var(--f-mono); color: var(--muted); }
+.key li { display: flex; align-items: center; gap: 8px; }
+.key i { width: 26px; height: 6px; border-radius: 3px; background: var(--indigo); display: block; }
+.key i.dash { background: repeating-linear-gradient(90deg, #9aa3ba 0 5px, transparent 5px 9px); }
+.key i.dot { width: 11px; height: 11px; border-radius: 50%; box-shadow: 0 0 0 3px #c9d0fa; }
+.cue { display: flex; align-items: center; gap: 10px; margin: 22px 0 0; font-size: 13.5px; color: var(--muted); }
+.cue::before { content: ""; width: 1.5px; height: 30px; background: linear-gradient(var(--indigo), transparent); flex: none; }
+
+@media (max-width: 1279px) { .line li:not(.here) span { display: none; } }
+@media (max-width: 1199px) {
+  .hero::before { background: linear-gradient(90deg, rgba(var(--bg-a), .96) 0%, rgba(var(--bg-a), .93) 58%, rgba(var(--bg-a), .55) 74%, rgba(var(--bg-a), 0) 90%); }
+}
+@media (max-width: 899px) { .line { display: none; } }
+@media (max-width: 760px) {
+  :root { --bar: 54px; }
+  .word { font-size: 20px; }
+  .back { padding: 10px 11px; font-size: 12px; }
+  .sec { min-height: 0; padding-top: 50vh; padding-bottom: 12vh; align-items: flex-end; }
+  .card { margin-left: 0; padding: 18px 18px 20px; }
+  .hero { padding-top: calc(var(--bar) + env(safe-area-inset-top, 0px) + 28px); padding-bottom: 8vh; align-items: flex-start; }
+  .hero::before { background: linear-gradient(to bottom, rgba(var(--bg-a), .96) 0%, rgba(var(--bg-a), .93) 78%, rgba(var(--bg-a), 0) 100%); }
+  .hero-copy { margin-left: 0; }
+  .lede { font-size: 17px; }
+  .pillars, .conds { grid-template-columns: 1fr; }
+  .steps li { grid-template-columns: 70px minmax(0, 1fr); }
+  .pin { padding: 5px 8px 6px; }
+  .pin b { font-size: 11.5px; }
+}
+.no-gl .sec { min-height: 0; padding-block: 6vh; justify-content: center; }
+.no-gl .hero { padding-top: calc(var(--bar) + env(safe-area-inset-top, 0px) + 8vh); }
+.no-gl .hero::before { display: none; }
+.no-gl .card, .no-gl .hero-copy { margin-left: 0; width: min(640px, 100%); max-width: 640px; }
+@media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } .pin { transition: none; } }
+</style>
+<!--BODY-->
+<a class="skip" href="#brief">Skip to the story</a>
+<canvas id="stage" aria-hidden="true"></canvas>
+<div id="pins" aria-hidden="true"></div>
+<header class="mast">
+  <a class="word" href="__MAIN_URL__" aria-label="DéjàML: how it works">D<i>éjà</i><b>ML</b></a>
+  <ol class="line" id="line" aria-label="Progress line"></ol>
+  <a class="back" href="__MAIN_URL__">How DéjàML works</a>
+</header>
+
+<main>
+  <section id="top" class="sec hero" data-at="hero">
+    <div class="hero-copy">
+      <p class="eyebrow">DéjàML · the research road · updated <span data-updated></span></p>
+      <h1>From a brief<br>to a <em>paper</em></h1>
+      <p class="lede">How DéjàML started, what the first version was, what was added along the way, where the research study stands today and what comes next. Scroll to walk the road.</p>
+      <ul class="key">
+        <li><i></i>Done</li>
+        <li><i class="dot"></i>Where the work is now</li>
+        <li><i class="dash"></i>Planned</li>
+      </ul>
+      <p class="cue">Scroll to start at the beginning</p>
+    </div>
+  </section>
+
+  <section id="brief" class="sec" data-at="brief">
+    <article class="card">
+      <p class="tab"><b>01</b><span>How it started</span><span class="st done">Sep 2026</span></p>
+      <h2>A hackathon brief</h2>
+      <p>DéjàML began as a hackathon entry. The brief asked for a web platform that takes a machine-learning paper as a PDF, finds its code, runs it on a CPU in isolation and gives an evidence-backed verdict on whether the result reproduces.</p>
+      <p>Behind it is an old problem. Papers report precise numbers, but checking one is slow. The code may be a notebook, seeds may be unset, file names drift from the public dataset and library versions move on.</p>
+    </article>
+  </section>
+
+  <section id="plan" class="sec" data-at="plan">
+    <article class="card">
+      <p class="tab"><b>02</b><span>The first idea</span><span class="st done">28 Sep</span></p>
+      <h2>Plan first, then <em>one</em> paper</h2>
+      <p>The first commit had no code in it: an architecture document, a phased roadmap and the first decision record. The plan was narrow on purpose, and built on three principles.</p>
+      <div class="pillars">
+        <div><b>Evidence</b><span>Every step leaves a receipt. The verdict is computed from them in code.</span></div>
+        <div><b>Isolation</b><span>Repository code is untrusted. It runs in a sealed container with no network.</span></div>
+        <div><b>Blind</b><span>Whoever runs the experiment never learns the paper's number.</span></div>
+      </div>
+      <blockquote>Build one curated vertical slice first.<cite>Decision record 0001</cite></blockquote>
+    </article>
+  </section>
+
+  <section id="slice" class="sec" data-at="slice">
+    <article class="card">
+      <p class="tab"><b>03</b><span>The first solution</span><span class="st done">28 to 29 Sep</span></p>
+      <h2>One paper, end to end</h2>
+      <p>The first working version followed a single curated case: a random forest on an urban land cover dataset. It read the PDF, fetched the repository, ran two analysts in parallel, passed the plan through a policy gate and ran the code in a disposable CPU lab.</p>
+      <p>Two rules from that night still hold. Plain code, not a model, approves a plan before anything runs. And a model never decides whether two numbers match.</p>
+      <blockquote>A model must not decide whether numbers match.<cite>Decision record 0012</cite></blockquote>
+    </article>
+  </section>
+
+  <section id="shortcut" class="sec" data-at="shortcut">
+    <article class="card">
+      <p class="tab"><b>04</b><span>A turn not taken</span><span class="st done">29 Sep</span></p>
+      <h2>A shortcut, taken back out</h2>
+      <p>An early auto-execution feature let an agent list setup steps to run before the sealed lab was created. It would have handled papers that need setup without hand-written code.</p>
+      <p>Review removed it the next day. The setup steps skipped the policy gate and opened general network access, so the feature was marked blocked until it can meet the approval boundary.</p>
+      <blockquote>This path did not meet DéjàML's deterministic approval boundary.<cite>Sub-phase 6.2 record</cite></blockquote>
+    </article>
+  </section>
+
+  <section id="blind" class="sec" data-at="blind">
+    <article class="card">
+      <p class="tab"><b>05</b><span>The main build</span><span class="st done">2 Oct · PR #4</span></p>
+      <h2>A blind team of <em>agents</em></h2>
+      <p>The largest change replaced the single pipeline with DéjàML's own multi-agent runtime. Seven roles each get their own tools and budget, and share only a typed evidence board split across four trust zones.</p>
+      <ul class="pts">
+        <li>The paper's number is <strong>sealed</strong> under a SHA-256 commitment before any agent starts.</li>
+        <li>Only the Paper Analyst sees it. The planner, lab engineers and reviewer work blind.</li>
+        <li>The measurement and the review are locked, then the seal is opened and compared in code.</li>
+        <li>The Supervisor can lower a verdict, never raise it.</li>
+      </ul>
+    </article>
+  </section>
+
+  <section id="results" class="sec" data-at="results">
+    <article class="card">
+      <p class="tab"><b>06</b><span>First real results</span><span class="st done">Oct</span></p>
+      <h2>Three papers, three honest verdicts</h2>
+      <p>With real model agents and real Docker labs, all three headline numbers landed inside tolerance.</p>
+      <div class="tbl"><table>
+        <thead><tr><th>Paper and claim</th><th>Paper</th><th>Measured</th></tr></thead>
+        <tbody>
+          <tr><td>ROCKET on UCR ECG200, mean test accuracy</td><td class="n p">0.906</td><td class="n o">0.904</td></tr>
+          <tr><td>pyts BOSS on GunPoint, test accuracy</td><td class="n p">1.000</td><td class="n o">1.000</td></tr>
+          <tr><td>Urban Land Cover random forest, test accuracy</td><td class="n p">81.66%</td><td class="n o">79.88%</td></tr>
+        </tbody>
+      </table></div>
+      <p class="small">Each is capped at Partially reproduced, because each run needed a declared deviation such as an adapter script. DéjàML never claims more than the evidence supports.</p>
+    </article>
+  </section>
+
+  <section id="show" class="sec" data-at="show">
+    <article class="card">
+      <p class="tab"><b>07</b><span>Showing the work</span><span class="st done">8 to 30 Oct</span></p>
+      <h2>Making a run easy to follow</h2>
+      <ul class="pts">
+        <li>Docker's own error message now comes through when a lab image fails (PR #6).</li>
+        <li>Each live run opens on a 3D Research Campus drawn from the run's own events (PR #7).</li>
+        <li>The README was rebuilt around the story, the workflow and the results (PR #8).</li>
+        <li>The <a href="__MAIN_URL__">Inside DéjàML</a> explainer went live (PR #19).</li>
+      </ul>
+    </article>
+  </section>
+
+  <section id="open" class="sec" data-at="open">
+    <article class="card">
+      <p class="tab"><b>08</b><span>Beyond curated papers</span><span class="st open">In review</span></p>
+      <h2>Any lightweight paper</h2>
+      <p>Each early case still needed a hand-written runner. On 15 Oct DéjàML tried seven new papers with no prepared case. One was partially reproduced. Six were stopped by the policy gate, for reasons like a dataset with no checksum, a GPU-only claim or R code.</p>
+      <p>The fixes are in open pull requests: a tool that hashes datasets itself, default data hosts and a built-in notebook runner (#9, #11), and R support (#10).</p>
+    </article>
+  </section>
+
+  <section id="question" class="sec" data-at="question">
+    <article class="card">
+      <p class="tab"><b>09</b><span>The research question</span><span class="st done">28 Oct</span></p>
+      <h2>Does seeing the number <em>bias</em> the agent?</h2>
+      <p>AI systems that reproduce papers usually show their agents the number the paper reported. A check of the closest work found no study that measures what that does. DéjàML can, because blind runs are built in.</p>
+      <div class="conds">
+        <div style="--c: var(--c-blind)"><b>Blind</b><span>The number stays sealed. DéjàML's default.</span></div>
+        <div style="--c: var(--c-sighted)"><b>Sighted</b><span>The agents are shown the real number.</span></div>
+        <div style="--c: var(--c-rule)"><b>Sighted + rule</b><span>Shown, with a rule against tuning toward it.</span></div>
+        <div style="--c: var(--c-decoy)"><b>Decoy</b><span>Shown a wrong number. Drift toward it is bias.</span></div>
+      </div>
+    </article>
+  </section>
+
+  <section id="now" class="sec" data-at="now">
+    <article class="card">
+      <p class="tab"><b>10</b><span>Where we are</span><span class="st now">Now</span></p>
+      <h2>The study is <em>running</em></h2>
+      <p>The four conditions are built into DéjàML, in a locked lab and in an open lab where an agent has room to tune (PR #18). Next came a 12-run smoke test (PR #21): three papers, blind and decoy, two repeats each.</p>
+      <h3>Smoke test</h3>
+      <div class="runs" id="smoke-runs" role="img"></div>
+      <p class="meter" id="smoke-text"></p>
+      <p class="small" id="smoke-note"></p>
+    </article>
+  </section>
+
+  <section id="pilot" class="sec" data-at="pilot">
+    <article class="card plan">
+      <p class="tab"><b>11</b><span>Next</span><span class="st next">Planned</span></p>
+      <h2>A 90-run pilot</h2>
+      <p>If the smoke test is clean, the pilot runs five papers: all four conditions in the open lab with three seeds, plus blind and sighted in the locked lab. That is about $31 of model credit.</p>
+      <p>It answers the first real question: is there any drift toward a shown number, and is it big enough to measure at scale?</p>
+    </article>
+  </section>
+
+  <section id="full" class="sec" data-at="full">
+    <article class="card plan">
+      <p class="tab"><b>12</b><span>Then</span><span class="st next">Planned</span></p>
+      <h2>The full study</h2>
+      <ul class="pts">
+        <li>About 25 light CPU papers, each with a reviewed target.</li>
+        <li>Two model families, so the result is not one model's quirk.</li>
+        <li>Three seeds per condition, about 600 runs.</li>
+        <li>A memorization probe, to check what a model already knows about each paper.</li>
+        <li>The plan preregistered on OSF before the runs start.</li>
+      </ul>
+    </article>
+  </section>
+
+  <section id="paper" class="sec" data-at="paper">
+    <article class="card plan">
+      <p class="tab"><b>13</b><span>The goal</span><span class="st next">Planned</span></p>
+      <h2>The <em>paper</em></h2>
+      <p>A 4 to 6 page empirical paper on target bias in AI paper reproduction, with DéjàML's sealed lab as the method.</p>
+      <ol class="steps" id="paper-steps"></ol>
+    </article>
+  </section>
+
+  <section id="end" class="sec" data-at="end">
+    <article class="card">
+      <p class="tab"><b>The whole road</b></p>
+      <h2>One line, <span data-days>33</span> days</h2>
+      <p>From the first commit on 28 Sep to a running study. The solid line is what exists and has been checked. The dashed road is the plan, and it gets redrawn as the study reports back.</p>
+      <div class="cta"><a class="btn" href="__MAIN_URL__">How DéjàML works</a><a class="btn ghost" href="https://github.com/AayushBhat07/dejaml" target="_blank" rel="noopener">GitHub ↗</a><a class="btn ghost" href="#top">Back to the start</a></div>
+      <p class="small">Built by <a href="https://github.com/AayushBhat07" target="_blank" rel="noopener">Aayush Bhat</a>. Dates and numbers come from DéjàML's repository, its pull requests and its project report.</p>
+      <p class="credits">Robot model: RobotExpressive by Tomás Laulhé (Quaternius), CC0 1.0, with modifications by Don McCurdy. Road and props drawn in three.js.</p>
+    </article>
+  </section>
+</main>
+<!--IMPORTMAP-->
+<script type="module">
+//JS
+</script>
