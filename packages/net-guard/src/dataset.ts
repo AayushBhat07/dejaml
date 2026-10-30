@@ -27,14 +27,21 @@ export function isSafeFileName(name: string): boolean {
   return FILE_NAME_PATTERN.test(name);
 }
 
+/**
+ * The final URL's last path segment, decoded. A "+" (UCI writes "urban+land+cover.zip"
+ * as "urban%2Bland%2Bcover.zip") becomes "-" so the name passes isSafeFileName;
+ * every other character is still checked as is.
+ */
 function fileNameFromUrl(url: string): string {
   const path = new URL(url).pathname;
   const last = path.slice(path.lastIndexOf("/") + 1);
+  let decoded: string;
   try {
-    return decodeURIComponent(last);
+    decoded = decodeURIComponent(last);
   } catch {
-    return last;
+    decoded = last;
   }
+  return decoded.replaceAll("+", "-");
 }
 
 function requireSafeFileName(name: string): string {
