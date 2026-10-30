@@ -244,12 +244,20 @@ async function start3D() {
   }
   // 05 the blind team: four trust zones, the sealed envelope, and three agents who never see inside it
   { const p = PAD.blind.props;
-    [[0xdbe2ff, -1.25, -1.0], [0xe6dcfb, 1.25, -1.0], [0xcdeee6, -1.25, 1.1], [0xfbd8e2, 1.25, 1.1]].forEach(([c, x, z]) => box(2.3, 0.04, 2.0, std(c), x, 0, z, p, 0, false));
-    const env = new THREE.Group(); env.position.set(0, 0.05, -0.2); env.rotation.set(0, 0.25, 0); p.add(env);
-    box(2.2, 1.5, 0.08, M.manila, 0, 0.35, 0, env);
-    const flap = mesh(new THREE.ConeGeometry(1.1, 0.75, 3, 1), M.manila, env, [0, 1.48, 0.05], [Math.PI, 0, 0]); flap.scale.set(1, 1, 0.06); flap.rotation.y = Math.PI / 6;
-    mesh(new THREE.CylinderGeometry(0.28, 0.3, 0.1, 22), M.seal, env, [0, 1.15, 0.1], [Math.PI / 2, 0, 0]);
-    box(0.5, 0.35, 0.3, M.cap, 0, 0, 0, env);
+    [[0xdbe2ff, -1.25, -1.0], [0xe6dcfb, 1.25, -1.0], [0xcdeee6, -1.25, 1.1], [0xfbd8e2, 1.25, 1.1]].forEach(([c, x, z]) => box(2.3, 0.04, 2.0, std(c), x, 0.004, z, p, 0, false));
+    // the envelope stands upright on a small stand, its face drawn flat (flap folds, address lines) with the wax seal in 3D at the flap's tip
+    const env = new THREE.Group(); env.position.set(0.1, 0.04, -1.2); env.rotation.y = -0.12; p.add(env);
+    box(0.5, 0.36, 0.42, M.cap, -0.7, 0, 0.05, env); box(0.5, 0.36, 0.42, M.cap, 0.7, 0, 0.05, env);
+    box(2.4, 1.6, 0.08, M.manila, 0, 0.36, 0, env);
+    const face = tex(600, 400, (g, w, h) => {
+      g.fillStyle = '#f0e3cb'; g.fillRect(0, 0, w, h);
+      g.fillStyle = '#e6d5b6'; g.beginPath(); g.moveTo(0, h); g.lineTo(w / 2, h * 0.5); g.lineTo(w, h); g.fill();
+      g.fillStyle = '#e8d8ba'; g.beginPath(); g.moveTo(0, 0); g.lineTo(w / 2, h * 0.56); g.lineTo(w, 0); g.fill();
+      g.strokeStyle = '#c9b48f'; g.lineWidth = 4; g.beginPath(); g.moveTo(0, 0); g.lineTo(w / 2, h * 0.56); g.lineTo(w, 0); g.moveTo(0, h); g.lineTo(w / 2, h * 0.5); g.lineTo(w, h); g.stroke();
+      g.strokeStyle = '#c9b48f'; g.lineWidth = 6; g.strokeRect(3, 3, w - 6, h - 6);
+    });
+    plane(2.4, 1.6, face, env, [0, 1.16, 0.041]);
+    mesh(new THREE.CylinderGeometry(0.24, 0.26, 0.08, 24), M.seal, env, [0, 1.16 + 0.8 - 1.6 * 0.56, 0.09], [Math.PI / 2, 0, 0]);
     PAD.blind.top = 4.0;
   }
   // 06 three results: paper's value (seal orange) beside the measured value (indigo), to scale
@@ -384,7 +392,7 @@ async function start3D() {
     const f = new THREE.Group(); walker.g.add(f); walker.simple = f;
     mesh(new THREE.CapsuleGeometry(0.32, 0.7, 4, 12), M.indigo, f, [0, 0.75, 0]); mesh(new THREE.SphereGeometry(0.26, 16, 12), M.white, f, [0, 1.55, 0]);
   }
-  const extras = [[C.p, -1.6, 0.6, 0.9], [C.l, 1.7, 0.7, -0.9], [C.v, 0.2, 1.7, 3.1]].map(([c, x, z, ry]) => ({ c, x, z, ry, mixer: null }));
+  const extras = [[C.p, -1.5, 0.5, 2.6], [C.l, 1.6, 0.4, -2.6], [C.v, 0.1, 1.5, 3.14]].map(([c, x, z, ry]) => ({ c, x, z, ry, mixer: null }));
   function loadRobots() {
     if (typeof ROBOT_GLB_B64 === 'undefined') return;
     let buf;
