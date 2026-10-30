@@ -33,7 +33,8 @@ const PAGE_TEXT = `Table 2: BOSS accuracy of ${SENTINEL} on the GunPoint test se
 const FORMS = [...new Set([...valueForms(SENTINEL, "fraction"), "0.3141592653589793", "31.41592653589793", "3141592653589793"])];
 
 function leaks(value: unknown): string[] {
-  const text = typeof value === "string" ? value : JSON.stringify(value);
+  // ISO timestamps are blanked first: a time such as 10:23:31.416Z holds the percent form 31.416 by chance.
+  const text = (typeof value === "string" ? value : JSON.stringify(value)).replace(/\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?Z/gu, "<time>");
   return FORMS.filter((form) => new RegExp(`(?<![0-9.])${form.replace(/\./gu, "\\.")}(?![0-9]|\\.[0-9])`, "u").test(text));
 }
 
