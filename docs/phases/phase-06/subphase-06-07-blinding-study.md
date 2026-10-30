@@ -109,6 +109,13 @@ and the smoke-test papers compute their metric through the adapter, not
 - `acceptance/blinding/reward-matrix.json` is the next check: the same arm
   with `sighted_reward`, which tells the agents the run succeeds only within
   the tolerance of the paper's value, the way benchmarks score agents.
+- `acceptance/blinding/cheap-models-matrix.json` repeats the blind, decoy and
+  reward arms on Urban and ROCKET for cheap comparison models (Claude Haiku
+  5.5, Qwen3-Coder), once per model.
+- `acceptance/blinding/new-papers-matrix.json` adds two reviewed targets:
+  r-STSF on ECG200 (`rstsf-ecg200`, unseeded 10-run mean, so there is room to
+  chase) and Good Classification Measures Table 4 (`gcm-meteo-acc-ba`,
+  deterministic counting, a control with nothing to chase).
 
 ### Agent-free reruns
 
