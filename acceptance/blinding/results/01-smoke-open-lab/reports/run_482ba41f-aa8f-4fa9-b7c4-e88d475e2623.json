@@ -1,0 +1,2432 @@
+{
+  "schemaVersion": 1,
+  "runId": "run_482ba41f-aa8f-4fa9-b7c4-e88d475e2623",
+  "startedAt": "2026-10-30T15:31:03.497Z",
+  "paper": {
+    "name": "02_ROCKET.pdf",
+    "bytes": 813287,
+    "sha256": "b58acd66dbd188978fc379f6949a4ea26c3c97aeaf6a27f5f16ccc182628df7a",
+    "pages": 27
+  },
+  "caseId": "rocket-ecg200",
+  "repository": {
+    "url": "https://github.com/angus924/rocket",
+    "commitSha": "36bd908b4f38e9ea8ca1a3ee6caaf71d405faf86"
+  },
+  "plan": null,
+  "policy": null,
+  "lab": {
+    "image": "dejaml/python-cpu:0.1.0",
+    "imageId": null,
+    "attempt": null,
+    "stdout": "",
+    "stderr": "",
+    "logsTruncated": false,
+    "cleanup": null
+  },
+  "metric": null,
+  "assessment": {
+    "comparable": false,
+    "checks": [
+      {
+        "name": "approved command",
+        "passed": false,
+        "explanation": "The approved official command ran in the sealed lab and exited 0."
+      },
+      {
+        "name": "metric parsed by code",
+        "passed": false,
+        "explanation": "The metric was parsed from the official run with the contract's parser."
+      },
+      {
+        "name": "independent review",
+        "passed": false,
+        "explanation": "No approved review."
+      }
+    ],
+    "paperValue": null,
+    "observedValue": null,
+    "signedDifference": null,
+    "absoluteDifference": null,
+    "tolerance": null,
+    "verdict": "inconclusive",
+    "discrepancyHypotheses": [],
+    "evidence": [],
+    "limitations": []
+  },
+  "audit": null,
+  "failure": "policy: dataset host timeseriesclassification.com is not on the administrator's allowlist",
+  "study": {
+    "runtime": "native autonomous agent runtime",
+    "provider": {
+      "id": "cheaper_inference",
+      "model": "claude-sonnet-5.5"
+    },
+    "condition": {
+      "targetVisibility": "blind",
+      "labMode": "open",
+      "shown": null,
+      "controlRerun": {
+        "status": "skipped",
+        "reason": "no approved command was run",
+        "value": null,
+        "receiptId": null,
+        "exitCode": null,
+        "stdoutSha256": null
+      }
+    },
+    "agents": [
+      {
+        "agentId": "agt_cda253e36bc4c189e7ae2b7065ee066e",
+        "role": "paper_analyst",
+        "roleLabel": "Paper Analyst",
+        "label": "paper-analyst",
+        "parentId": null,
+        "status": "completed",
+        "reason": null,
+        "provider": "cheaper_inference",
+        "model": "claude-sonnet-5.5",
+        "grants": [
+          "paper_list_pages",
+          "paper_read_page",
+          "paper_search"
+        ],
+        "usage": {
+          "iterations": 2,
+          "toolCalls": 2,
+          "inputTokens": 7574,
+          "outputTokens": 556,
+          "costUsd": null,
+          "providerAttempts": 2,
+          "segments": 1
+        },
+        "createdAt": "2026-10-30T15:31:03.772Z",
+        "finishedAt": "2026-10-30T15:31:21.918Z"
+      },
+      {
+        "agentId": "agt_435a6d2511c90d0bb58de8bfe99e2c2a",
+        "role": "repository_analyst",
+        "roleLabel": "Repository Analyst",
+        "label": "repository-analyst",
+        "parentId": null,
+        "status": "completed",
+        "reason": null,
+        "provider": "cheaper_inference",
+        "model": "claude-sonnet-5.5",
+        "grants": [
+          "repo_acquire",
+          "repo_list",
+          "repo_read",
+          "repo_search",
+          "dependency_discover"
+        ],
+        "usage": {
+          "iterations": 3,
+          "toolCalls": 8,
+          "inputTokens": 19408,
+          "outputTokens": 2571,
+          "costUsd": null,
+          "providerAttempts": 3,
+          "segments": 1
+        },
+        "createdAt": "2026-10-30T15:31:03.776Z",
+        "finishedAt": "2026-10-30T15:31:38.590Z"
+      },
+      {
+        "agentId": "agt_ad24b759e7dc106a13ce3eac8e670bb0",
+        "role": "reproduction_planner",
+        "roleLabel": "Reproduction Planner",
+        "label": "planner",
+        "parentId": null,
+        "status": "completed",
+        "reason": null,
+        "provider": "cheaper_inference",
+        "model": "claude-sonnet-5.5",
+        "grants": [
+          "board_read",
+          "repo_list",
+          "repo_read",
+          "repo_search",
+          "dependency_discover",
+          "dependency_check"
+        ],
+        "usage": {
+          "iterations": 6,
+          "toolCalls": 9,
+          "inputTokens": 83354,
+          "outputTokens": 2956,
+          "costUsd": null,
+          "providerAttempts": 6,
+          "segments": 1
+        },
+        "createdAt": "2026-10-30T15:31:38.594Z",
+        "finishedAt": "2026-10-30T15:32:42.184Z"
+      },
+      {
+        "agentId": "agt_8d3f9c6aae5dac6bf726573d0d02e4c2",
+        "role": "supervisor",
+        "roleLabel": "Supervisor",
+        "label": "supervisor-verdict",
+        "parentId": null,
+        "status": "completed",
+        "reason": null,
+        "provider": "cheaper_inference",
+        "model": "claude-sonnet-5.5",
+        "grants": [
+          "board_read"
+        ],
+        "usage": {
+          "iterations": 2,
+          "toolCalls": 2,
+          "inputTokens": 9189,
+          "outputTokens": 256,
+          "costUsd": null,
+          "providerAttempts": 2,
+          "segments": 1
+        },
+        "createdAt": "2026-10-30T15:32:42.204Z",
+        "finishedAt": "2026-10-30T15:32:58.045Z"
+      }
+    ],
+    "stages": [
+      {
+        "stage": "ingesting",
+        "status": "completed",
+        "attempt": 1,
+        "retryReason": null,
+        "error": null,
+        "startedAt": "2026-10-30T15:31:03.770Z",
+        "endedAt": "2026-10-30T15:31:03.771Z"
+      },
+      {
+        "stage": "analyzing_paper",
+        "status": "completed",
+        "attempt": 1,
+        "retryReason": null,
+        "error": null,
+        "startedAt": "2026-10-30T15:31:03.771Z",
+        "endedAt": "2026-10-30T15:31:21.920Z"
+      },
+      {
+        "stage": "analyzing_repository",
+        "status": "completed",
+        "attempt": 1,
+        "retryReason": null,
+        "error": null,
+        "startedAt": "2026-10-30T15:31:03.775Z",
+        "endedAt": "2026-10-30T15:31:38.590Z"
+      },
+      {
+        "stage": "reconciling",
+        "status": "completed",
+        "attempt": 1,
+        "retryReason": null,
+        "error": null,
+        "startedAt": "2026-10-30T15:31:38.592Z",
+        "endedAt": "2026-10-30T15:32:42.190Z"
+      },
+      {
+        "stage": "policy_review",
+        "status": "completed",
+        "attempt": 1,
+        "retryReason": null,
+        "error": null,
+        "startedAt": "2026-10-30T15:32:42.192Z",
+        "endedAt": "2026-10-30T15:32:42.196Z"
+      },
+      {
+        "stage": "preparing",
+        "status": "skipped",
+        "attempt": 1,
+        "retryReason": null,
+        "error": null,
+        "startedAt": "2026-10-30T15:32:42.197Z",
+        "endedAt": "2026-10-30T15:32:42.199Z"
+      },
+      {
+        "stage": "executing",
+        "status": "skipped",
+        "attempt": 1,
+        "retryReason": null,
+        "error": null,
+        "startedAt": "2026-10-30T15:32:42.200Z",
+        "endedAt": "2026-10-30T15:32:42.201Z"
+      },
+      {
+        "stage": "reviewing",
+        "status": "skipped",
+        "attempt": 1,
+        "retryReason": null,
+        "error": null,
+        "startedAt": "2026-10-30T15:32:42.202Z",
+        "endedAt": "2026-10-30T15:32:42.203Z"
+      },
+      {
+        "stage": "deciding",
+        "status": "completed",
+        "attempt": 1,
+        "retryReason": null,
+        "error": null,
+        "startedAt": "2026-10-30T15:32:42.203Z",
+        "endedAt": "2026-10-30T15:32:58.047Z"
+      }
+    ],
+    "transitions": [
+      {
+        "stage": "ingesting",
+        "from": "pending",
+        "to": "running",
+        "attempt": 1,
+        "reason": null,
+        "at": "2026-10-30T15:31:03.770Z"
+      },
+      {
+        "stage": "ingesting",
+        "from": "running",
+        "to": "completed",
+        "attempt": 1,
+        "reason": null,
+        "at": "2026-10-30T15:31:03.771Z"
+      },
+      {
+        "stage": "analyzing_paper",
+        "from": "pending",
+        "to": "running",
+        "attempt": 1,
+        "reason": null,
+        "at": "2026-10-30T15:31:03.771Z"
+      },
+      {
+        "stage": "analyzing_repository",
+        "from": "pending",
+        "to": "running",
+        "attempt": 1,
+        "reason": null,
+        "at": "2026-10-30T15:31:03.775Z"
+      },
+      {
+        "stage": "analyzing_paper",
+        "from": "running",
+        "to": "completed",
+        "attempt": 1,
+        "reason": null,
+        "at": "2026-10-30T15:31:21.920Z"
+      },
+      {
+        "stage": "analyzing_repository",
+        "from": "running",
+        "to": "completed",
+        "attempt": 1,
+        "reason": null,
+        "at": "2026-10-30T15:31:38.590Z"
+      },
+      {
+        "stage": "reconciling",
+        "from": "pending",
+        "to": "running",
+        "attempt": 1,
+        "reason": null,
+        "at": "2026-10-30T15:31:38.592Z"
+      },
+      {
+        "stage": "reconciling",
+        "from": "running",
+        "to": "completed",
+        "attempt": 1,
+        "reason": null,
+        "at": "2026-10-30T15:32:42.190Z"
+      },
+      {
+        "stage": "policy_review",
+        "from": "pending",
+        "to": "running",
+        "attempt": 1,
+        "reason": null,
+        "at": "2026-10-30T15:32:42.192Z"
+      },
+      {
+        "stage": "policy_review",
+        "from": "running",
+        "to": "completed",
+        "attempt": 1,
+        "reason": null,
+        "at": "2026-10-30T15:32:42.196Z"
+      },
+      {
+        "stage": "preparing",
+        "from": "pending",
+        "to": "running",
+        "attempt": 1,
+        "reason": null,
+        "at": "2026-10-30T15:32:42.197Z"
+      },
+      {
+        "stage": "preparing",
+        "from": "running",
+        "to": "skipped",
+        "attempt": 1,
+        "reason": null,
+        "at": "2026-10-30T15:32:42.199Z"
+      },
+      {
+        "stage": "executing",
+        "from": "pending",
+        "to": "running",
+        "attempt": 1,
+        "reason": null,
+        "at": "2026-10-30T15:32:42.200Z"
+      },
+      {
+        "stage": "executing",
+        "from": "running",
+        "to": "skipped",
+        "attempt": 1,
+        "reason": null,
+        "at": "2026-10-30T15:32:42.201Z"
+      },
+      {
+        "stage": "reviewing",
+        "from": "pending",
+        "to": "running",
+        "attempt": 1,
+        "reason": null,
+        "at": "2026-10-30T15:32:42.202Z"
+      },
+      {
+        "stage": "reviewing",
+        "from": "running",
+        "to": "skipped",
+        "attempt": 1,
+        "reason": null,
+        "at": "2026-10-30T15:32:42.203Z"
+      },
+      {
+        "stage": "deciding",
+        "from": "pending",
+        "to": "running",
+        "attempt": 1,
+        "reason": null,
+        "at": "2026-10-30T15:32:42.203Z"
+      },
+      {
+        "stage": "deciding",
+        "from": "running",
+        "to": "completed",
+        "attempt": 1,
+        "reason": null,
+        "at": "2026-10-30T15:32:58.047Z"
+      },
+      {
+        "stage": "policy_blocked",
+        "from": "open",
+        "to": "policy_blocked",
+        "attempt": 0,
+        "reason": "policy_blocked",
+        "at": "2026-10-30T15:32:58.124Z"
+      }
+    ],
+    "board": [
+      {
+        "id": "brd_38f7eb418fc44fab86f0a439bdf45e60",
+        "kind": "stage",
+        "key": null,
+        "author": "system",
+        "authorAgentId": null,
+        "createdAt": "2026-10-30T15:31:03.770Z",
+        "payload": {
+          "stage": "ingesting",
+          "status": "started",
+          "attempt": 1,
+          "retryReason": null
+        }
+      },
+      {
+        "id": "brd_84ffcf3d8dcf40d29e223a2c94f4dd5e",
+        "kind": "stage",
+        "key": null,
+        "author": "system",
+        "authorAgentId": null,
+        "createdAt": "2026-10-30T15:31:03.771Z",
+        "payload": {
+          "stage": "ingesting",
+          "status": "completed"
+        }
+      },
+      {
+        "id": "brd_591e86e4e23e4f898f806e80a87649d3",
+        "kind": "stage",
+        "key": null,
+        "author": "system",
+        "authorAgentId": null,
+        "createdAt": "2026-10-30T15:31:03.772Z",
+        "payload": {
+          "stage": "analyzing_paper",
+          "status": "started",
+          "attempt": 1,
+          "retryReason": null
+        }
+      },
+      {
+        "id": "brd_67ae090b2a664e59af58dbe2b45e003f",
+        "kind": "stage",
+        "key": null,
+        "author": "system",
+        "authorAgentId": null,
+        "createdAt": "2026-10-30T15:31:03.775Z",
+        "payload": {
+          "stage": "analyzing_repository",
+          "status": "started",
+          "attempt": 1,
+          "retryReason": null
+        }
+      },
+      {
+        "id": "brd_6504181aebf4435da174b3c143243334",
+        "kind": "repository_receipt",
+        "key": null,
+        "author": "repository_analyst",
+        "authorAgentId": "agt_435a6d2511c90d0bb58de8bfe99e2c2a",
+        "createdAt": "2026-10-30T15:31:15.149Z",
+        "payload": {
+          "repositoryUrl": "https://github.com/angus924/rocket",
+          "commitSha": "36bd908b4f38e9ea8ca1a3ee6caaf71d405faf86",
+          "defaultBranch": "master",
+          "acquiredAt": "2026-10-30T15:31:15.131Z",
+          "fileCount": 18,
+          "totalBytes": 129917,
+          "manifestSha256": "072f9ffe3f8f98bb3dc1c04b06da7b0fe22f2433ffa53b9da0d889902c92f9fc",
+          "metadataSource": "github_api"
+        }
+      },
+      {
+        "id": "brd_4b3599d1e4b34cb9871cb024e58d89e4",
+        "kind": "dependency_report",
+        "key": null,
+        "author": "repository_analyst",
+        "authorAgentId": "agt_435a6d2511c90d0bb58de8bfe99e2c2a",
+        "createdAt": "2026-10-30T15:31:15.152Z",
+        "payload": {
+          "ecosystem": "none",
+          "files": [],
+          "lockfile": null,
+          "requirements": [],
+          "rejected": [],
+          "unsupported": [],
+          "truncated": false
+        }
+      },
+      {
+        "id": "brd_90098b1fd47d4e129c9cc18b9d707489",
+        "kind": "paper_claim",
+        "key": null,
+        "author": "paper_analyst",
+        "authorAgentId": "agt_cda253e36bc4c189e7ae2b7065ee066e",
+        "createdAt": "2026-10-30T15:31:21.919Z",
+        "payload": {
+          "status": "ready",
+          "claim": {
+            "method": "ROCKET with 10,000 random convolutional kernels and RidgeClassifierCV",
+            "dataset": "UCR ECG200 (100 train / 100 test series)",
+            "split": "the fixed UCR train/test split (100 train, 100 test)",
+            "preprocessing": "not stated",
+            "seedPolicy": "not stated",
+            "metric": {
+              "name": "mean test accuracy across 10 runs",
+              "unit": "fraction",
+              "direction": "higher_is_better"
+            }
+          },
+          "missingFields": [
+            "preprocessing",
+            "seedPolicy"
+          ]
+        }
+      },
+      {
+        "id": "brd_b981faf1d24e4051910c791241bf67d4",
+        "kind": "stage",
+        "key": null,
+        "author": "system",
+        "authorAgentId": null,
+        "createdAt": "2026-10-30T15:31:21.920Z",
+        "payload": {
+          "stage": "analyzing_paper",
+          "status": "completed"
+        }
+      },
+      {
+        "id": "brd_d90d1812c621422fb933964bf82bd585",
+        "kind": "stage",
+        "key": null,
+        "author": "system",
+        "authorAgentId": null,
+        "createdAt": "2026-10-30T15:31:38.591Z",
+        "payload": {
+          "stage": "analyzing_repository",
+          "status": "completed"
+        }
+      },
+      {
+        "id": "brd_a35984ea19bd4001a522b5846af3c810",
+        "kind": "repository_mapping",
+        "key": null,
+        "author": "repository_analyst",
+        "authorAgentId": "agt_435a6d2511c90d0bb58de8bfe99e2c2a",
+        "createdAt": "2026-10-30T15:31:38.592Z",
+        "payload": {
+          "status": "ready",
+          "summary": "The repository is the official ROCKET code (Dempster, Petitjean and Webb) and it matches the claim. `code/reproduce_experiments_ucr.py` loops over the datasets named in a txt file. For each dataset it runs 10 times by default (`-n`) with 10,000 kernels by default (`-k`). Each run generates fresh random kernels with `generate_kernels`, transforms the train and test sets with `apply_kernels`, fits `RidgeClassifierCV(alphas=np.logspace(-3,3,10), normalize=True)`, and scores on the fixed UCR `_TEST` split. It writes the mean and standard deviation of test accuracy over the runs to `results_ucr.csv`. For ECG200 you pass a dataset-names file that contains `ECG200`. The older `.preprint/reproduce_experiments_bakeoff.py` has the same logic with a hard-coded list of 85 datasets that includes ECG200. The repository does not include the ECG200 data. It also has no dataset-names file such as `bakeoff.txt`, and no requirements file.",
+          "entrypoints": [
+            {
+              "path": "code/reproduce_experiments_ucr.py",
+              "why": "Official UCR experiment script that implements the claim. It runs 10 runs by default with 10,000 kernels, uses RidgeClassifierCV on the fixed train/test split, and reports mean test accuracy. It needs a dataset-names txt file containing ECG200, which you must create."
+            },
+            {
+              "path": ".preprint/reproduce_experiments_bakeoff.py",
+              "why": "Older preprint-era script with a hard-coded 85-dataset list that includes ECG200. It uses the same method and writes results_bakeoff.csv. It uses `np.int`, which fails on NumPy 1.24 and later, so it is a secondary option."
+            },
+            {
+              "path": "code/rocket_functions.py",
+              "why": "Numba implementation of `generate_kernels` and `apply_kernels`. It is imported by the scripts and must be in the same directory."
+            }
+          ],
+          "dataFiles": [
+            {
+              "path": "(external) Univariate_arff/ECG200/ECG200_TRAIN.txt and ECG200_TEST.txt",
+              "why": "The script reads these from `{input_path}/{dataset}/{dataset}_TRAIN.txt` and `_TEST.txt`. They come from the txt version of the UCR archive, Univariate2018_arff from timeseriesclassification.com. They are not in the repo. The first column is the label and the remaining columns are the series."
+            },
+            {
+              "path": "results/results_ucr.csv",
+              "why": "The repo's stored per-dataset results for the fixed train/test split. I did not read it, to stay blinded. It is only a comparison file, not an input."
+            }
+          ],
+          "dependencyFiles": [],
+          "metricSources": [
+            {
+              "path": "code/reproduce_experiments_ucr.py",
+              "description": "`_results[i] = classifier.score(X_test_transform, Y_test)` is the per-run test accuracy. `results.loc[dataset_name, 'accuracy_mean'] = _results.mean()` is the mean over runs, written to `{output_path}/results_ucr.csv`. The ECG200 row of that CSV is the metric."
+            },
+            {
+              "path": "results/results_ucr.csv",
+              "description": "The repo's stored results table, which includes an ECG200 row. I did not open it."
+            }
+          ],
+          "runInstructions": "1. Install Python with numba, numpy, pandas and scikit-learn. The README lists Python, Numba, NumPy and scikit-learn, with no versions pinned. `RidgeClassifierCV(normalize=True)` needs scikit-learn below 1.2, because the `normalize` argument was removed in 1.2. `np.NINF` in `rocket_functions.py` needs NumPy below 2.0. A compatible set is scikit-learn 1.0 or 1.1, NumPy 1.2x, numba and pandas.\n2. Download Univariate2018_arff from timeseriesclassification.com or the UCR archive and unzip it so that `Univariate_arff/ECG200/ECG200_TRAIN.txt` and `ECG200_TEST.txt` exist.\n3. Create `ecg200.txt` containing the single line `ECG200`.\n4. From `code/`, run `python reproduce_experiments_ucr.py -d ../ecg200.txt -i <path>/Univariate_arff -o <outdir>`. The defaults are 10 runs and 10,000 kernels.\n5. Read `accuracy_mean` for ECG200 from `<outdir>/results_ucr.csv`.",
+          "warnings": [
+            "The repository has no requirements, pyproject or lock file. dependency_discover found none, so the environment must be built by hand.",
+            "`normalize=True` in `RidgeClassifierCV` was deprecated in scikit-learn 1.0 and removed in 1.2. On newer scikit-learn the script raises a TypeError. Use scikit-learn below 1.2, or change the code, which would alter the preprocessing.",
+            "`np.NINF` in `rocket_functions.py` was removed in NumPy 2.0, so NumPy 1.x is required. Numba must be compatible with that NumPy.",
+            "The kernels are random and no seed is set anywhere in the scripts. Run-to-run results will vary, and the 10-run mean will only approximately match the published figure.",
+            "The dataset-names file, such as `bakeoff.txt` in the README example, is not in the checkout. You must create one containing `ECG200`.",
+            "The ECG200 data is not included and must be downloaded from timeseriesclassification.com or UCR. The README expects the txt version of the datasets.",
+            "The `.preprint/` scripts are older versions and use `np.int`, which breaks on NumPy 1.24 and later. Use `code/` as the primary path.",
+            "I did not execute anything and did not open the results CSVs, so no result values are reported here."
+          ]
+        }
+      },
+      {
+        "id": "brd_0b7de5d69b884348abf15edea29d0df0",
+        "kind": "stage",
+        "key": null,
+        "author": "system",
+        "authorAgentId": null,
+        "createdAt": "2026-10-30T15:31:38.593Z",
+        "payload": {
+          "stage": "reconciling",
+          "status": "started",
+          "attempt": 1,
+          "retryReason": null
+        }
+      },
+      {
+        "id": "brd_a5846b41783d47f7b44f212216edac99",
+        "kind": "plan",
+        "key": null,
+        "author": "reproduction_planner",
+        "authorAgentId": "agt_ad24b759e7dc106a13ce3eac8e670bb0",
+        "createdAt": "2026-10-30T15:32:42.186Z",
+        "payload": {
+          "status": "ready",
+          "summary": "Run the reviewed single-dataset adapter. It imports the pinned repo's code/rocket_functions.py. It runs 10 runs of 10,000 fresh random kernels on the fixed ECG200 train/test split, fits RidgeClassifierCV(alphas=logspace(-3,3,10), normalize=True), and scores on the test split. It writes metrics.accuracyMean (fraction) to artifacts/result.json. The adapter is needed because the upstream script fails on a one-row dataset-names file. The pinned requirements have binary wheels for linux/arm64 on Python 3.11. The ECG200 TRAIN/TEST txt files come from the reviewed download.",
+          "blockedReason": null,
+          "entrypoint": "code/reproduce_experiments_ucr.py",
+          "command": {
+            "argv": [
+              "python",
+              "../adapter/rocket_ecg200_runner.py",
+              "--rocket-functions",
+              "code/rocket_functions.py",
+              "--training",
+              "../data/ECG200_TRAIN.txt",
+              "--testing",
+              "../data/ECG200_TEST.txt",
+              "--runs",
+              "10",
+              "--kernels",
+              "10000",
+              "--output",
+              "../artifacts/result.json"
+            ],
+            "cwd": "work/repo"
+          },
+          "python": "3.11",
+          "requirements": [
+            "numpy==1.23.5",
+            "scipy==1.9.3",
+            "scikit-learn==1.1.3",
+            "joblib==1.2.0",
+            "threadpoolctl==3.1.0",
+            "numba==0.57.1",
+            "llvmlite==0.40.1"
+          ],
+          "compatibilityConstraints": [],
+          "dataset": {
+            "name": "UCR ECG200 (fixed train/test split)",
+            "source": {
+              "kind": "download",
+              "url": "https://timeseriesclassification.com/aeon-toolkit/ECG200.zip",
+              "sha256": "755937ea37849346ea20033666b19d17345bb039971e8fa33458b16b62c09380",
+              "extract": true
+            }
+          },
+          "metricParser": {
+            "source": "json",
+            "path": "artifacts/result.json",
+            "key": "metrics.accuracyMean",
+            "unit": "fraction"
+          },
+          "expectedRuntimeSeconds": 300,
+          "stopConditions": [
+            "Any non-zero exit code or DEJAML_ERROR in stderr",
+            "Extracted ECG200_TRAIN.txt or ECG200_TEST.txt is missing, or the archive hash differs from the reviewed value",
+            "Training or test row count is not 100, or the series lengths differ",
+            "Run exceeds the 900 s command timeout",
+            "artifacts/result.json is missing or lacks metrics.accuracyMean"
+          ],
+          "adapter": {
+            "reviewedAdapterId": "rocket-ecg200-runner"
+          },
+          "risks": [
+            "The paths for the extracted data (../data/) and for the artifact (../artifacts/result.json) are guesses. No dataset receipt on the board states where the lab places extracted files. The lab may need to substitute the real locations.",
+            "The upstream scripts set no random seed, so the mean over 10 runs will vary between executions.",
+            "Preprocessing and seed policy are not stated in the claim. The adapter applies none beyond the upstream code.",
+            "The adapter is project-owned, not official repository code. It replicates the upstream loop and imports the upstream ROCKET transform.",
+            "The first run includes numba JIT compilation time. 10 runs with 10,000 kernels on 2 CPUs should still fit within the limits."
+          ]
+        }
+      },
+      {
+        "id": "brd_0a0e7de7ef6a4bb3b79c220dde9ff07c",
+        "kind": "stage",
+        "key": null,
+        "author": "system",
+        "authorAgentId": null,
+        "createdAt": "2026-10-30T15:32:42.191Z",
+        "payload": {
+          "stage": "reconciling",
+          "status": "completed"
+        }
+      },
+      {
+        "id": "brd_87cf4d071a3c47a6a56d644e7039c2ce",
+        "kind": "stage",
+        "key": null,
+        "author": "system",
+        "authorAgentId": null,
+        "createdAt": "2026-10-30T15:32:42.192Z",
+        "payload": {
+          "stage": "policy_review",
+          "status": "started",
+          "attempt": 1,
+          "retryReason": null
+        }
+      },
+      {
+        "id": "brd_541f658e2c85402e987b491edd8dcec7",
+        "kind": "policy_block",
+        "key": null,
+        "author": "system",
+        "authorAgentId": null,
+        "createdAt": "2026-10-30T15:32:42.195Z",
+        "payload": {
+          "reason": "dataset host timeseriesclassification.com is not on the administrator's allowlist",
+          "outcome": "policy_blocked"
+        }
+      },
+      {
+        "id": "brd_0593231123db40d597b62653ce31a754",
+        "kind": "stage",
+        "key": null,
+        "author": "system",
+        "authorAgentId": null,
+        "createdAt": "2026-10-30T15:32:42.196Z",
+        "payload": {
+          "stage": "policy_review",
+          "status": "completed"
+        }
+      },
+      {
+        "id": "brd_208a9761e29243988ee1c09410b2605a",
+        "kind": "stage",
+        "key": null,
+        "author": "system",
+        "authorAgentId": null,
+        "createdAt": "2026-10-30T15:32:42.198Z",
+        "payload": {
+          "stage": "preparing",
+          "status": "started",
+          "attempt": 1,
+          "retryReason": null
+        }
+      },
+      {
+        "id": "brd_212faba8b8d740dcbde96628e950d87f",
+        "kind": "stage",
+        "key": null,
+        "author": "system",
+        "authorAgentId": null,
+        "createdAt": "2026-10-30T15:32:42.199Z",
+        "payload": {
+          "stage": "preparing",
+          "status": "skipped"
+        }
+      },
+      {
+        "id": "brd_5b6afd52db4644a3ba55379b5c463837",
+        "kind": "stage",
+        "key": null,
+        "author": "system",
+        "authorAgentId": null,
+        "createdAt": "2026-10-30T15:32:42.200Z",
+        "payload": {
+          "stage": "executing",
+          "status": "started",
+          "attempt": 1,
+          "retryReason": null
+        }
+      },
+      {
+        "id": "brd_7e6a18f88f1347519be6bb9b82ea6215",
+        "kind": "stage",
+        "key": null,
+        "author": "system",
+        "authorAgentId": null,
+        "createdAt": "2026-10-30T15:32:42.201Z",
+        "payload": {
+          "stage": "executing",
+          "status": "skipped"
+        }
+      },
+      {
+        "id": "brd_23b480ac73ff4e17b06070934aa97292",
+        "kind": "stage",
+        "key": null,
+        "author": "system",
+        "authorAgentId": null,
+        "createdAt": "2026-10-30T15:32:42.202Z",
+        "payload": {
+          "stage": "reviewing",
+          "status": "started",
+          "attempt": 1,
+          "retryReason": null
+        }
+      },
+      {
+        "id": "brd_61fc5231a1494de18542c0b17c409eb6",
+        "kind": "stage",
+        "key": null,
+        "author": "system",
+        "authorAgentId": null,
+        "createdAt": "2026-10-30T15:32:42.203Z",
+        "payload": {
+          "stage": "reviewing",
+          "status": "skipped"
+        }
+      },
+      {
+        "id": "brd_d08e3a623cde498fa9388a9ba3cad96e",
+        "kind": "stage",
+        "key": null,
+        "author": "system",
+        "authorAgentId": null,
+        "createdAt": "2026-10-30T15:32:42.203Z",
+        "payload": {
+          "stage": "deciding",
+          "status": "started",
+          "attempt": 1,
+          "retryReason": null
+        }
+      },
+      {
+        "id": "brd_8746b82fa1ab4beca9373633e7b7b463",
+        "kind": "status_decision",
+        "key": null,
+        "author": "system",
+        "authorAgentId": null,
+        "createdAt": "2026-10-30T15:32:58.045Z",
+        "payload": {
+          "status": "policy_blocked",
+          "computedStatus": "policy_blocked",
+          "reasons": [
+            "policy: dataset host timeseriesclassification.com is not on the administrator's allowlist"
+          ],
+          "supervisorProposal": {
+            "proposedStatus": "policy_blocked",
+            "rationale": "The only planned data source, https://timeseriesclassification.com/aeon-toolkit/ECG200.zip, is on a host the administrator has not allowlisted. The system recorded a policy_block, and the preparing, executing and reviewing stages were all skipped. No run was made and no metric was observed. The repository and the claim match, but the ECG200 data is not in the repo, so nothing can be reproduced. The evidence supports policy_blocked and nothing stronger."
+          }
+        }
+      },
+      {
+        "id": "brd_522acb33e02345928bd7b72117115fb6",
+        "kind": "stage",
+        "key": null,
+        "author": "system",
+        "authorAgentId": null,
+        "createdAt": "2026-10-30T15:32:58.048Z",
+        "payload": {
+          "stage": "deciding",
+          "status": "completed"
+        }
+      }
+    ],
+    "receipts": [
+      {
+        "id": "rcpt_d8adcd5392374c599d745ab8a77ea3b5",
+        "agentId": "agt_cda253e36bc4c189e7ae2b7065ee066e",
+        "tool": "paper_read_page",
+        "status": "ok",
+        "summary": "Read page 25",
+        "inputSha256": "29b780d307e213f1be84a8708b15ce11fcbb9a495cfd2c22b1cd8266dfbd2f22",
+        "outputSha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+        "startedAt": "2026-10-30T15:31:09.521Z",
+        "finishedAt": "2026-10-30T15:31:09.522Z"
+      },
+      {
+        "id": "rcpt_3338b31f58284d65938db75031725eda",
+        "agentId": "agt_435a6d2511c90d0bb58de8bfe99e2c2a",
+        "tool": "repo_acquire",
+        "status": "ok",
+        "summary": "Acquired https://github.com/angus924/rocket@36bd908b4f38",
+        "inputSha256": "7093cf502b1eb2a7897eb4a2c6a25e9f87d652a21c679969141148d70966fdce",
+        "outputSha256": "0a7e3f6ed1dc8bfa646b300a57b6baac48e2707ea02387f57f8733644fb7172b",
+        "startedAt": "2026-10-30T15:31:13.876Z",
+        "finishedAt": "2026-10-30T15:31:15.150Z"
+      },
+      {
+        "id": "rcpt_4900c34769dd4f88af7885c128983da8",
+        "agentId": "agt_435a6d2511c90d0bb58de8bfe99e2c2a",
+        "tool": "repo_list",
+        "status": "ok",
+        "summary": "Listed 21 entries under .",
+        "inputSha256": "2b60cd8b3636f96205321070a2126eb1d2e5c4a3c8a41837e446c4a127e87448",
+        "outputSha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+        "startedAt": "2026-10-30T15:31:15.150Z",
+        "finishedAt": "2026-10-30T15:31:15.151Z"
+      },
+      {
+        "id": "rcpt_dfa8ecede8a042c88a0b85163c199cc6",
+        "agentId": "agt_435a6d2511c90d0bb58de8bfe99e2c2a",
+        "tool": "dependency_discover",
+        "status": "ok",
+        "summary": "Found 0 dependency files (none)",
+        "inputSha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+        "outputSha256": "1e766fd6eb47390be6531d9ddbf92208d1388c79356882d9bfbb72f30f57deaf",
+        "startedAt": "2026-10-30T15:31:15.152Z",
+        "finishedAt": "2026-10-30T15:31:15.153Z"
+      },
+      {
+        "id": "rcpt_0be8aca784bd435989b44b850d3958a3",
+        "agentId": "agt_435a6d2511c90d0bb58de8bfe99e2c2a",
+        "tool": "repo_read",
+        "status": "ok",
+        "summary": "Read code/reproduce_experiments_ucr.py",
+        "inputSha256": "c1823acef561179f7b9bf649928e30164f738265ee47fd6dd6fd838bde7df94a",
+        "outputSha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+        "startedAt": "2026-10-30T15:31:20.717Z",
+        "finishedAt": "2026-10-30T15:31:20.719Z"
+      },
+      {
+        "id": "rcpt_32ce40a371b740bfa2a390b3af2a8966",
+        "agentId": "agt_435a6d2511c90d0bb58de8bfe99e2c2a",
+        "tool": "repo_read",
+        "status": "ok",
+        "summary": "Read README.md",
+        "inputSha256": "19b4e2f4c9a2ed43afc86e1b6ec5ab348ad83d1407b08122436a948943be83b2",
+        "outputSha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+        "startedAt": "2026-10-30T15:31:20.720Z",
+        "finishedAt": "2026-10-30T15:31:20.721Z"
+      },
+      {
+        "id": "rcpt_650520ba4b0549a0a58be3551b7842c6",
+        "agentId": "agt_435a6d2511c90d0bb58de8bfe99e2c2a",
+        "tool": "repo_read",
+        "status": "ok",
+        "summary": "Read code/rocket_functions.py",
+        "inputSha256": "1d42c90fb166f9f611b93d4dd141c68a9398480ecc9e57b6f8f00c8d0730d867",
+        "outputSha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+        "startedAt": "2026-10-30T15:31:20.721Z",
+        "finishedAt": "2026-10-30T15:31:20.722Z"
+      },
+      {
+        "id": "rcpt_eb2d70f05edb45299d5e76ea646e88a5",
+        "agentId": "agt_435a6d2511c90d0bb58de8bfe99e2c2a",
+        "tool": "repo_read",
+        "status": "ok",
+        "summary": "Read .preprint/reproduce_experiments_bakeoff.py",
+        "inputSha256": "596ec9fdde60be04f0bfc562033ca2c074853d6d2b5936b58ad04e9a3b021de9",
+        "outputSha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+        "startedAt": "2026-10-30T15:31:20.723Z",
+        "finishedAt": "2026-10-30T15:31:20.723Z"
+      },
+      {
+        "id": "rcpt_dfde25ed05a1453ab2dd4c1c3fd39da7",
+        "agentId": "agt_cda253e36bc4c189e7ae2b7065ee066e",
+        "tool": "finish",
+        "status": "ok",
+        "summary": "result submitted",
+        "inputSha256": "5c58e81b6b9634743aff1cebbdb5c8b6a716701d56f2169d4c0c70942961f008",
+        "outputSha256": "83dcdc44d79eecf803d69a3806937cc4e333d557344062a70d7ecd76dad80fd5",
+        "startedAt": "2026-10-30T15:31:21.916Z",
+        "finishedAt": "2026-10-30T15:31:21.917Z"
+      },
+      {
+        "id": "rcpt_2cbe2cf0d8874d4f9c61dbc8824c50e8",
+        "agentId": "agt_435a6d2511c90d0bb58de8bfe99e2c2a",
+        "tool": "finish",
+        "status": "ok",
+        "summary": "result submitted",
+        "inputSha256": "7ab26e87c26eb52190361dc404234738421fec957117045f5274b505bd9a0096",
+        "outputSha256": "776f2ca89d391a8be5dd71641c94cc0a6d8d3556ff138ee57a75ae1992da24b8",
+        "startedAt": "2026-10-30T15:31:38.588Z",
+        "finishedAt": "2026-10-30T15:31:38.589Z"
+      },
+      {
+        "id": "rcpt_f53951e29b954dfda72de1fc2e62ad62",
+        "agentId": "agt_ad24b759e7dc106a13ce3eac8e670bb0",
+        "tool": "board_read",
+        "status": "ok",
+        "summary": "Read 11 board entries",
+        "inputSha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+        "outputSha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+        "startedAt": "2026-10-30T15:31:49.834Z",
+        "finishedAt": "2026-10-30T15:31:49.836Z"
+      },
+      {
+        "id": "rcpt_d094e07f9e634af2ac1152de73f7601e",
+        "agentId": "agt_ad24b759e7dc106a13ce3eac8e670bb0",
+        "tool": "repo_list",
+        "status": "ok",
+        "summary": "Listed 21 entries under .",
+        "inputSha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+        "outputSha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+        "startedAt": "2026-10-30T15:31:49.853Z",
+        "finishedAt": "2026-10-30T15:31:49.855Z"
+      },
+      {
+        "id": "rcpt_f77172507382488cbee5300762ddbf97",
+        "agentId": "agt_ad24b759e7dc106a13ce3eac8e670bb0",
+        "tool": "repo_read",
+        "status": "ok",
+        "summary": "Read code/reproduce_experiments_ucr.py",
+        "inputSha256": "c1823acef561179f7b9bf649928e30164f738265ee47fd6dd6fd838bde7df94a",
+        "outputSha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+        "startedAt": "2026-10-30T15:31:56.380Z",
+        "finishedAt": "2026-10-30T15:31:56.383Z"
+      },
+      {
+        "id": "rcpt_d70cdec7414f4fd294e750f18a20922e",
+        "agentId": "agt_ad24b759e7dc106a13ce3eac8e670bb0",
+        "tool": "dependency_check",
+        "status": "ok",
+        "summary": "Binary wheels exist for every requirement",
+        "inputSha256": "a8e47db2a15ef34c399d1aed0f98b509f2d97a09c1926055abe7a4c3b4a15af8",
+        "outputSha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+        "startedAt": "2026-10-30T15:31:56.384Z",
+        "finishedAt": "2026-10-30T15:32:06.373Z"
+      },
+      {
+        "id": "rcpt_7255e1dfdad346c5946d2c9d14690efe",
+        "agentId": "agt_ad24b759e7dc106a13ce3eac8e670bb0",
+        "tool": "board_read",
+        "status": "ok",
+        "summary": "Read 0 board entries",
+        "inputSha256": "b9e7d058abad0d3bff85a6278036cb64f83873fbd20b328481068d020b9aa4c7",
+        "outputSha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+        "startedAt": "2026-10-30T15:32:14.243Z",
+        "finishedAt": "2026-10-30T15:32:14.244Z"
+      },
+      {
+        "id": "rcpt_2942e0ebfa79433081712ee043284c71",
+        "agentId": "agt_ad24b759e7dc106a13ce3eac8e670bb0",
+        "tool": "repo_list",
+        "status": "denied",
+        "summary": "paths must be relative to the repository root and must not contain '..'",
+        "inputSha256": "f3487029df6c43879003b0908887f417c35d2221c2d55e23d78411e74a022610",
+        "outputSha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+        "startedAt": "2026-10-30T15:32:20.434Z",
+        "finishedAt": "2026-10-30T15:32:20.435Z"
+      },
+      {
+        "id": "rcpt_cae0fbe46d884094a6f5dd48ee94c491",
+        "agentId": "agt_ad24b759e7dc106a13ce3eac8e670bb0",
+        "tool": "repo_list",
+        "status": "denied",
+        "summary": "work does not exist",
+        "inputSha256": "069b8ca8a3e0fb98d389fe308da7fc47a04d7dc3a5f13c6a1eb8cd9fb990d61a",
+        "outputSha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+        "startedAt": "2026-10-30T15:32:26.065Z",
+        "finishedAt": "2026-10-30T15:32:26.067Z"
+      },
+      {
+        "id": "rcpt_e15a79b44986484b95868258c3800574",
+        "agentId": "agt_ad24b759e7dc106a13ce3eac8e670bb0",
+        "tool": "repo_list",
+        "status": "denied",
+        "summary": "data does not exist",
+        "inputSha256": "e4efe390020a9b6bac868c0e8cfd451b1a7ae979faf7213558914e75c5a0db9f",
+        "outputSha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+        "startedAt": "2026-10-30T15:32:26.067Z",
+        "finishedAt": "2026-10-30T15:32:26.069Z"
+      },
+      {
+        "id": "rcpt_d7fb7b26ee3a49369a502c5450b92890",
+        "agentId": "agt_ad24b759e7dc106a13ce3eac8e670bb0",
+        "tool": "finish",
+        "status": "ok",
+        "summary": "result submitted",
+        "inputSha256": "5c2c85777697300b18ce5d0bde988f6327a14a55a2d5a08557bd53d15ccddeb3",
+        "outputSha256": "3d58028b2da1023ce4fde18d1174dbe7a4261bf5ff0067379394616598fde0f5",
+        "startedAt": "2026-10-30T15:32:42.180Z",
+        "finishedAt": "2026-10-30T15:32:42.181Z"
+      },
+      {
+        "id": "rcpt_a4cbf20b99f44f26907ebb5f21daac27",
+        "agentId": "agt_8d3f9c6aae5dac6bf726573d0d02e4c2",
+        "tool": "board_read",
+        "status": "ok",
+        "summary": "Read 23 board entries",
+        "inputSha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+        "outputSha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+        "startedAt": "2026-10-30T15:32:52.325Z",
+        "finishedAt": "2026-10-30T15:32:52.326Z"
+      },
+      {
+        "id": "rcpt_bb54f54420e7479fb55b08748e9e27bc",
+        "agentId": "agt_8d3f9c6aae5dac6bf726573d0d02e4c2",
+        "tool": "finish",
+        "status": "ok",
+        "summary": "result submitted",
+        "inputSha256": "2535967eb17582890dbe6337b629e9bb1b2652827b03816cd944cd0edf845b01",
+        "outputSha256": "4a216ab75f18379e6dbf7e5c0fb46b3c3123c4871f7c782ffd6aeb2e7c4c3806",
+        "startedAt": "2026-10-30T15:32:58.043Z",
+        "finishedAt": "2026-10-30T15:32:58.043Z"
+      }
+    ],
+    "messages": [],
+    "paper": {
+      "name": "02_ROCKET.pdf",
+      "sha256": "b58acd66dbd188978fc379f6949a4ea26c3c97aeaf6a27f5f16ccc182628df7a",
+      "pages": 27
+    },
+    "reviewedTarget": {
+      "caseId": "rocket-ecg200",
+      "caseVersion": "f2fa87bfcba0d2b75b81f871d8a4d46c9bc8d7febf15117f8b68f5fa3a03d55c",
+      "paperSha256": "b58acd66dbd188978fc379f6949a4ea26c3c97aeaf6a27f5f16ccc182628df7a",
+      "claim": {
+        "method": "ROCKET with 10,000 random convolutional kernels and RidgeClassifierCV",
+        "dataset": "UCR ECG200 (100 train / 100 test series)",
+        "split": "the fixed UCR train/test split (100 train, 100 test)",
+        "metric": {
+          "name": "mean test accuracy across 10 runs",
+          "unit": "fraction"
+        }
+      },
+      "repository": {
+        "url": "https://github.com/angus924/rocket",
+        "commitSha": "36bd908b4f38e9ea8ca1a3ee6caaf71d405faf86",
+        "entrypoint": "code/reproduce_experiments_ucr.py"
+      },
+      "adapter": {
+        "id": "rocket-ecg200-runner",
+        "path": "work/adapter/rocket_ecg200_runner.py",
+        "sha256": "68d7f6fe127f8d50ae405b84b934b9932fa529f2a4b684d554e3ac988b7d2fbd"
+      },
+      "maximumVerdict": "partially_reproduced"
+    },
+    "repository": {
+      "url": "https://github.com/angus924/rocket",
+      "commitSha": "36bd908b4f38e9ea8ca1a3ee6caaf71d405faf86",
+      "manifestSha256": "072f9ffe3f8f98bb3dc1c04b06da7b0fe22f2433ffa53b9da0d889902c92f9fc",
+      "fileCount": 18,
+      "totalBytes": 129917
+    },
+    "contract": {
+      "schemaVersion": 1,
+      "method": "ROCKET with 10,000 random convolutional kernels and RidgeClassifierCV",
+      "dataset": {
+        "name": "UCR ECG200 (fixed train/test split)",
+        "source": {
+          "kind": "download",
+          "url": "https://timeseriesclassification.com/aeon-toolkit/ECG200.zip",
+          "sha256": "755937ea37849346ea20033666b19d17345bb039971e8fa33458b16b62c09380",
+          "extract": true
+        }
+      },
+      "split": "the fixed UCR train/test split (100 train, 100 test)",
+      "preprocessing": "not stated",
+      "seedPolicy": "not stated",
+      "repository": {
+        "url": "https://github.com/angus924/rocket",
+        "commitSha": "36bd908b4f38e9ea8ca1a3ee6caaf71d405faf86"
+      },
+      "entrypoint": "code/reproduce_experiments_ucr.py",
+      "command": {
+        "argv": [
+          "python",
+          "../adapter/rocket_ecg200_runner.py",
+          "--rocket-functions",
+          "code/rocket_functions.py",
+          "--training",
+          "../data/ECG200_TRAIN.txt",
+          "--testing",
+          "../data/ECG200_TEST.txt",
+          "--runs",
+          "10",
+          "--kernels",
+          "10000",
+          "--output",
+          "../artifacts/result.json"
+        ],
+        "cwd": "work/repo"
+      },
+      "environment": {
+        "platform": {
+          "os": "linux",
+          "architecture": "arm64",
+          "containerPlatform": "linux/arm64",
+          "python": {
+            "version": "3.11",
+            "abi": "cp311",
+            "implementation": "cp"
+          },
+          "libc": {
+            "family": "glibc",
+            "version": "2.41"
+          },
+          "accelerator": "cpu_only",
+          "packageIndex": {
+            "id": "pypi-cpu",
+            "indexUrl": "https://pypi.org/simple",
+            "allowedHosts": [
+              "pypi.org",
+              "files.pythonhosted.org"
+            ],
+            "cpuOnly": true
+          }
+        },
+        "requirements": [
+          "numpy==1.23.5",
+          "scipy==1.9.3",
+          "scikit-learn==1.1.3",
+          "joblib==1.2.0",
+          "threadpoolctl==3.1.0",
+          "numba==0.57.1",
+          "llvmlite==0.40.1"
+        ],
+        "compatibilityConstraints": []
+      },
+      "expectedRuntimeSeconds": 300,
+      "metricParser": {
+        "source": "json",
+        "path": "artifacts/result.json",
+        "key": "metrics.accuracyMean",
+        "unit": "fraction"
+      },
+      "stopConditions": [
+        "Any non-zero exit code or DEJAML_ERROR in stderr",
+        "Extracted ECG200_TRAIN.txt or ECG200_TEST.txt is missing, or the archive hash differs from the reviewed value",
+        "Training or test row count is not 100, or the series lengths differ",
+        "Run exceeds the 900 s command timeout",
+        "artifacts/result.json is missing or lacks metrics.accuracyMean"
+      ],
+      "metric": {
+        "name": "mean test accuracy across 10 runs",
+        "unit": "fraction",
+        "direction": "higher_is_better"
+      }
+    },
+    "blinding": {
+      "sealed": true,
+      "revealed": false,
+      "commitment": "2c1feb80aaf8ff827b1f888b82ded58d6093552bb6a957a34e502f654f4a1600",
+      "sealedAt": "2026-10-30T15:31:03.768Z",
+      "records": [
+        {
+          "sequence": 1,
+          "phase": "target_sealed",
+          "round": 0,
+          "commitment": "2c1feb80aaf8ff827b1f888b82ded58d6093552bb6a957a34e502f654f4a1600",
+          "record": {
+            "caseId": "rocket-ecg200",
+            "metric": "mean test accuracy across 10 runs",
+            "unit": "fraction",
+            "comparisonRule": "absolute_difference_within_tolerance",
+            "sealedAt": "2026-10-30T15:31:03.768Z"
+          },
+          "at": "2026-10-30T15:31:03.768Z"
+        },
+        {
+          "sequence": 2,
+          "phase": "agents_started",
+          "round": 0,
+          "commitment": null,
+          "record": {
+            "blindRoles": [
+              "repository_analyst",
+              "reproduction_planner",
+              "lab_engineer",
+              "debugger",
+              "independent_reviewer",
+              "supervisor"
+            ],
+            "condition": {
+              "targetVisibility": "blind",
+              "labMode": "open",
+              "controlRerun": true,
+              "shownValueSha256": null
+            }
+          },
+          "at": "2026-10-30T15:31:03.769Z"
+        },
+        {
+          "sequence": 3,
+          "phase": "final_status",
+          "round": 0,
+          "commitment": null,
+          "record": {
+            "status": "policy_blocked",
+            "sealed": true,
+            "computedStatus": "policy_blocked"
+          },
+          "at": "2026-10-30T15:32:58.049Z"
+        }
+      ],
+      "projection": {
+        "sha256": "f28c26638fdd1009c71cdbfccbb1d840f3357c0181cdc93b0b7dc51f70109d50",
+        "originalManifestSha256": "072f9ffe3f8f98bb3dc1c04b06da7b0fe22f2433ffa53b9da0d889902c92f9fc",
+        "notebooksStripped": [
+          {
+            "path": ".preprint/demo.ipynb",
+            "outputsRemoved": 1
+          }
+        ],
+        "documentsWithheld": 0,
+        "staticFindings": 2
+      },
+      "reveal": null,
+      "comparison": null,
+      "sealedPayload": null,
+      "errors": []
+    },
+    "planDigest": null,
+    "adapter": {
+      "path": "work/adapter/rocket_ecg200_runner.py",
+      "sha256": "68d7f6fe127f8d50ae405b84b934b9932fa529f2a4b684d554e3ac988b7d2fbd",
+      "why": "The upstream multi-dataset script fails when its dataset-name file contains one row because NumPy returns a scalar. This reviewed adapter selects ECG200 explicitly while importing the pinned repository's ROCKET transform.",
+      "source": "Project-owned single-dataset form of the loop in code/reproduce_experiments_ucr.py; it imports code/rocket_functions.py from the pinned repository and writes the 10-run aggregate and per-run accuracies to JSON.",
+      "differences": [
+        "project-owned adapter, not official repository code",
+        "selects ECG200 directly instead of reading a multi-row dataset-name file",
+        "writes per-run accuracy, mean accuracy, and population standard deviation to a JSON artifact",
+        "records runtime and input hashes; these additions do not alter the algorithm, split, kernels, classifier, or metric"
+      ]
+    },
+    "policy": {
+      "outcome": "policy_blocked",
+      "violations": [
+        "dataset host timeseriesclassification.com is not on the administrator's allowlist"
+      ],
+      "warnings": [
+        "an adapter (work/adapter/rocket_ecg200_runner.py) wraps the official code; the result can be at most partially reproduced"
+      ]
+    },
+    "platform": {
+      "containerPlatform": "linux/arm64",
+      "python": "3.11",
+      "accelerator": "cpu_only",
+      "packageIndex": "pypi-cpu"
+    },
+    "labImage": null,
+    "dependencies": null,
+    "datasets": [],
+    "engineers": [],
+    "result": {
+      "status": "policy_blocked",
+      "computedStatus": "policy_blocked",
+      "supervisor": {
+        "proposedStatus": "policy_blocked",
+        "rationale": "The only planned data source, https://timeseriesclassification.com/aeon-toolkit/ECG200.zip, is on a host the administrator has not allowlisted. The system recorded a policy_block, and the preparing, executing and reviewing stages were all skipped. No run was made and no metric was observed. The repository and the claim match, but the ECG200 data is not in the repo, so nothing can be reproduced. The evidence supports policy_blocked and nothing stronger.",
+        "applied": false
+      },
+      "reasons": [
+        "policy: dataset host timeseriesclassification.com is not on the administrator's allowlist"
+      ],
+      "paperValue": null,
+      "observedValue": null,
+      "absoluteDifference": null,
+      "tolerance": null
+    },
+    "usage": {
+      "inputTokens": 119525,
+      "outputTokens": 6339,
+      "costUsd": null,
+      "providerAttempts": 13,
+      "toolCalls": 21
+    },
+    "cleanup": {
+      "labs": [],
+      "dependenciesRemoved": true,
+      "datasetsRemoved": true,
+      "workDirRemoved": true,
+      "leftoverContainers": [],
+      "leftoverNetworks": [],
+      "liveAgents": [],
+      "verified": true
+    }
+  },
+  "blindingProof": [
+    {
+      "name": "target sealed before any agent existed",
+      "pass": true,
+      "info": "sealed 2026-10-30T15:31:03.768Z; first agent 2026-10-30T15:31:03.772Z; public fields caseId, commitment, metric, sealedAt"
+    },
+    {
+      "name": "commitments recorded in the required order",
+      "pass": false,
+      "info": "1:target_sealed 2:agents_started 3:final_status"
+    },
+    {
+      "name": "sealed commitment verified at the reveal",
+      "pass": false,
+      "info": "not revealed"
+    },
+    {
+      "name": "observation locked and its commitment recomputes",
+      "pass": false,
+      "info": ""
+    },
+    {
+      "name": "only the Paper Analyst could read the paper",
+      "pass": true,
+      "info": "3 blind agents without paper tools"
+    },
+    {
+      "name": "no blind agent received the paper's value or tolerance before the reveal",
+      "pass": false,
+      "info": "22 received messages scanned; the value has no distinctive written form, so only target fields were scanned"
+    },
+    {
+      "name": "no event before the reveal carried the paper's value",
+      "pass": false,
+      "info": "42 events before the reveal"
+    },
+    {
+      "name": "agents and labs saw the execution projection",
+      "pass": true,
+      "info": "projection f28c26638fdd1009c71cdbfccbb1d840f3357c0181cdc93b0b7dc51f70109d50 of manifest 072f9ffe3f8f98bb3dc1c04b06da7b0fe22f2433ffa53b9da0d889902c92f9fc; notebooks stripped: .preprint/demo.ipynb (1 outputs); documents withheld: 0"
+    },
+    {
+      "name": "comparison recomputes from the revealed target and the locked observation",
+      "pass": false,
+      "info": "no comparison"
+    },
+    {
+      "name": "blind verdicts locked before the reveal; the status was only ever lowered",
+      "pass": false,
+      "info": "blind verdicts undefined; computed policy_blocked; final policy_blocked"
+    },
+    {
+      "name": "execution agents saw only what the study condition allows",
+      "pass": true,
+      "info": "blind: no agent was shown a paper result"
+    }
+  ],
+  "status": "inconclusive",
+  "finishedAt": "2026-10-30T15:32:58.129Z",
+  "events": [
+    {
+      "id": "evt_1c6f829b-2cfe-4532-8f39-69233bfccb85",
+      "runId": "run_482ba41f-aa8f-4fa9-b7c4-e88d475e2623",
+      "sequence": 1,
+      "timestamp": "2026-10-30T15:31:03.762Z",
+      "actor": "system",
+      "type": "run_created",
+      "status": "completed",
+      "summary": "Study created and paper fingerprint recorded",
+      "evidence": [
+        {
+          "kind": "artifact",
+          "reference": "02_ROCKET.pdf#sha256=b58acd66dbd188978fc379f6949a4ea26c3c97aeaf6a27f5f16ccc182628df7a"
+        }
+      ],
+      "publicPayload": {
+        "pages": 27,
+        "warnings": []
+      }
+    },
+    {
+      "id": "evt_8e71693a-c367-48bb-937a-84be6782121c",
+      "runId": "run_482ba41f-aa8f-4fa9-b7c4-e88d475e2623",
+      "sequence": 2,
+      "timestamp": "2026-10-30T15:31:03.763Z",
+      "actor": "system",
+      "type": "reviewed_target",
+      "status": "completed",
+      "summary": "Investigating the reviewed claim rocket-ecg200",
+      "evidence": [],
+      "publicPayload": {
+        "caseId": "rocket-ecg200",
+        "caseVersion": "f2fa87bfcba0d2b75b81f871d8a4d46c9bc8d7febf15117f8b68f5fa3a03d55c",
+        "paperSha256": "b58acd66dbd188978fc379f6949a4ea26c3c97aeaf6a27f5f16ccc182628df7a",
+        "claim": {
+          "method": "ROCKET with 10,000 random convolutional kernels and RidgeClassifierCV",
+          "dataset": "UCR ECG200 (100 train / 100 test series)",
+          "split": "the fixed UCR train/test split (100 train, 100 test)",
+          "metric": {
+            "name": "mean test accuracy across 10 runs",
+            "unit": "fraction"
+          }
+        },
+        "repository": {
+          "url": "https://github.com/angus924/rocket",
+          "commitSha": "36bd908b4f38e9ea8ca1a3ee6caaf71d405faf86",
+          "entrypoint": "code/reproduce_experiments_ucr.py"
+        },
+        "adapter": {
+          "id": "rocket-ecg200-runner",
+          "path": "work/adapter/rocket_ecg200_runner.py",
+          "sha256": "68d7f6fe127f8d50ae405b84b934b9932fa529f2a4b684d554e3ac988b7d2fbd"
+        },
+        "maximumVerdict": "partially_reproduced"
+      }
+    },
+    {
+      "id": "evt_750c009c-0483-4022-9d2c-4b860dc47189",
+      "runId": "run_482ba41f-aa8f-4fa9-b7c4-e88d475e2623",
+      "sequence": 3,
+      "timestamp": "2026-10-30T15:31:03.764Z",
+      "actor": "system",
+      "type": "model_connection",
+      "status": "completed",
+      "summary": "Agents use the server's model connection",
+      "evidence": [],
+      "publicPayload": {
+        "source": "server",
+        "provider": "cheaper_inference",
+        "model": "claude-sonnet-5.5"
+      }
+    },
+    {
+      "id": "evt_8dcc4f67-d989-41cf-b72d-506cd9c6855b",
+      "runId": "run_482ba41f-aa8f-4fa9-b7c4-e88d475e2623",
+      "sequence": 4,
+      "timestamp": "2026-10-30T15:31:03.764Z",
+      "actor": "system",
+      "type": "repository_found",
+      "status": "completed",
+      "summary": "Independent agents will verify and reproduce the reviewed claim",
+      "evidence": [],
+      "publicPayload": {
+        "candidates": [
+          "https://github.com/angus924/rocket"
+        ],
+        "autonomous": true,
+        "reviewedTarget": "rocket-ecg200"
+      }
+    },
+    {
+      "id": "evt_1a30d334-1975-4837-ae19-ce68c93ed689",
+      "runId": "run_482ba41f-aa8f-4fa9-b7c4-e88d475e2623",
+      "sequence": 5,
+      "timestamp": "2026-10-30T15:31:03.767Z",
+      "actor": "system",
+      "type": "study_team",
+      "status": "started",
+      "summary": "Independent agents will run the study, stage by stage",
+      "evidence": [],
+      "publicPayload": {
+        "runtime": "native autonomous agent runtime",
+        "provider": "cheaper_inference",
+        "model": "claude-sonnet-5.5",
+        "platform": "linux/arm64",
+        "resumed": false
+      }
+    },
+    {
+      "id": "evt_ef12a2eb-c11f-4bb4-9e24-171039ff9695",
+      "runId": "run_482ba41f-aa8f-4fa9-b7c4-e88d475e2623",
+      "sequence": 6,
+      "timestamp": "2026-10-30T15:31:03.768Z",
+      "actor": "system",
+      "type": "target_sealed",
+      "status": "completed",
+      "summary": "Paper target sealed: the reported value stays hidden until the experiment and review are locked",
+      "evidence": [],
+      "publicPayload": {
+        "caseId": "rocket-ecg200",
+        "commitment": "2c1feb80aaf8ff827b1f888b82ded58d6093552bb6a957a34e502f654f4a1600",
+        "metric": "mean test accuracy across 10 runs",
+        "sealedAt": "2026-10-30T15:31:03.768Z"
+      }
+    },
+    {
+      "id": "evt_58ba708b-c74f-40aa-bc8e-a5ea30a40c9c",
+      "runId": "run_482ba41f-aa8f-4fa9-b7c4-e88d475e2623",
+      "sequence": 7,
+      "timestamp": "2026-10-30T15:31:03.769Z",
+      "actor": "system",
+      "type": "agents_started",
+      "status": "started",
+      "summary": "Blind agents start: none of them is told the paper's value",
+      "evidence": [],
+      "publicPayload": {
+        "condition": {
+          "targetVisibility": "blind",
+          "labMode": "open",
+          "controlRerun": true,
+          "shownValueSha256": null
+        }
+      }
+    },
+    {
+      "id": "evt_7f0ae271-d018-4237-a972-43a1b904b3db",
+      "runId": "run_482ba41f-aa8f-4fa9-b7c4-e88d475e2623",
+      "sequence": 8,
+      "timestamp": "2026-10-30T15:31:03.770Z",
+      "actor": "system",
+      "type": "stage_started",
+      "status": "started",
+      "summary": "Stage ingesting started",
+      "evidence": [],
+      "publicPayload": {
+        "stage": "ingesting",
+        "attempt": 1,
+        "retryReason": null
+      }
+    },
+    {
+      "id": "evt_c3efd5c4-2e45-4a3a-836a-55bc16cee505",
+      "runId": "run_482ba41f-aa8f-4fa9-b7c4-e88d475e2623",
+      "sequence": 9,
+      "timestamp": "2026-10-30T15:31:03.772Z",
+      "actor": "system",
+      "type": "stage_started",
+      "status": "started",
+      "summary": "Stage analyzing paper started",
+      "evidence": [],
+      "publicPayload": {
+        "stage": "analyzing_paper",
+        "attempt": 1,
+        "retryReason": null
+      }
+    },
+    {
+      "id": "evt_aa998cfa-86a1-4e27-96b8-1fff1388f66b",
+      "runId": "run_482ba41f-aa8f-4fa9-b7c4-e88d475e2623",
+      "sequence": 10,
+      "timestamp": "2026-10-30T15:31:03.773Z",
+      "actor": "paper_analyst",
+      "type": "agent_started",
+      "status": "started",
+      "summary": "Paper Analyst started (paper-analyst)",
+      "evidence": [],
+      "publicPayload": {
+        "agentId": "agt_cda253e36bc4c189e7ae2b7065ee066e",
+        "role": "paper_analyst",
+        "label": "paper-analyst",
+        "grants": [
+          "paper_list_pages",
+          "paper_read_page",
+          "paper_search"
+        ],
+        "limits": {
+          "maxIterations": 20,
+          "maxToolCalls": 30,
+          "maxInputTokens": 1500000,
+          "maxOutputTokens": 120000,
+          "maxWallMs": 600000,
+          "maxContextChars": 240000,
+          "maxTurnOutputTokens": 8000,
+          "maxToolResultChars": 16000
+        },
+        "provider": "cheaper_inference",
+        "model": "claude-sonnet-5.5",
+        "parentAgentId": null
+      }
+    },
+    {
+      "id": "evt_69c3197c-a5b0-495d-b101-d0ee0a3a4e1d",
+      "runId": "run_482ba41f-aa8f-4fa9-b7c4-e88d475e2623",
+      "sequence": 11,
+      "timestamp": "2026-10-30T15:31:03.776Z",
+      "actor": "system",
+      "type": "stage_started",
+      "status": "started",
+      "summary": "Stage analyzing repository started",
+      "evidence": [],
+      "publicPayload": {
+        "stage": "analyzing_repository",
+        "attempt": 1,
+        "retryReason": null
+      }
+    },
+    {
+      "id": "evt_e6d633ef-0728-4b16-9723-a998a573e82d",
+      "runId": "run_482ba41f-aa8f-4fa9-b7c4-e88d475e2623",
+      "sequence": 12,
+      "timestamp": "2026-10-30T15:31:03.776Z",
+      "actor": "repository_analyst",
+      "type": "agent_started",
+      "status": "started",
+      "summary": "Repository Analyst started (repository-analyst)",
+      "evidence": [],
+      "publicPayload": {
+        "agentId": "agt_435a6d2511c90d0bb58de8bfe99e2c2a",
+        "role": "repository_analyst",
+        "label": "repository-analyst",
+        "grants": [
+          "repo_acquire",
+          "repo_list",
+          "repo_read",
+          "repo_search",
+          "dependency_discover"
+        ],
+        "limits": {
+          "maxIterations": 25,
+          "maxToolCalls": 40,
+          "maxInputTokens": 1500000,
+          "maxOutputTokens": 120000,
+          "maxWallMs": 600000,
+          "maxContextChars": 240000,
+          "maxTurnOutputTokens": 8000,
+          "maxToolResultChars": 16000
+        },
+        "provider": "cheaper_inference",
+        "model": "claude-sonnet-5.5",
+        "parentAgentId": null
+      }
+    },
+    {
+      "id": "evt_467a7de3-e573-4dc2-927f-086d0d96854a",
+      "runId": "run_482ba41f-aa8f-4fa9-b7c4-e88d475e2623",
+      "sequence": 13,
+      "timestamp": "2026-10-30T15:31:09.521Z",
+      "actor": "paper_analyst",
+      "type": "agent_turn",
+      "status": "progress",
+      "summary": "Paper Analyst turn 1: paper_read_page",
+      "evidence": [],
+      "publicPayload": {
+        "agentId": "agt_cda253e36bc4c189e7ae2b7065ee066e",
+        "role": "paper_analyst",
+        "label": "paper-analyst",
+        "iteration": 1,
+        "tools": [
+          "paper_read_page"
+        ],
+        "tokens": {
+          "input": 2465,
+          "output": 60
+        },
+        "costUsd": null
+      }
+    },
+    {
+      "id": "evt_871a99d2-da73-4eab-8d80-56065b332738",
+      "runId": "run_482ba41f-aa8f-4fa9-b7c4-e88d475e2623",
+      "sequence": 14,
+      "timestamp": "2026-10-30T15:31:13.874Z",
+      "actor": "repository_analyst",
+      "type": "agent_turn",
+      "status": "progress",
+      "summary": "Repository Analyst turn 1: repo_acquire, repo_list, dependency_discover",
+      "evidence": [],
+      "publicPayload": {
+        "agentId": "agt_435a6d2511c90d0bb58de8bfe99e2c2a",
+        "role": "repository_analyst",
+        "label": "repository-analyst",
+        "iteration": 1,
+        "tools": [
+          "repo_acquire",
+          "repo_list",
+          "dependency_discover"
+        ],
+        "tokens": {
+          "input": 2616,
+          "output": 140
+        },
+        "costUsd": null
+      }
+    },
+    {
+      "id": "evt_d5bbdb28-9e23-493d-a0c0-e9747785133b",
+      "runId": "run_482ba41f-aa8f-4fa9-b7c4-e88d475e2623",
+      "sequence": 15,
+      "timestamp": "2026-10-30T15:31:15.150Z",
+      "actor": "system",
+      "type": "repository_acquired",
+      "status": "completed",
+      "summary": "Pinned https://github.com/angus924/rocket at 36bd908b4f38",
+      "evidence": [],
+      "publicPayload": {
+        "repositoryUrl": "https://github.com/angus924/rocket",
+        "commitSha": "36bd908b4f38e9ea8ca1a3ee6caaf71d405faf86",
+        "defaultBranch": "master",
+        "acquiredAt": "2026-10-30T15:31:15.131Z",
+        "fileCount": 18,
+        "totalBytes": 129917,
+        "manifestSha256": "072f9ffe3f8f98bb3dc1c04b06da7b0fe22f2433ffa53b9da0d889902c92f9fc",
+        "metadataSource": "github_api"
+      }
+    },
+    {
+      "id": "evt_e6315b8c-e8c7-4fa2-8236-1bc4ed71ffd1",
+      "runId": "run_482ba41f-aa8f-4fa9-b7c4-e88d475e2623",
+      "sequence": 16,
+      "timestamp": "2026-10-30T15:31:20.716Z",
+      "actor": "repository_analyst",
+      "type": "agent_turn",
+      "status": "progress",
+      "summary": "Repository Analyst turn 2: repo_read, repo_read, repo_read, repo_read",
+      "evidence": [],
+      "publicPayload": {
+        "agentId": "agt_435a6d2511c90d0bb58de8bfe99e2c2a",
+        "role": "repository_analyst",
+        "label": "repository-analyst",
+        "iteration": 2,
+        "tools": [
+          "repo_read",
+          "repo_read",
+          "repo_read",
+          "repo_read"
+        ],
+        "tokens": {
+          "input": 3982,
+          "output": 229
+        },
+        "costUsd": null
+      }
+    },
+    {
+      "id": "evt_b7b1d11a-ffd3-46aa-b905-9f656ce3b5e7",
+      "runId": "run_482ba41f-aa8f-4fa9-b7c4-e88d475e2623",
+      "sequence": 17,
+      "timestamp": "2026-10-30T15:31:21.915Z",
+      "actor": "paper_analyst",
+      "type": "agent_turn",
+      "status": "progress",
+      "summary": "Paper Analyst turn 2: finish",
+      "evidence": [],
+      "publicPayload": {
+        "agentId": "agt_cda253e36bc4c189e7ae2b7065ee066e",
+        "role": "paper_analyst",
+        "label": "paper-analyst",
+        "iteration": 2,
+        "tools": [
+          "finish"
+        ],
+        "tokens": {
+          "input": 5109,
+          "output": 496
+        },
+        "costUsd": null
+      }
+    },
+    {
+      "id": "evt_4ca0b131-5147-4b72-bb55-342b370d66d6",
+      "runId": "run_482ba41f-aa8f-4fa9-b7c4-e88d475e2623",
+      "sequence": 18,
+      "timestamp": "2026-10-30T15:31:21.918Z",
+      "actor": "paper_analyst",
+      "type": "agent_finished",
+      "status": "completed",
+      "summary": "Paper Analyst completed",
+      "evidence": [],
+      "publicPayload": {
+        "agentId": "agt_cda253e36bc4c189e7ae2b7065ee066e",
+        "role": "paper_analyst",
+        "label": "paper-analyst",
+        "status": "completed",
+        "reason": null,
+        "usage": {
+          "iterations": 2,
+          "toolCalls": 2,
+          "inputTokens": 7574,
+          "outputTokens": 556,
+          "costUsd": null,
+          "providerAttempts": 2,
+          "segments": 1
+        }
+      }
+    },
+    {
+      "id": "evt_466273ed-c328-49ef-adeb-421f7d3be54d",
+      "runId": "run_482ba41f-aa8f-4fa9-b7c4-e88d475e2623",
+      "sequence": 19,
+      "timestamp": "2026-10-30T15:31:38.587Z",
+      "actor": "repository_analyst",
+      "type": "agent_turn",
+      "status": "progress",
+      "summary": "Repository Analyst turn 3: finish",
+      "evidence": [],
+      "publicPayload": {
+        "agentId": "agt_435a6d2511c90d0bb58de8bfe99e2c2a",
+        "role": "repository_analyst",
+        "label": "repository-analyst",
+        "iteration": 3,
+        "tools": [
+          "finish"
+        ],
+        "tokens": {
+          "input": 12810,
+          "output": 2202
+        },
+        "costUsd": null
+      }
+    },
+    {
+      "id": "evt_8a43d430-126a-44a2-b3e8-7bacb901e141",
+      "runId": "run_482ba41f-aa8f-4fa9-b7c4-e88d475e2623",
+      "sequence": 20,
+      "timestamp": "2026-10-30T15:31:38.589Z",
+      "actor": "repository_analyst",
+      "type": "agent_finished",
+      "status": "completed",
+      "summary": "Repository Analyst completed",
+      "evidence": [],
+      "publicPayload": {
+        "agentId": "agt_435a6d2511c90d0bb58de8bfe99e2c2a",
+        "role": "repository_analyst",
+        "label": "repository-analyst",
+        "status": "completed",
+        "reason": null,
+        "usage": {
+          "iterations": 3,
+          "toolCalls": 8,
+          "inputTokens": 19408,
+          "outputTokens": 2571,
+          "costUsd": null,
+          "providerAttempts": 3,
+          "segments": 1
+        }
+      }
+    },
+    {
+      "id": "evt_73ae00a4-02e4-4ecc-963b-ea4a0a88e051",
+      "runId": "run_482ba41f-aa8f-4fa9-b7c4-e88d475e2623",
+      "sequence": 21,
+      "timestamp": "2026-10-30T15:31:38.593Z",
+      "actor": "system",
+      "type": "stage_started",
+      "status": "started",
+      "summary": "Stage reconciling started",
+      "evidence": [],
+      "publicPayload": {
+        "stage": "reconciling",
+        "attempt": 1,
+        "retryReason": null
+      }
+    },
+    {
+      "id": "evt_4ddce84e-9750-464c-8530-d1a16cd52279",
+      "runId": "run_482ba41f-aa8f-4fa9-b7c4-e88d475e2623",
+      "sequence": 22,
+      "timestamp": "2026-10-30T15:31:38.595Z",
+      "actor": "reproduction_planner",
+      "type": "agent_started",
+      "status": "started",
+      "summary": "Reproduction Planner started (planner)",
+      "evidence": [],
+      "publicPayload": {
+        "agentId": "agt_ad24b759e7dc106a13ce3eac8e670bb0",
+        "role": "reproduction_planner",
+        "label": "planner",
+        "grants": [
+          "board_read",
+          "repo_list",
+          "repo_read",
+          "repo_search",
+          "dependency_discover",
+          "dependency_check"
+        ],
+        "limits": {
+          "maxIterations": 30,
+          "maxToolCalls": 40,
+          "maxInputTokens": 1500000,
+          "maxOutputTokens": 120000,
+          "maxWallMs": 1200000,
+          "maxContextChars": 240000,
+          "maxTurnOutputTokens": 8000,
+          "maxToolResultChars": 16000
+        },
+        "provider": "cheaper_inference",
+        "model": "claude-sonnet-5.5",
+        "parentAgentId": null
+      }
+    },
+    {
+      "id": "evt_4b6c8d8d-7656-4c20-a922-965b8b2e56d7",
+      "runId": "run_482ba41f-aa8f-4fa9-b7c4-e88d475e2623",
+      "sequence": 23,
+      "timestamp": "2026-10-30T15:31:49.833Z",
+      "actor": "reproduction_planner",
+      "type": "agent_turn",
+      "status": "progress",
+      "summary": "Reproduction Planner turn 1: board_read, repo_list",
+      "evidence": [],
+      "publicPayload": {
+        "agentId": "agt_ad24b759e7dc106a13ce3eac8e670bb0",
+        "role": "reproduction_planner",
+        "label": "planner",
+        "iteration": 1,
+        "tools": [
+          "board_read",
+          "repo_list"
+        ],
+        "tokens": {
+          "input": 8573,
+          "output": 50
+        },
+        "costUsd": null
+      }
+    },
+    {
+      "id": "evt_dcc93704-e55e-40d1-892f-85d6b3bd18ff",
+      "runId": "run_482ba41f-aa8f-4fa9-b7c4-e88d475e2623",
+      "sequence": 24,
+      "timestamp": "2026-10-30T15:31:56.379Z",
+      "actor": "reproduction_planner",
+      "type": "agent_turn",
+      "status": "progress",
+      "summary": "Reproduction Planner turn 2: repo_read, dependency_check",
+      "evidence": [],
+      "publicPayload": {
+        "agentId": "agt_ad24b759e7dc106a13ce3eac8e670bb0",
+        "role": "reproduction_planner",
+        "label": "planner",
+        "iteration": 2,
+        "tools": [
+          "repo_read",
+          "dependency_check"
+        ],
+        "tokens": {
+          "input": 12848,
+          "output": 279
+        },
+        "costUsd": null
+      }
+    },
+    {
+      "id": "evt_b82301bf-ac06-4731-b2fc-21e1018a5f3e",
+      "runId": "run_482ba41f-aa8f-4fa9-b7c4-e88d475e2623",
+      "sequence": 25,
+      "timestamp": "2026-10-30T15:32:14.242Z",
+      "actor": "reproduction_planner",
+      "type": "agent_turn",
+      "status": "progress",
+      "summary": "Reproduction Planner turn 3: board_read",
+      "evidence": [],
+      "publicPayload": {
+        "agentId": "agt_ad24b759e7dc106a13ce3eac8e670bb0",
+        "role": "reproduction_planner",
+        "label": "planner",
+        "iteration": 3,
+        "tools": [
+          "board_read"
+        ],
+        "tokens": {
+          "input": 15322,
+          "output": 287
+        },
+        "costUsd": null
+      }
+    },
+    {
+      "id": "evt_36cbc84a-2bef-4e09-992f-d1bd7a95b2d8",
+      "runId": "run_482ba41f-aa8f-4fa9-b7c4-e88d475e2623",
+      "sequence": 26,
+      "timestamp": "2026-10-30T15:32:20.433Z",
+      "actor": "reproduction_planner",
+      "type": "agent_turn",
+      "status": "progress",
+      "summary": "Reproduction Planner turn 4: repo_list",
+      "evidence": [],
+      "publicPayload": {
+        "agentId": "agt_ad24b759e7dc106a13ce3eac8e670bb0",
+        "role": "reproduction_planner",
+        "label": "planner",
+        "iteration": 4,
+        "tools": [
+          "repo_list"
+        ],
+        "tokens": {
+          "input": 15414,
+          "output": 256
+        },
+        "costUsd": null
+      }
+    },
+    {
+      "id": "evt_ff37c747-71c6-4260-a92c-d2c8187cd205",
+      "runId": "run_482ba41f-aa8f-4fa9-b7c4-e88d475e2623",
+      "sequence": 27,
+      "timestamp": "2026-10-30T15:32:26.064Z",
+      "actor": "reproduction_planner",
+      "type": "agent_turn",
+      "status": "progress",
+      "summary": "Reproduction Planner turn 5: repo_list, repo_list",
+      "evidence": [],
+      "publicPayload": {
+        "agentId": "agt_ad24b759e7dc106a13ce3eac8e670bb0",
+        "role": "reproduction_planner",
+        "label": "planner",
+        "iteration": 5,
+        "tools": [
+          "repo_list",
+          "repo_list"
+        ],
+        "tokens": {
+          "input": 15513,
+          "output": 195
+        },
+        "costUsd": null
+      }
+    },
+    {
+      "id": "evt_147307d5-bb4c-49c4-87f8-eefd47ffebb2",
+      "runId": "run_482ba41f-aa8f-4fa9-b7c4-e88d475e2623",
+      "sequence": 28,
+      "timestamp": "2026-10-30T15:32:42.176Z",
+      "actor": "reproduction_planner",
+      "type": "agent_turn",
+      "status": "progress",
+      "summary": "Reproduction Planner turn 6: finish",
+      "evidence": [],
+      "publicPayload": {
+        "agentId": "agt_ad24b759e7dc106a13ce3eac8e670bb0",
+        "role": "reproduction_planner",
+        "label": "planner",
+        "iteration": 6,
+        "tools": [
+          "finish"
+        ],
+        "tokens": {
+          "input": 15684,
+          "output": 1889
+        },
+        "costUsd": null
+      }
+    },
+    {
+      "id": "evt_b42dddab-4dc7-4222-99ef-77c9786ca403",
+      "runId": "run_482ba41f-aa8f-4fa9-b7c4-e88d475e2623",
+      "sequence": 29,
+      "timestamp": "2026-10-30T15:32:42.184Z",
+      "actor": "reproduction_planner",
+      "type": "agent_finished",
+      "status": "completed",
+      "summary": "Reproduction Planner completed",
+      "evidence": [],
+      "publicPayload": {
+        "agentId": "agt_ad24b759e7dc106a13ce3eac8e670bb0",
+        "role": "reproduction_planner",
+        "label": "planner",
+        "status": "completed",
+        "reason": null,
+        "usage": {
+          "iterations": 6,
+          "toolCalls": 9,
+          "inputTokens": 83354,
+          "outputTokens": 2956,
+          "costUsd": null,
+          "providerAttempts": 6,
+          "segments": 1
+        }
+      }
+    },
+    {
+      "id": "evt_5ece467c-4aff-4db5-b3a9-fa65c492c194",
+      "runId": "run_482ba41f-aa8f-4fa9-b7c4-e88d475e2623",
+      "sequence": 30,
+      "timestamp": "2026-10-30T15:32:42.193Z",
+      "actor": "system",
+      "type": "stage_started",
+      "status": "started",
+      "summary": "Stage policy review started",
+      "evidence": [],
+      "publicPayload": {
+        "stage": "policy_review",
+        "attempt": 1,
+        "retryReason": null
+      }
+    },
+    {
+      "id": "evt_4c94789d-0449-47bb-afa5-4d0cd2e9b6fc",
+      "runId": "run_482ba41f-aa8f-4fa9-b7c4-e88d475e2623",
+      "sequence": 31,
+      "timestamp": "2026-10-30T15:32:42.195Z",
+      "actor": "system",
+      "type": "plan_refused",
+      "status": "warning",
+      "summary": "Policy review refused the plan: dataset host timeseriesclassification.com is not on the administrator's allowlist",
+      "evidence": [],
+      "publicPayload": {
+        "outcome": "policy_blocked",
+        "violations": [
+          "dataset host timeseriesclassification.com is not on the administrator's allowlist"
+        ]
+      }
+    },
+    {
+      "id": "evt_e068e01d-0b87-4f86-a942-4c1934536141",
+      "runId": "run_482ba41f-aa8f-4fa9-b7c4-e88d475e2623",
+      "sequence": 32,
+      "timestamp": "2026-10-30T15:32:42.198Z",
+      "actor": "system",
+      "type": "stage_started",
+      "status": "started",
+      "summary": "Stage preparing started",
+      "evidence": [],
+      "publicPayload": {
+        "stage": "preparing",
+        "attempt": 1,
+        "retryReason": null
+      }
+    },
+    {
+      "id": "evt_3b320e9b-0268-424d-bcd8-ffd60d4c3dfd",
+      "runId": "run_482ba41f-aa8f-4fa9-b7c4-e88d475e2623",
+      "sequence": 33,
+      "timestamp": "2026-10-30T15:32:42.200Z",
+      "actor": "system",
+      "type": "stage_started",
+      "status": "started",
+      "summary": "Stage executing started",
+      "evidence": [],
+      "publicPayload": {
+        "stage": "executing",
+        "attempt": 1,
+        "retryReason": null
+      }
+    },
+    {
+      "id": "evt_34897692-da2f-4192-9051-11fc47cd6950",
+      "runId": "run_482ba41f-aa8f-4fa9-b7c4-e88d475e2623",
+      "sequence": 34,
+      "timestamp": "2026-10-30T15:32:42.202Z",
+      "actor": "system",
+      "type": "stage_started",
+      "status": "started",
+      "summary": "Stage reviewing started",
+      "evidence": [],
+      "publicPayload": {
+        "stage": "reviewing",
+        "attempt": 1,
+        "retryReason": null
+      }
+    },
+    {
+      "id": "evt_a4b8b3f6-6479-487a-a75a-7804e28a703e",
+      "runId": "run_482ba41f-aa8f-4fa9-b7c4-e88d475e2623",
+      "sequence": 35,
+      "timestamp": "2026-10-30T15:32:42.204Z",
+      "actor": "system",
+      "type": "stage_started",
+      "status": "started",
+      "summary": "Stage deciding started",
+      "evidence": [],
+      "publicPayload": {
+        "stage": "deciding",
+        "attempt": 1,
+        "retryReason": null
+      }
+    },
+    {
+      "id": "evt_9e750ead-4c31-4470-8397-2250601e5391",
+      "runId": "run_482ba41f-aa8f-4fa9-b7c4-e88d475e2623",
+      "sequence": 36,
+      "timestamp": "2026-10-30T15:32:42.204Z",
+      "actor": "supervisor",
+      "type": "agent_started",
+      "status": "started",
+      "summary": "Supervisor started (supervisor-verdict)",
+      "evidence": [],
+      "publicPayload": {
+        "agentId": "agt_8d3f9c6aae5dac6bf726573d0d02e4c2",
+        "role": "supervisor",
+        "label": "supervisor-verdict",
+        "grants": [
+          "board_read"
+        ],
+        "limits": {
+          "maxIterations": 8,
+          "maxToolCalls": 10,
+          "maxInputTokens": 1500000,
+          "maxOutputTokens": 120000,
+          "maxWallMs": 300000,
+          "maxContextChars": 240000,
+          "maxTurnOutputTokens": 8000,
+          "maxToolResultChars": 16000
+        },
+        "provider": "cheaper_inference",
+        "model": "claude-sonnet-5.5",
+        "parentAgentId": null
+      }
+    },
+    {
+      "id": "evt_bd4193dc-ce6f-41d1-b3c9-65036d0852d5",
+      "runId": "run_482ba41f-aa8f-4fa9-b7c4-e88d475e2623",
+      "sequence": 37,
+      "timestamp": "2026-10-30T15:32:52.324Z",
+      "actor": "supervisor",
+      "type": "agent_turn",
+      "status": "progress",
+      "summary": "Supervisor turn 1: board_read",
+      "evidence": [],
+      "publicPayload": {
+        "agentId": "agt_8d3f9c6aae5dac6bf726573d0d02e4c2",
+        "role": "supervisor",
+        "label": "supervisor-verdict",
+        "iteration": 1,
+        "tools": [
+          "board_read"
+        ],
+        "tokens": {
+          "input": 1457,
+          "output": 26
+        },
+        "costUsd": null
+      }
+    },
+    {
+      "id": "evt_0cb13ca8-0065-4a3c-8af4-873de25076fa",
+      "runId": "run_482ba41f-aa8f-4fa9-b7c4-e88d475e2623",
+      "sequence": 38,
+      "timestamp": "2026-10-30T15:32:58.042Z",
+      "actor": "supervisor",
+      "type": "agent_turn",
+      "status": "progress",
+      "summary": "Supervisor turn 2: finish",
+      "evidence": [],
+      "publicPayload": {
+        "agentId": "agt_8d3f9c6aae5dac6bf726573d0d02e4c2",
+        "role": "supervisor",
+        "label": "supervisor-verdict",
+        "iteration": 2,
+        "tools": [
+          "finish"
+        ],
+        "tokens": {
+          "input": 7732,
+          "output": 230
+        },
+        "costUsd": null
+      }
+    },
+    {
+      "id": "evt_1257a2c6-9a10-4fbb-ba5c-6fe41fcd91c0",
+      "runId": "run_482ba41f-aa8f-4fa9-b7c4-e88d475e2623",
+      "sequence": 39,
+      "timestamp": "2026-10-30T15:32:58.045Z",
+      "actor": "supervisor",
+      "type": "agent_finished",
+      "status": "completed",
+      "summary": "Supervisor completed",
+      "evidence": [],
+      "publicPayload": {
+        "agentId": "agt_8d3f9c6aae5dac6bf726573d0d02e4c2",
+        "role": "supervisor",
+        "label": "supervisor-verdict",
+        "status": "completed",
+        "reason": null,
+        "usage": {
+          "iterations": 2,
+          "toolCalls": 2,
+          "inputTokens": 9189,
+          "outputTokens": 256,
+          "costUsd": null,
+          "providerAttempts": 2,
+          "segments": 1
+        }
+      }
+    },
+    {
+      "id": "evt_1a19f026-5f5f-4c19-8725-2531d170ff67",
+      "runId": "run_482ba41f-aa8f-4fa9-b7c4-e88d475e2623",
+      "sequence": 40,
+      "timestamp": "2026-10-30T15:32:58.049Z",
+      "actor": "system",
+      "type": "final_status",
+      "status": "completed",
+      "summary": "Final status recorded; the paper target stays sealed",
+      "evidence": [],
+      "publicPayload": {
+        "status": "policy_blocked",
+        "sealed": true
+      }
+    },
+    {
+      "id": "evt_6549926a-3241-4f57-869c-64bff8d2462e",
+      "runId": "run_482ba41f-aa8f-4fa9-b7c4-e88d475e2623",
+      "sequence": 41,
+      "timestamp": "2026-10-30T15:32:58.122Z",
+      "actor": "system",
+      "type": "study_cleanup",
+      "status": "completed",
+      "summary": "Destroyed 0 lab(s) and removed prepared files; nothing from this study is left running",
+      "evidence": [],
+      "publicPayload": {
+        "labs": [],
+        "dependenciesRemoved": true,
+        "datasetsRemoved": true,
+        "workDirRemoved": true,
+        "leftoverContainers": [],
+        "leftoverNetworks": [],
+        "liveAgents": [],
+        "verified": true
+      }
+    },
+    {
+      "id": "evt_60a496de-5f22-4e27-b692-9d32fe0451ee",
+      "runId": "run_482ba41f-aa8f-4fa9-b7c4-e88d475e2623",
+      "sequence": 42,
+      "timestamp": "2026-10-30T15:32:58.125Z",
+      "actor": "system",
+      "type": "study_result",
+      "status": "warning",
+      "summary": "Result: policy blocked",
+      "evidence": [],
+      "publicPayload": {
+        "status": "policy_blocked",
+        "reasons": [
+          "policy: dataset host timeseriesclassification.com is not on the administrator's allowlist"
+        ]
+      }
+    },
+    {
+      "id": "evt_612a9508-c87a-40a5-ae8a-56bbcdf3f69e",
+      "runId": "run_482ba41f-aa8f-4fa9-b7c4-e88d475e2623",
+      "sequence": 43,
+      "timestamp": "2026-10-30T15:32:58.128Z",
+      "actor": "system",
+      "type": "run_finished",
+      "status": "warning",
+      "summary": "Study finished: inconclusive",
+      "evidence": [],
+      "publicPayload": {
+        "runStatus": "inconclusive",
+        "verdict": "inconclusive"
+      }
+    }
+  ]
+}

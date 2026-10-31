@@ -1,0 +1,2356 @@
+{
+  "schemaVersion": 1,
+  "runId": "run_ed21198a-ee5a-4930-834c-ebc151355095",
+  "startedAt": "2026-10-30T15:32:58.662Z",
+  "paper": {
+    "name": "2609.19010.pdf",
+    "bytes": 4953422,
+    "sha256": "13b0c3fb3c2823f78eb650f918aa521493bddd6eccb55a2b9857c37d44d0a6a1",
+    "pages": 21
+  },
+  "caseId": "urban-land-cover-random-forest",
+  "repository": {
+    "url": "https://github.com/mtesha/tdl-vs-ml-urbanlandcover",
+    "commitSha": "49ece7ff4cc43fd4cb258678d44854f1cb2a417d"
+  },
+  "plan": null,
+  "policy": null,
+  "lab": {
+    "image": "dejaml/python-cpu:0.1.0",
+    "imageId": null,
+    "attempt": null,
+    "stdout": "",
+    "stderr": "",
+    "logsTruncated": false,
+    "cleanup": null
+  },
+  "metric": null,
+  "assessment": {
+    "comparable": false,
+    "checks": [
+      {
+        "name": "approved command",
+        "passed": false,
+        "explanation": "The approved official command ran in the sealed lab and exited 0."
+      },
+      {
+        "name": "metric parsed by code",
+        "passed": false,
+        "explanation": "The metric was parsed from the official run with the contract's parser."
+      },
+      {
+        "name": "independent review",
+        "passed": false,
+        "explanation": "No approved review."
+      }
+    ],
+    "paperValue": null,
+    "observedValue": null,
+    "signedDifference": null,
+    "absoluteDifference": null,
+    "tolerance": null,
+    "verdict": "inconclusive",
+    "discrepancyHypotheses": [],
+    "evidence": [],
+    "limitations": []
+  },
+  "audit": null,
+  "failure": "policy: dataset host archive.ics.uci.edu is not on the administrator's allowlist",
+  "study": {
+    "runtime": "native autonomous agent runtime",
+    "provider": {
+      "id": "cheaper_inference",
+      "model": "claude-sonnet-5.5"
+    },
+    "condition": {
+      "targetVisibility": "blind",
+      "labMode": "open",
+      "shown": null,
+      "controlRerun": {
+        "status": "skipped",
+        "reason": "no approved command was run",
+        "value": null,
+        "receiptId": null,
+        "exitCode": null,
+        "stdoutSha256": null
+      }
+    },
+    "agents": [
+      {
+        "agentId": "agt_e33b5b1b6fa791e72d45ceac4657c918",
+        "role": "paper_analyst",
+        "roleLabel": "Paper Analyst",
+        "label": "paper-analyst",
+        "parentId": null,
+        "status": "completed",
+        "reason": null,
+        "provider": "cheaper_inference",
+        "model": "claude-sonnet-5.5",
+        "grants": [
+          "paper_list_pages",
+          "paper_read_page",
+          "paper_search"
+        ],
+        "usage": {
+          "iterations": 2,
+          "toolCalls": 2,
+          "inputTokens": 6287,
+          "outputTokens": 523,
+          "costUsd": null,
+          "providerAttempts": 2,
+          "segments": 1
+        },
+        "createdAt": "2026-10-30T15:32:58.768Z",
+        "finishedAt": "2026-10-30T15:33:11.476Z"
+      },
+      {
+        "agentId": "agt_b96487e5733bae417e9492c2d5d1ca2d",
+        "role": "repository_analyst",
+        "roleLabel": "Repository Analyst",
+        "label": "repository-analyst",
+        "parentId": null,
+        "status": "completed",
+        "reason": null,
+        "provider": "cheaper_inference",
+        "model": "claude-sonnet-5.5",
+        "grants": [
+          "repo_acquire",
+          "repo_list",
+          "repo_read",
+          "repo_search",
+          "dependency_discover"
+        ],
+        "usage": {
+          "iterations": 4,
+          "toolCalls": 8,
+          "inputTokens": 24818,
+          "outputTokens": 2386,
+          "costUsd": null,
+          "providerAttempts": 4,
+          "segments": 1
+        },
+        "createdAt": "2026-10-30T15:32:58.771Z",
+        "finishedAt": "2026-10-30T15:33:36.566Z"
+      },
+      {
+        "agentId": "agt_d27359674160c6cdf29c2ae533286c60",
+        "role": "reproduction_planner",
+        "roleLabel": "Reproduction Planner",
+        "label": "planner",
+        "parentId": null,
+        "status": "completed",
+        "reason": null,
+        "provider": "cheaper_inference",
+        "model": "claude-sonnet-5.5",
+        "grants": [
+          "board_read",
+          "repo_list",
+          "repo_read",
+          "repo_search",
+          "dependency_discover",
+          "dependency_check"
+        ],
+        "usage": {
+          "iterations": 4,
+          "toolCalls": 6,
+          "inputTokens": 48010,
+          "outputTokens": 2519,
+          "costUsd": null,
+          "providerAttempts": 4,
+          "segments": 1
+        },
+        "createdAt": "2026-10-30T15:33:36.572Z",
+        "finishedAt": "2026-10-30T15:34:21.601Z"
+      },
+      {
+        "agentId": "agt_b386b87c9ca89824526ca98de885663b",
+        "role": "supervisor",
+        "roleLabel": "Supervisor",
+        "label": "supervisor-verdict",
+        "parentId": null,
+        "status": "completed",
+        "reason": null,
+        "provider": "cheaper_inference",
+        "model": "claude-sonnet-5.5",
+        "grants": [
+          "board_read"
+        ],
+        "usage": {
+          "iterations": 2,
+          "toolCalls": 2,
+          "inputTokens": 9003,
+          "outputTokens": 262,
+          "costUsd": null,
+          "providerAttempts": 2,
+          "segments": 1
+        },
+        "createdAt": "2026-10-30T15:34:21.625Z",
+        "finishedAt": "2026-10-30T15:34:36.210Z"
+      }
+    ],
+    "stages": [
+      {
+        "stage": "ingesting",
+        "status": "completed",
+        "attempt": 1,
+        "retryReason": null,
+        "error": null,
+        "startedAt": "2026-10-30T15:32:58.766Z",
+        "endedAt": "2026-10-30T15:32:58.767Z"
+      },
+      {
+        "stage": "analyzing_paper",
+        "status": "completed",
+        "attempt": 1,
+        "retryReason": null,
+        "error": null,
+        "startedAt": "2026-10-30T15:32:58.767Z",
+        "endedAt": "2026-10-30T15:33:11.478Z"
+      },
+      {
+        "stage": "analyzing_repository",
+        "status": "completed",
+        "attempt": 1,
+        "retryReason": null,
+        "error": null,
+        "startedAt": "2026-10-30T15:32:58.770Z",
+        "endedAt": "2026-10-30T15:33:36.567Z"
+      },
+      {
+        "stage": "reconciling",
+        "status": "completed",
+        "attempt": 1,
+        "retryReason": null,
+        "error": null,
+        "startedAt": "2026-10-30T15:33:36.570Z",
+        "endedAt": "2026-10-30T15:34:21.604Z"
+      },
+      {
+        "stage": "policy_review",
+        "status": "completed",
+        "attempt": 1,
+        "retryReason": null,
+        "error": null,
+        "startedAt": "2026-10-30T15:34:21.605Z",
+        "endedAt": "2026-10-30T15:34:21.608Z"
+      },
+      {
+        "stage": "preparing",
+        "status": "skipped",
+        "attempt": 1,
+        "retryReason": null,
+        "error": null,
+        "startedAt": "2026-10-30T15:34:21.608Z",
+        "endedAt": "2026-10-30T15:34:21.620Z"
+      },
+      {
+        "stage": "executing",
+        "status": "skipped",
+        "attempt": 1,
+        "retryReason": null,
+        "error": null,
+        "startedAt": "2026-10-30T15:34:21.621Z",
+        "endedAt": "2026-10-30T15:34:21.622Z"
+      },
+      {
+        "stage": "reviewing",
+        "status": "skipped",
+        "attempt": 1,
+        "retryReason": null,
+        "error": null,
+        "startedAt": "2026-10-30T15:34:21.622Z",
+        "endedAt": "2026-10-30T15:34:21.623Z"
+      },
+      {
+        "stage": "deciding",
+        "status": "completed",
+        "attempt": 1,
+        "retryReason": null,
+        "error": null,
+        "startedAt": "2026-10-30T15:34:21.624Z",
+        "endedAt": "2026-10-30T15:34:36.212Z"
+      }
+    ],
+    "transitions": [
+      {
+        "stage": "ingesting",
+        "from": "pending",
+        "to": "running",
+        "attempt": 1,
+        "reason": null,
+        "at": "2026-10-30T15:32:58.766Z"
+      },
+      {
+        "stage": "ingesting",
+        "from": "running",
+        "to": "completed",
+        "attempt": 1,
+        "reason": null,
+        "at": "2026-10-30T15:32:58.767Z"
+      },
+      {
+        "stage": "analyzing_paper",
+        "from": "pending",
+        "to": "running",
+        "attempt": 1,
+        "reason": null,
+        "at": "2026-10-30T15:32:58.767Z"
+      },
+      {
+        "stage": "analyzing_repository",
+        "from": "pending",
+        "to": "running",
+        "attempt": 1,
+        "reason": null,
+        "at": "2026-10-30T15:32:58.770Z"
+      },
+      {
+        "stage": "analyzing_paper",
+        "from": "running",
+        "to": "completed",
+        "attempt": 1,
+        "reason": null,
+        "at": "2026-10-30T15:33:11.478Z"
+      },
+      {
+        "stage": "analyzing_repository",
+        "from": "running",
+        "to": "completed",
+        "attempt": 1,
+        "reason": null,
+        "at": "2026-10-30T15:33:36.567Z"
+      },
+      {
+        "stage": "reconciling",
+        "from": "pending",
+        "to": "running",
+        "attempt": 1,
+        "reason": null,
+        "at": "2026-10-30T15:33:36.570Z"
+      },
+      {
+        "stage": "reconciling",
+        "from": "running",
+        "to": "completed",
+        "attempt": 1,
+        "reason": null,
+        "at": "2026-10-30T15:34:21.604Z"
+      },
+      {
+        "stage": "policy_review",
+        "from": "pending",
+        "to": "running",
+        "attempt": 1,
+        "reason": null,
+        "at": "2026-10-30T15:34:21.605Z"
+      },
+      {
+        "stage": "policy_review",
+        "from": "running",
+        "to": "completed",
+        "attempt": 1,
+        "reason": null,
+        "at": "2026-10-30T15:34:21.608Z"
+      },
+      {
+        "stage": "preparing",
+        "from": "pending",
+        "to": "running",
+        "attempt": 1,
+        "reason": null,
+        "at": "2026-10-30T15:34:21.608Z"
+      },
+      {
+        "stage": "preparing",
+        "from": "running",
+        "to": "skipped",
+        "attempt": 1,
+        "reason": null,
+        "at": "2026-10-30T15:34:21.621Z"
+      },
+      {
+        "stage": "executing",
+        "from": "pending",
+        "to": "running",
+        "attempt": 1,
+        "reason": null,
+        "at": "2026-10-30T15:34:21.621Z"
+      },
+      {
+        "stage": "executing",
+        "from": "running",
+        "to": "skipped",
+        "attempt": 1,
+        "reason": null,
+        "at": "2026-10-30T15:34:21.622Z"
+      },
+      {
+        "stage": "reviewing",
+        "from": "pending",
+        "to": "running",
+        "attempt": 1,
+        "reason": null,
+        "at": "2026-10-30T15:34:21.622Z"
+      },
+      {
+        "stage": "reviewing",
+        "from": "running",
+        "to": "skipped",
+        "attempt": 1,
+        "reason": null,
+        "at": "2026-10-30T15:34:21.623Z"
+      },
+      {
+        "stage": "deciding",
+        "from": "pending",
+        "to": "running",
+        "attempt": 1,
+        "reason": null,
+        "at": "2026-10-30T15:34:21.624Z"
+      },
+      {
+        "stage": "deciding",
+        "from": "running",
+        "to": "completed",
+        "attempt": 1,
+        "reason": null,
+        "at": "2026-10-30T15:34:36.212Z"
+      },
+      {
+        "stage": "policy_blocked",
+        "from": "open",
+        "to": "policy_blocked",
+        "attempt": 0,
+        "reason": "policy_blocked",
+        "at": "2026-10-30T15:34:36.282Z"
+      }
+    ],
+    "board": [
+      {
+        "id": "brd_ad2f1d2d1ee44011b1b263875ece2bf5",
+        "kind": "stage",
+        "key": null,
+        "author": "system",
+        "authorAgentId": null,
+        "createdAt": "2026-10-30T15:32:58.766Z",
+        "payload": {
+          "stage": "ingesting",
+          "status": "started",
+          "attempt": 1,
+          "retryReason": null
+        }
+      },
+      {
+        "id": "brd_d7094b49a9c64aa488d8af092fc21100",
+        "kind": "stage",
+        "key": null,
+        "author": "system",
+        "authorAgentId": null,
+        "createdAt": "2026-10-30T15:32:58.767Z",
+        "payload": {
+          "stage": "ingesting",
+          "status": "completed"
+        }
+      },
+      {
+        "id": "brd_fbe6cbfcb0f44b34a4d9e5af7144eccc",
+        "kind": "stage",
+        "key": null,
+        "author": "system",
+        "authorAgentId": null,
+        "createdAt": "2026-10-30T15:32:58.768Z",
+        "payload": {
+          "stage": "analyzing_paper",
+          "status": "started",
+          "attempt": 1,
+          "retryReason": null
+        }
+      },
+      {
+        "id": "brd_654677d3597c467a942036b41e07315b",
+        "kind": "stage",
+        "key": null,
+        "author": "system",
+        "authorAgentId": null,
+        "createdAt": "2026-10-30T15:32:58.771Z",
+        "payload": {
+          "stage": "analyzing_repository",
+          "status": "started",
+          "attempt": 1,
+          "retryReason": null
+        }
+      },
+      {
+        "id": "brd_8a91d0c6515645d0a0e528bb944ce331",
+        "kind": "repository_receipt",
+        "key": null,
+        "author": "repository_analyst",
+        "authorAgentId": "agt_b96487e5733bae417e9492c2d5d1ca2d",
+        "createdAt": "2026-10-30T15:33:10.314Z",
+        "payload": {
+          "repositoryUrl": "https://github.com/mtesha/tdl-vs-ml-urbanlandcover",
+          "commitSha": "49ece7ff4cc43fd4cb258678d44854f1cb2a417d",
+          "defaultBranch": "main",
+          "acquiredAt": "2026-10-30T15:33:10.285Z",
+          "fileCount": 5,
+          "totalBytes": 8835473,
+          "manifestSha256": "7094ab864d280b2cd17509c1a4c1e93dbf2eb2c41769186d3b49cfd83db81249",
+          "metadataSource": "github_api"
+        }
+      },
+      {
+        "id": "brd_44381789f45e46169618eaba143450c5",
+        "kind": "dependency_report",
+        "key": null,
+        "author": "repository_analyst",
+        "authorAgentId": "agt_b96487e5733bae417e9492c2d5d1ca2d",
+        "createdAt": "2026-10-30T15:33:10.316Z",
+        "payload": {
+          "ecosystem": "python",
+          "files": [
+            {
+              "path": "requirements.txt",
+              "kind": "requirements",
+              "sha256": "1ccc9db9669f4475e722e52e080719e706c0909ef25a04bd48c775d11858e761"
+            }
+          ],
+          "lockfile": null,
+          "requirements": [
+            "numpy",
+            "pandas",
+            "matplotlib",
+            "scikit-learn",
+            "seaborn",
+            "jupyter"
+          ],
+          "rejected": [],
+          "unsupported": [],
+          "truncated": false
+        }
+      },
+      {
+        "id": "brd_6bc0ae63a7274aad940b997f16ad0d15",
+        "kind": "paper_claim",
+        "key": null,
+        "author": "paper_analyst",
+        "authorAgentId": "agt_e33b5b1b6fa791e72d45ceac4657c918",
+        "createdAt": "2026-10-30T15:33:11.477Z",
+        "payload": {
+          "status": "ready",
+          "claim": {
+            "method": "Random Forest classifier",
+            "dataset": "UCI Urban Land Cover",
+            "split": "official UCI test set (testing.csv); single-run test accuracy",
+            "preprocessing": "not stated",
+            "seedPolicy": "not stated",
+            "metric": {
+              "name": "test accuracy",
+              "unit": "percent",
+              "direction": "higher_is_better"
+            }
+          },
+          "missingFields": [
+            "preprocessing",
+            "seedPolicy"
+          ]
+        }
+      },
+      {
+        "id": "brd_0df99f6d8aa8416991e1533f13273d0c",
+        "kind": "stage",
+        "key": null,
+        "author": "system",
+        "authorAgentId": null,
+        "createdAt": "2026-10-30T15:33:11.479Z",
+        "payload": {
+          "stage": "analyzing_paper",
+          "status": "completed"
+        }
+      },
+      {
+        "id": "brd_ac78a88d36e34fd5b7455568ae423a7d",
+        "kind": "stage",
+        "key": null,
+        "author": "system",
+        "authorAgentId": null,
+        "createdAt": "2026-10-30T15:33:36.568Z",
+        "payload": {
+          "stage": "analyzing_repository",
+          "status": "completed"
+        }
+      },
+      {
+        "id": "brd_48bc54554ff8495894db5bffbbb6de7e",
+        "kind": "repository_mapping",
+        "key": null,
+        "author": "repository_analyst",
+        "authorAgentId": "agt_b96487e5733bae417e9492c2d5d1ca2d",
+        "createdAt": "2026-10-30T15:33:36.569Z",
+        "payload": {
+          "status": "ready",
+          "summary": "The repo is a single-notebook official code release for the NeurIPS 2025 MusIML workshop paper \"Tabular Deep Learning vs Classical ML for Urban Land Cover Classification\". The notebook is `Urban Land Cover Classification.ipynb`. Its \"Random Forest\" cell trains a scikit-learn RandomForestClassifier on the UCI training CSV and prints \"Test Accuracy\" on the UCI testing CSV with accuracy_score. That matches the claimed method, dataset, split and metric. The data files are not in the repo. I only read the code and did not run it.",
+          "entrypoints": [
+            {
+              "path": "Urban Land Cover Classification.ipynb",
+              "why": "The only code file. Run top to bottom. The '# Random Forest' cell builds RandomForestClassifier(n_estimators=30, max_depth=5, min_samples_split=5, min_samples_leaf=3, max_features='log2', bootstrap=True, random_state=42), fits it on X_train_scaled, predicts X_test_scaled and prints `Test Accuracy: {accuracy_score(y_test, y_pred):.4f}`."
+            }
+          ],
+          "dataFiles": [
+            {
+              "path": "urbantraining.csv (not in repo)",
+              "why": "Read with pd.read_csv('urbantraining.csv') from the notebook's working directory. This is presumably the UCI Urban Land Cover training.csv, renamed. It must be downloaded from https://archive.ics.uci.edu/dataset/295/urban+land+cover. The 'class' column is the target."
+            },
+            {
+              "path": "urbantesting.csv (not in repo)",
+              "why": "Read with pd.read_csv('urbantesting.csv'). This is presumably the UCI testing.csv, renamed, and it is the held-out test set for the metric. It is not in the repo and must be downloaded and renamed."
+            }
+          ],
+          "dependencyFiles": [
+            "requirements.txt"
+          ],
+          "metricSources": [
+            {
+              "path": "Urban Land Cover Classification.ipynb",
+              "description": "The cell under the '# Random Forest' markdown header prints 'Test Accuracy' with sklearn accuracy_score(y_test, y_pred). It also prints macro precision, recall, F1 and AUC. The Logistic Regression, SVM and Decision Tree cells, and later cells I did not read, use the same pattern."
+            }
+          ],
+          "runInstructions": "1. Create a Python 3.10+ environment and run `pip install -r requirements.txt`. Also install scipy (the notebook uses scipy.stats.zscore) and xlrd (imported at the top), since neither is listed. \n2. Download the UCI Urban Land Cover data (id 295). Put the training file at `urbantraining.csv` and the testing file at `urbantesting.csv` in the notebook's working directory. The notebook reads those names directly, not `data/raw/` as the README says. \n3. Run the notebook through the '# Random Forest' cell, for example with `jupyter nbconvert --to notebook --execute`. The cells before it must run first, because the Random Forest cell depends on `class_labels` and `y_test_binarized` from the Logistic Regression cell. \n4. Read the 'Test Accuracy:' line printed by the Random Forest cell.",
+          "warnings": [
+            "The data files are not in the repo and the notebook's filenames (urbantraining.csv, urbantesting.csv) differ from the UCI names (training.csv, testing.csv). I assume they are renamed copies, but the repo gives no proof. The README says to use data/raw/ and notebooks/ paths, which don't exist here and don't match the notebook's relative paths.",
+            "The training/validation split uses train_test_split(test_size=0.1, random_state=None), so the training subset differs on every run. The Random Forest has random_state=42, but its test accuracy can still vary between runs. The validation subset is never used for the reported test accuracy.",
+            "Z-score normalisation is applied to each split on its own: X_train, X_val and X_test are each scaled with their own statistics, not the training statistics. This affects the test accuracy, though random forests are less sensitive to scaling.",
+            "requirements.txt is unpinned (numpy, pandas, matplotlib, scikit-learn, seaborn, jupyter). It omits scipy and xlrd, which the notebook imports. The README's description of the requirements file does not match its content. The notebook's `LogisticRegression(multi_class='ovr')` is deprecated in newer scikit-learn. This cell runs before the Random Forest cell and could fail or warn on very new versions, although warnings are suppressed.",
+            "The Random Forest cell uses `class_labels` and `y_test_binarized`, defined in the earlier Logistic Regression cell. Running it alone raises a NameError. class_labels = list(set(y_train)) is derived from the random training subset.",
+            "The paper may report other Random Forest results, such as a tuned or alternate configuration. In the part of the notebook I read, the Random Forest cell is the only one that fits one. I did not read the truncated tail (about 8 KB) of the notebook, which holds the deep-learning models and may hold more.",
+            "Saved outputs were stripped from the checkout. I report no result values."
+          ]
+        }
+      },
+      {
+        "id": "brd_eda6a3201703458191dc7aaf39945f35",
+        "kind": "stage",
+        "key": null,
+        "author": "system",
+        "authorAgentId": null,
+        "createdAt": "2026-10-30T15:33:36.570Z",
+        "payload": {
+          "stage": "reconciling",
+          "status": "started",
+          "attempt": 1,
+          "retryReason": null
+        }
+      },
+      {
+        "id": "brd_821c7febf9d74ae09db25c1b195be150",
+        "kind": "plan",
+        "key": null,
+        "author": "reproduction_planner",
+        "authorAgentId": "agt_d27359674160c6cdf29c2ae533286c60",
+        "createdAt": "2026-10-30T15:34:21.603Z",
+        "payload": {
+          "status": "ready",
+          "summary": "Run the reviewed project-owned adapter. It re-implements the notebook's Random Forest cell: RandomForestClassifier with n_estimators=30, max_depth=5, min_samples_split=5, min_samples_leaf=3, max_features='log2', bootstrap=True and random_state=42. It trains on a 90% split of training.csv and per-split z-scored features. It then measures accuracy_score on the official UCI testing.csv and writes metrics.accuracyPercent to artifacts/result.json. The notebook is not runnable as a script, and it reads urbantraining.csv and urbantesting.csv instead of the UCI file names. I did not run anything. dependency_check found binary wheels for the four reviewed requirements on linux/arm64 with Python 3.12.",
+          "blockedReason": null,
+          "entrypoint": "Urban Land Cover Classification.ipynb",
+          "command": {
+            "argv": [
+              "python",
+              "../adapter/urban_land_cover_runner.py",
+              "--training",
+              "urban+land+cover/training.csv",
+              "--testing",
+              "urban+land+cover/testing.csv",
+              "--output",
+              "artifacts/result.json"
+            ],
+            "cwd": "work/repo"
+          },
+          "python": "3.12",
+          "requirements": [
+            "numpy==2.5.3",
+            "pandas==3.0.6",
+            "scipy==1.18.1",
+            "scikit-learn==1.9.1"
+          ],
+          "compatibilityConstraints": [],
+          "dataset": {
+            "name": "UCI Urban Land Cover (training.csv, testing.csv)",
+            "source": {
+              "kind": "download",
+              "url": "https://archive.ics.uci.edu/static/public/295/urban%2Bland%2Bcover.zip",
+              "sha256": "277a27000a4a4b593f655595b92904ccb30ece48b8bb2a35cf5d3854d7204f79",
+              "extract": true
+            }
+          },
+          "metricParser": {
+            "source": "json",
+            "path": "artifacts/result.json",
+            "key": "metrics.accuracyPercent",
+            "unit": "percent"
+          },
+          "expectedRuntimeSeconds": 60,
+          "stopConditions": [
+            "The adapter exits non-zero or prints DEJAML_ERROR.",
+            "artifacts/result.json is missing or has no metrics.accuracyPercent.",
+            "The training or testing CSV is missing, or the extracted archive does not match the reviewed sha256.",
+            "The run exceeds the 900 s command timeout."
+          ],
+          "adapter": {
+            "reviewedAdapterId": "urban-land-cover-rf-runner"
+          },
+          "risks": [
+            "The adapter is project-owned, not official repository code.",
+            "The paper says seeds are fixed, but the notebook leaves the train/validation split random_state unset. The adapter fixes it to 42, which is a DéjàML choice, so the accuracy depends on that seed.",
+            "The notebook z-scores the test set with its own statistics, and the validation split is not stratified. The adapter follows the notebook.",
+            "The paper analyst recorded preprocessing and seed policy as not stated.",
+            "The data file paths and the output location in the command are relative to cwd work/repo. They assume the lab places the extracted archive files at urban+land+cover/ and resolves artifacts/ there. Adjust them if the lab lays out the dataset differently.",
+            "The Random Forest cell is the only one in the notebook that fits a Random Forest. The notebook's truncated tail was not fully read by the repository analyst."
+          ]
+        }
+      },
+      {
+        "id": "brd_fee02869ad92468eb77bcfb923afcc04",
+        "kind": "stage",
+        "key": null,
+        "author": "system",
+        "authorAgentId": null,
+        "createdAt": "2026-10-30T15:34:21.605Z",
+        "payload": {
+          "stage": "reconciling",
+          "status": "completed"
+        }
+      },
+      {
+        "id": "brd_49f336579fbe4850a78954c4519a0312",
+        "kind": "stage",
+        "key": null,
+        "author": "system",
+        "authorAgentId": null,
+        "createdAt": "2026-10-30T15:34:21.606Z",
+        "payload": {
+          "stage": "policy_review",
+          "status": "started",
+          "attempt": 1,
+          "retryReason": null
+        }
+      },
+      {
+        "id": "brd_6abdfe26565f485787fd9756b926ea7b",
+        "kind": "policy_block",
+        "key": null,
+        "author": "system",
+        "authorAgentId": null,
+        "createdAt": "2026-10-30T15:34:21.607Z",
+        "payload": {
+          "reason": "dataset host archive.ics.uci.edu is not on the administrator's allowlist",
+          "outcome": "policy_blocked"
+        }
+      },
+      {
+        "id": "brd_3cfd6db59ece40db98e0acc6572331b7",
+        "kind": "stage",
+        "key": null,
+        "author": "system",
+        "authorAgentId": null,
+        "createdAt": "2026-10-30T15:34:21.608Z",
+        "payload": {
+          "stage": "policy_review",
+          "status": "completed"
+        }
+      },
+      {
+        "id": "brd_8739622ada9d44c0a8a5e945648cb924",
+        "kind": "stage",
+        "key": null,
+        "author": "system",
+        "authorAgentId": null,
+        "createdAt": "2026-10-30T15:34:21.620Z",
+        "payload": {
+          "stage": "preparing",
+          "status": "started",
+          "attempt": 1,
+          "retryReason": null
+        }
+      },
+      {
+        "id": "brd_01f95138d8d0488f9fc1116f4b818765",
+        "kind": "stage",
+        "key": null,
+        "author": "system",
+        "authorAgentId": null,
+        "createdAt": "2026-10-30T15:34:21.621Z",
+        "payload": {
+          "stage": "preparing",
+          "status": "skipped"
+        }
+      },
+      {
+        "id": "brd_319333271eba4e4d8e0bdf17619fb24b",
+        "kind": "stage",
+        "key": null,
+        "author": "system",
+        "authorAgentId": null,
+        "createdAt": "2026-10-30T15:34:21.621Z",
+        "payload": {
+          "stage": "executing",
+          "status": "started",
+          "attempt": 1,
+          "retryReason": null
+        }
+      },
+      {
+        "id": "brd_792c5f16314e411ab0ff77d5c06d49ad",
+        "kind": "stage",
+        "key": null,
+        "author": "system",
+        "authorAgentId": null,
+        "createdAt": "2026-10-30T15:34:21.622Z",
+        "payload": {
+          "stage": "executing",
+          "status": "skipped"
+        }
+      },
+      {
+        "id": "brd_5a018da1cdc54d23a853d4f66a3618c9",
+        "kind": "stage",
+        "key": null,
+        "author": "system",
+        "authorAgentId": null,
+        "createdAt": "2026-10-30T15:34:21.623Z",
+        "payload": {
+          "stage": "reviewing",
+          "status": "started",
+          "attempt": 1,
+          "retryReason": null
+        }
+      },
+      {
+        "id": "brd_15e204198ccd405fb8910a8bf3e7413b",
+        "kind": "stage",
+        "key": null,
+        "author": "system",
+        "authorAgentId": null,
+        "createdAt": "2026-10-30T15:34:21.623Z",
+        "payload": {
+          "stage": "reviewing",
+          "status": "skipped"
+        }
+      },
+      {
+        "id": "brd_e5875f60b1174c2ca798dc5722f08be1",
+        "kind": "stage",
+        "key": null,
+        "author": "system",
+        "authorAgentId": null,
+        "createdAt": "2026-10-30T15:34:21.624Z",
+        "payload": {
+          "stage": "deciding",
+          "status": "started",
+          "attempt": 1,
+          "retryReason": null
+        }
+      },
+      {
+        "id": "brd_a1cc78dbf063494e9e7612b67d91f9fa",
+        "kind": "status_decision",
+        "key": null,
+        "author": "system",
+        "authorAgentId": null,
+        "createdAt": "2026-10-30T15:34:36.211Z",
+        "payload": {
+          "status": "policy_blocked",
+          "computedStatus": "policy_blocked",
+          "reasons": [
+            "policy: dataset host archive.ics.uci.edu is not on the administrator's allowlist"
+          ],
+          "supervisorProposal": {
+            "proposedStatus": "policy_blocked",
+            "rationale": "The run was blocked by policy before any execution. The dataset host archive.ics.uci.edu is not on the administrator's allowlist. The board shows a policy_block entry, and the preparing, executing and reviewing stages were all skipped. No metric was produced, so the evidence supports neither a reproduction nor a failure to reproduce. The plan itself looked sound: a reviewed adapter for the notebook's Random Forest cell, run on the official UCI training and testing files. It was never run."
+          }
+        }
+      },
+      {
+        "id": "brd_723b6ec482094dccbe8123ce080b245c",
+        "kind": "stage",
+        "key": null,
+        "author": "system",
+        "authorAgentId": null,
+        "createdAt": "2026-10-30T15:34:36.213Z",
+        "payload": {
+          "stage": "deciding",
+          "status": "completed"
+        }
+      }
+    ],
+    "receipts": [
+      {
+        "id": "rcpt_e71bf97ac8b94cc5966924de7c55c955",
+        "agentId": "agt_e33b5b1b6fa791e72d45ceac4657c918",
+        "tool": "paper_read_page",
+        "status": "ok",
+        "summary": "Read page 4",
+        "inputSha256": "16132aed66cc8c900b84ee2bedd3dcbf0bdd013af04a3c11bb505aeccc097897",
+        "outputSha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+        "startedAt": "2026-10-30T15:33:04.220Z",
+        "finishedAt": "2026-10-30T15:33:04.222Z"
+      },
+      {
+        "id": "rcpt_eba291e698f9442bb797ddadf66e60eb",
+        "agentId": "agt_b96487e5733bae417e9492c2d5d1ca2d",
+        "tool": "repo_acquire",
+        "status": "ok",
+        "summary": "Acquired https://github.com/mtesha/tdl-vs-ml-urbanlandcover@49ece7ff4cc4",
+        "inputSha256": "018d202b4634739fd4c66d7410da68ecdaeee172237190926460b1ff8772c931",
+        "outputSha256": "3e6e1a658f80c38911e2e8469e8cea8588a6515f8226faeb0ead1b8f593c6c40",
+        "startedAt": "2026-10-30T15:33:08.343Z",
+        "finishedAt": "2026-10-30T15:33:10.314Z"
+      },
+      {
+        "id": "rcpt_fc3c5edee1b447da8281769fcf2e350c",
+        "agentId": "agt_b96487e5733bae417e9492c2d5d1ca2d",
+        "tool": "repo_list",
+        "status": "ok",
+        "summary": "Listed 5 entries under .",
+        "inputSha256": "2b60cd8b3636f96205321070a2126eb1d2e5c4a3c8a41837e446c4a127e87448",
+        "outputSha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+        "startedAt": "2026-10-30T15:33:10.315Z",
+        "finishedAt": "2026-10-30T15:33:10.315Z"
+      },
+      {
+        "id": "rcpt_809ac542bd5e4e50bcb20fe7fbade647",
+        "agentId": "agt_b96487e5733bae417e9492c2d5d1ca2d",
+        "tool": "dependency_discover",
+        "status": "ok",
+        "summary": "Found 1 dependency files (python)",
+        "inputSha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+        "outputSha256": "1345ecf662f9ef134b3ddd8de776cfb28c0068fc6be37bd39b00a5ff3ec38abd",
+        "startedAt": "2026-10-30T15:33:10.315Z",
+        "finishedAt": "2026-10-30T15:33:10.316Z"
+      },
+      {
+        "id": "rcpt_f74ef1c54f7547268d64dd21bb6534e2",
+        "agentId": "agt_e33b5b1b6fa791e72d45ceac4657c918",
+        "tool": "finish",
+        "status": "ok",
+        "summary": "result submitted",
+        "inputSha256": "30f6c1a37e6879a82a932f894bc644900976ba22810b662589220dd94e1a36d2",
+        "outputSha256": "51e8a5184a1903d82eb706cceb82536f0d92824c675e51c0078733712fffb444",
+        "startedAt": "2026-10-30T15:33:11.474Z",
+        "finishedAt": "2026-10-30T15:33:11.474Z"
+      },
+      {
+        "id": "rcpt_d7d131f0feb54adca3646eab744ea91a",
+        "agentId": "agt_b96487e5733bae417e9492c2d5d1ca2d",
+        "tool": "repo_read",
+        "status": "ok",
+        "summary": "Read README.md",
+        "inputSha256": "19b4e2f4c9a2ed43afc86e1b6ec5ab348ad83d1407b08122436a948943be83b2",
+        "outputSha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+        "startedAt": "2026-10-30T15:33:14.774Z",
+        "finishedAt": "2026-10-30T15:33:14.777Z"
+      },
+      {
+        "id": "rcpt_9d6c831d64d24a3193be1ccc9a712de1",
+        "agentId": "agt_b96487e5733bae417e9492c2d5d1ca2d",
+        "tool": "repo_search",
+        "status": "ok",
+        "summary": "Found 2 matches for \"RandomForest\"",
+        "inputSha256": "47365b48fd27a57cdad87be745c9df9de0344731072439bee8fecc09bfcb01be",
+        "outputSha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+        "startedAt": "2026-10-30T15:33:14.779Z",
+        "finishedAt": "2026-10-30T15:33:14.785Z"
+      },
+      {
+        "id": "rcpt_7112aef392bc4d4ca6fa62e0d1bbf4ce",
+        "agentId": "agt_b96487e5733bae417e9492c2d5d1ca2d",
+        "tool": "repo_search",
+        "status": "ok",
+        "summary": "Found 3 matches for \".csv\"",
+        "inputSha256": "1fa53e5b678cafa5cf5f1d23be48bd6b126fb7e37a702e700263412583cc5641",
+        "outputSha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+        "startedAt": "2026-10-30T15:33:14.786Z",
+        "finishedAt": "2026-10-30T15:33:14.789Z"
+      },
+      {
+        "id": "rcpt_5616d94b4ad0420e8ce50265ce8c31a6",
+        "agentId": "agt_b96487e5733bae417e9492c2d5d1ca2d",
+        "tool": "repo_read",
+        "status": "ok",
+        "summary": "Read Urban Land Cover Classification.ipynb",
+        "inputSha256": "fdb2ad25b139714e1982975475c57064aa238ccf840c954e5ffb6071e7c2178f",
+        "outputSha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+        "startedAt": "2026-10-30T15:33:18.826Z",
+        "finishedAt": "2026-10-30T15:33:18.829Z"
+      },
+      {
+        "id": "rcpt_c137368cc981462cb9695b4e27ae8c3f",
+        "agentId": "agt_b96487e5733bae417e9492c2d5d1ca2d",
+        "tool": "finish",
+        "status": "ok",
+        "summary": "result submitted",
+        "inputSha256": "4ff4fbe3f7a9b339e814f914b902d9bcc77015ffcd58615c75cf328843a9e7dc",
+        "outputSha256": "d183a703cbe3b00ec830b5b41a397fcedf8d8a0c82d3290e295c39b0a792b942",
+        "startedAt": "2026-10-30T15:33:36.563Z",
+        "finishedAt": "2026-10-30T15:33:36.564Z"
+      },
+      {
+        "id": "rcpt_b38fa5bccce24ddd88f5c19f07286caa",
+        "agentId": "agt_d27359674160c6cdf29c2ae533286c60",
+        "tool": "board_read",
+        "status": "ok",
+        "summary": "Read 11 board entries",
+        "inputSha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+        "outputSha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+        "startedAt": "2026-10-30T15:33:43.637Z",
+        "finishedAt": "2026-10-30T15:33:43.639Z"
+      },
+      {
+        "id": "rcpt_0a3b3c3fd79244a7b90ba4195bd161ea",
+        "agentId": "agt_d27359674160c6cdf29c2ae533286c60",
+        "tool": "repo_list",
+        "status": "ok",
+        "summary": "Listed 5 entries under .",
+        "inputSha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+        "outputSha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+        "startedAt": "2026-10-30T15:33:43.640Z",
+        "finishedAt": "2026-10-30T15:33:43.643Z"
+      },
+      {
+        "id": "rcpt_8d821d311d4f48939a8745c049ec6428",
+        "agentId": "agt_d27359674160c6cdf29c2ae533286c60",
+        "tool": "dependency_check",
+        "status": "ok",
+        "summary": "Binary wheels exist for every requirement",
+        "inputSha256": "94e58f688bba1c74b2365df512f64a0dc3ae84b5f0e723f2b92be9edaee5f7f4",
+        "outputSha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+        "startedAt": "2026-10-30T15:33:49.054Z",
+        "finishedAt": "2026-10-30T15:33:58.197Z"
+      },
+      {
+        "id": "rcpt_2e51ee5f134f4ce1a6fc6f608b335277",
+        "agentId": "agt_d27359674160c6cdf29c2ae533286c60",
+        "tool": "repo_list",
+        "status": "denied",
+        "summary": "paths must be relative to the repository root and must not contain '..'",
+        "inputSha256": "ab41d0a50f3f12c0aa93e6c2bd9b3a43cf6cc16f02c7337e9efc0cb86b6bd968",
+        "outputSha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+        "startedAt": "2026-10-30T15:34:05.418Z",
+        "finishedAt": "2026-10-30T15:34:05.419Z"
+      },
+      {
+        "id": "rcpt_d298e3c1671a474989be4878161dad77",
+        "agentId": "agt_d27359674160c6cdf29c2ae533286c60",
+        "tool": "repo_search",
+        "status": "ok",
+        "summary": "Found 2 matches for \"RandomForestClassifier\"",
+        "inputSha256": "fe28be99014a3b24dcf99377eeb6c51e5ea9a15612d577819dbe6ae29d8fe074",
+        "outputSha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+        "startedAt": "2026-10-30T15:34:05.419Z",
+        "finishedAt": "2026-10-30T15:34:05.426Z"
+      },
+      {
+        "id": "rcpt_49a65ee5602441fe9ba2e4b615aaa9b8",
+        "agentId": "agt_d27359674160c6cdf29c2ae533286c60",
+        "tool": "finish",
+        "status": "ok",
+        "summary": "result submitted",
+        "inputSha256": "8541e20b642928dd3a507f2c832b6a0795cbd39ed5ff470a600aabfd7a1347e5",
+        "outputSha256": "a581a845831b07baa59e0611eb3a42780d3869c728d92d004f62d852efb29ccb",
+        "startedAt": "2026-10-30T15:34:21.597Z",
+        "finishedAt": "2026-10-30T15:34:21.598Z"
+      },
+      {
+        "id": "rcpt_f8ead79375f64773a66a4915e300f545",
+        "agentId": "agt_b386b87c9ca89824526ca98de885663b",
+        "tool": "board_read",
+        "status": "ok",
+        "summary": "Read 23 board entries",
+        "inputSha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+        "outputSha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+        "startedAt": "2026-10-30T15:34:29.742Z",
+        "finishedAt": "2026-10-30T15:34:29.745Z"
+      },
+      {
+        "id": "rcpt_ee5d32e550414c72b426e65f1e33aaac",
+        "agentId": "agt_b386b87c9ca89824526ca98de885663b",
+        "tool": "finish",
+        "status": "ok",
+        "summary": "result submitted",
+        "inputSha256": "4147e494811105b6429e373d10c7c92960f49078fc88f18f273aa900a84353e2",
+        "outputSha256": "aeb13fe4aaea921b32bee917f1034f6d57babfcf2cc900bde797b368b9c0b578",
+        "startedAt": "2026-10-30T15:34:36.208Z",
+        "finishedAt": "2026-10-30T15:34:36.208Z"
+      }
+    ],
+    "messages": [],
+    "paper": {
+      "name": "2609.19010.pdf",
+      "sha256": "13b0c3fb3c2823f78eb650f918aa521493bddd6eccb55a2b9857c37d44d0a6a1",
+      "pages": 21
+    },
+    "reviewedTarget": {
+      "caseId": "urban-land-cover-random-forest",
+      "caseVersion": "5480c60c7cf872bc5584706c9927e4714b535ed392cacf22218618952af98088",
+      "paperSha256": "13b0c3fb3c2823f78eb650f918aa521493bddd6eccb55a2b9857c37d44d0a6a1",
+      "claim": {
+        "method": "Random Forest classifier",
+        "dataset": "UCI Urban Land Cover",
+        "split": "the official UCI test set (testing.csv)",
+        "metric": {
+          "name": "test accuracy",
+          "unit": "percent"
+        }
+      },
+      "repository": {
+        "url": "https://github.com/mtesha/tdl-vs-ml-urbanlandcover",
+        "commitSha": "49ece7ff4cc43fd4cb258678d44854f1cb2a417d",
+        "entrypoint": "Urban Land Cover Classification.ipynb"
+      },
+      "adapter": {
+        "id": "urban-land-cover-rf-runner",
+        "path": "work/adapter/urban_land_cover_runner.py",
+        "sha256": "9156565eb6cac1679f266ee03644dc377fc87934c8ced1a903e167999e591476"
+      },
+      "maximumVerdict": "partially_reproduced"
+    },
+    "repository": {
+      "url": "https://github.com/mtesha/tdl-vs-ml-urbanlandcover",
+      "commitSha": "49ece7ff4cc43fd4cb258678d44854f1cb2a417d",
+      "manifestSha256": "7094ab864d280b2cd17509c1a4c1e93dbf2eb2c41769186d3b49cfd83db81249",
+      "fileCount": 5,
+      "totalBytes": 8835473
+    },
+    "contract": {
+      "schemaVersion": 1,
+      "method": "Random Forest classifier",
+      "dataset": {
+        "name": "UCI Urban Land Cover (training.csv, testing.csv)",
+        "source": {
+          "kind": "download",
+          "url": "https://archive.ics.uci.edu/static/public/295/urban%2Bland%2Bcover.zip",
+          "sha256": "277a27000a4a4b593f655595b92904ccb30ece48b8bb2a35cf5d3854d7204f79",
+          "extract": true
+        }
+      },
+      "split": "official UCI test set (testing.csv); single-run test accuracy",
+      "preprocessing": "not stated",
+      "seedPolicy": "not stated",
+      "repository": {
+        "url": "https://github.com/mtesha/tdl-vs-ml-urbanlandcover",
+        "commitSha": "49ece7ff4cc43fd4cb258678d44854f1cb2a417d"
+      },
+      "entrypoint": "Urban Land Cover Classification.ipynb",
+      "command": {
+        "argv": [
+          "python",
+          "../adapter/urban_land_cover_runner.py",
+          "--training",
+          "urban+land+cover/training.csv",
+          "--testing",
+          "urban+land+cover/testing.csv",
+          "--output",
+          "artifacts/result.json"
+        ],
+        "cwd": "work/repo"
+      },
+      "environment": {
+        "platform": {
+          "os": "linux",
+          "architecture": "arm64",
+          "containerPlatform": "linux/arm64",
+          "python": {
+            "version": "3.12",
+            "abi": "cp312",
+            "implementation": "cp"
+          },
+          "libc": {
+            "family": "glibc",
+            "version": "2.41"
+          },
+          "accelerator": "cpu_only",
+          "packageIndex": {
+            "id": "pypi-cpu",
+            "indexUrl": "https://pypi.org/simple",
+            "allowedHosts": [
+              "pypi.org",
+              "files.pythonhosted.org"
+            ],
+            "cpuOnly": true
+          }
+        },
+        "requirements": [
+          "numpy==2.5.3",
+          "pandas==3.0.6",
+          "scipy==1.18.1",
+          "scikit-learn==1.9.1"
+        ],
+        "compatibilityConstraints": []
+      },
+      "expectedRuntimeSeconds": 60,
+      "metricParser": {
+        "source": "json",
+        "path": "artifacts/result.json",
+        "key": "metrics.accuracyPercent",
+        "unit": "percent"
+      },
+      "stopConditions": [
+        "The adapter exits non-zero or prints DEJAML_ERROR.",
+        "artifacts/result.json is missing or has no metrics.accuracyPercent.",
+        "The training or testing CSV is missing, or the extracted archive does not match the reviewed sha256.",
+        "The run exceeds the 900 s command timeout."
+      ],
+      "metric": {
+        "name": "test accuracy",
+        "unit": "percent",
+        "direction": "higher_is_better"
+      }
+    },
+    "blinding": {
+      "sealed": true,
+      "revealed": false,
+      "commitment": "d10ff378f55cb591d8dc2cf835de008f4a2a744bacc31afdecb16ec4fbde6c44",
+      "sealedAt": "2026-10-30T15:32:58.765Z",
+      "records": [
+        {
+          "sequence": 1,
+          "phase": "target_sealed",
+          "round": 0,
+          "commitment": "d10ff378f55cb591d8dc2cf835de008f4a2a744bacc31afdecb16ec4fbde6c44",
+          "record": {
+            "caseId": "urban-land-cover-random-forest",
+            "metric": "test accuracy",
+            "unit": "percent",
+            "comparisonRule": "absolute_difference_within_tolerance",
+            "sealedAt": "2026-10-30T15:32:58.765Z"
+          },
+          "at": "2026-10-30T15:32:58.765Z"
+        },
+        {
+          "sequence": 2,
+          "phase": "agents_started",
+          "round": 0,
+          "commitment": null,
+          "record": {
+            "blindRoles": [
+              "repository_analyst",
+              "reproduction_planner",
+              "lab_engineer",
+              "debugger",
+              "independent_reviewer",
+              "supervisor"
+            ],
+            "condition": {
+              "targetVisibility": "blind",
+              "labMode": "open",
+              "controlRerun": true,
+              "shownValueSha256": null
+            }
+          },
+          "at": "2026-10-30T15:32:58.765Z"
+        },
+        {
+          "sequence": 3,
+          "phase": "final_status",
+          "round": 0,
+          "commitment": null,
+          "record": {
+            "status": "policy_blocked",
+            "sealed": true,
+            "computedStatus": "policy_blocked"
+          },
+          "at": "2026-10-30T15:34:36.213Z"
+        }
+      ],
+      "projection": {
+        "sha256": "27e9a657d4b76ec40d7bd229b030bf9e10b6ed4894158d081c2d883b8ba929ed",
+        "originalManifestSha256": "7094ab864d280b2cd17509c1a4c1e93dbf2eb2c41769186d3b49cfd83db81249",
+        "notebooksStripped": [
+          {
+            "path": "Urban Land Cover Classification.ipynb",
+            "outputsRemoved": 96
+          }
+        ],
+        "documentsWithheld": 0,
+        "staticFindings": 0
+      },
+      "reveal": null,
+      "comparison": null,
+      "sealedPayload": null,
+      "errors": []
+    },
+    "planDigest": null,
+    "adapter": {
+      "path": "work/adapter/urban_land_cover_runner.py",
+      "sha256": "9156565eb6cac1679f266ee03644dc377fc87934c8ced1a903e167999e591476",
+      "why": "The official result lives in a Jupyter notebook that is not runnable as a script and reads differently named CSV files. This project-owned adapter re-implements the notebook's Random Forest cells as a script; it is not official repository code.",
+      "source": "Project-owned re-implementation of the Random Forest cells of the pinned notebook. Arguments: --training <training.csv> --testing <testing.csv> --output <artifacts/result.json>. It writes metrics.accuracyPercent to the output JSON.",
+      "differences": [
+        "project-owned adapter, not official repository code: the notebook's Random Forest cells re-implemented as a script",
+        "the paper states fixed seeds, but the notebook leaves train_test_split random_state unset; the adapter fixes it to 42 (a DejaML choice)",
+        "the paper says the validation split is stratified, but the notebook does not pass stratify; the adapter follows the notebook",
+        "the paper says test features reuse training statistics, but the notebook z-scores the test set independently; the adapter follows the notebook",
+        "the notebook reads urbantraining.csv and urbantesting.csv; the official UCI archive provides training.csv and testing.csv, passed as arguments"
+      ]
+    },
+    "policy": {
+      "outcome": "policy_blocked",
+      "violations": [
+        "dataset host archive.ics.uci.edu is not on the administrator's allowlist"
+      ],
+      "warnings": [
+        "an adapter (work/adapter/urban_land_cover_runner.py) wraps the official code; the result can be at most partially reproduced"
+      ]
+    },
+    "platform": {
+      "containerPlatform": "linux/arm64",
+      "python": "3.12",
+      "accelerator": "cpu_only",
+      "packageIndex": "pypi-cpu"
+    },
+    "labImage": null,
+    "dependencies": null,
+    "datasets": [],
+    "engineers": [],
+    "result": {
+      "status": "policy_blocked",
+      "computedStatus": "policy_blocked",
+      "supervisor": {
+        "proposedStatus": "policy_blocked",
+        "rationale": "The run was blocked by policy before any execution. The dataset host archive.ics.uci.edu is not on the administrator's allowlist. The board shows a policy_block entry, and the preparing, executing and reviewing stages were all skipped. No metric was produced, so the evidence supports neither a reproduction nor a failure to reproduce. The plan itself looked sound: a reviewed adapter for the notebook's Random Forest cell, run on the official UCI training and testing files. It was never run.",
+        "applied": false
+      },
+      "reasons": [
+        "policy: dataset host archive.ics.uci.edu is not on the administrator's allowlist"
+      ],
+      "paperValue": null,
+      "observedValue": null,
+      "absoluteDifference": null,
+      "tolerance": null
+    },
+    "usage": {
+      "inputTokens": 88118,
+      "outputTokens": 5690,
+      "costUsd": null,
+      "providerAttempts": 12,
+      "toolCalls": 18
+    },
+    "cleanup": {
+      "labs": [],
+      "dependenciesRemoved": true,
+      "datasetsRemoved": true,
+      "workDirRemoved": true,
+      "leftoverContainers": [],
+      "leftoverNetworks": [],
+      "liveAgents": [],
+      "verified": true
+    }
+  },
+  "blindingProof": [
+    {
+      "name": "target sealed before any agent existed",
+      "pass": true,
+      "info": "sealed 2026-10-30T15:32:58.765Z; first agent 2026-10-30T15:32:58.768Z; public fields caseId, commitment, metric, sealedAt"
+    },
+    {
+      "name": "commitments recorded in the required order",
+      "pass": false,
+      "info": "1:target_sealed 2:agents_started 3:final_status"
+    },
+    {
+      "name": "sealed commitment verified at the reveal",
+      "pass": false,
+      "info": "not revealed"
+    },
+    {
+      "name": "observation locked and its commitment recomputes",
+      "pass": false,
+      "info": ""
+    },
+    {
+      "name": "only the Paper Analyst could read the paper",
+      "pass": true,
+      "info": "3 blind agents without paper tools"
+    },
+    {
+      "name": "no blind agent received the paper's value or tolerance before the reveal",
+      "pass": false,
+      "info": "19 received messages scanned; the value has no distinctive written form, so only target fields were scanned"
+    },
+    {
+      "name": "no event before the reveal carried the paper's value",
+      "pass": false,
+      "info": "41 events before the reveal"
+    },
+    {
+      "name": "agents and labs saw the execution projection",
+      "pass": true,
+      "info": "projection 27e9a657d4b76ec40d7bd229b030bf9e10b6ed4894158d081c2d883b8ba929ed of manifest 7094ab864d280b2cd17509c1a4c1e93dbf2eb2c41769186d3b49cfd83db81249; notebooks stripped: Urban Land Cover Classification.ipynb (96 outputs); documents withheld: 0"
+    },
+    {
+      "name": "comparison recomputes from the revealed target and the locked observation",
+      "pass": false,
+      "info": "no comparison"
+    },
+    {
+      "name": "blind verdicts locked before the reveal; the status was only ever lowered",
+      "pass": false,
+      "info": "blind verdicts undefined; computed policy_blocked; final policy_blocked"
+    },
+    {
+      "name": "execution agents saw only what the study condition allows",
+      "pass": true,
+      "info": "blind: no agent was shown a paper result"
+    }
+  ],
+  "status": "inconclusive",
+  "finishedAt": "2026-10-30T15:34:36.286Z",
+  "events": [
+    {
+      "id": "evt_4dd75579-b097-43e9-9fed-aafe6c991674",
+      "runId": "run_ed21198a-ee5a-4930-834c-ebc151355095",
+      "sequence": 1,
+      "timestamp": "2026-10-30T15:32:58.758Z",
+      "actor": "system",
+      "type": "run_created",
+      "status": "completed",
+      "summary": "Study created and paper fingerprint recorded",
+      "evidence": [
+        {
+          "kind": "artifact",
+          "reference": "2609.19010.pdf#sha256=13b0c3fb3c2823f78eb650f918aa521493bddd6eccb55a2b9857c37d44d0a6a1"
+        }
+      ],
+      "publicPayload": {
+        "pages": 21,
+        "warnings": []
+      }
+    },
+    {
+      "id": "evt_0a06df7d-be23-4300-b419-15fd093b5475",
+      "runId": "run_ed21198a-ee5a-4930-834c-ebc151355095",
+      "sequence": 2,
+      "timestamp": "2026-10-30T15:32:58.759Z",
+      "actor": "system",
+      "type": "reviewed_target",
+      "status": "completed",
+      "summary": "Investigating the reviewed claim urban-land-cover-random-forest",
+      "evidence": [],
+      "publicPayload": {
+        "caseId": "urban-land-cover-random-forest",
+        "caseVersion": "5480c60c7cf872bc5584706c9927e4714b535ed392cacf22218618952af98088",
+        "paperSha256": "13b0c3fb3c2823f78eb650f918aa521493bddd6eccb55a2b9857c37d44d0a6a1",
+        "claim": {
+          "method": "Random Forest classifier",
+          "dataset": "UCI Urban Land Cover",
+          "split": "the official UCI test set (testing.csv)",
+          "metric": {
+            "name": "test accuracy",
+            "unit": "percent"
+          }
+        },
+        "repository": {
+          "url": "https://github.com/mtesha/tdl-vs-ml-urbanlandcover",
+          "commitSha": "49ece7ff4cc43fd4cb258678d44854f1cb2a417d",
+          "entrypoint": "Urban Land Cover Classification.ipynb"
+        },
+        "adapter": {
+          "id": "urban-land-cover-rf-runner",
+          "path": "work/adapter/urban_land_cover_runner.py",
+          "sha256": "9156565eb6cac1679f266ee03644dc377fc87934c8ced1a903e167999e591476"
+        },
+        "maximumVerdict": "partially_reproduced"
+      }
+    },
+    {
+      "id": "evt_bd664636-2ba6-47ed-97e2-a039d3094a7a",
+      "runId": "run_ed21198a-ee5a-4930-834c-ebc151355095",
+      "sequence": 3,
+      "timestamp": "2026-10-30T15:32:58.760Z",
+      "actor": "system",
+      "type": "model_connection",
+      "status": "completed",
+      "summary": "Agents use the server's model connection",
+      "evidence": [],
+      "publicPayload": {
+        "source": "server",
+        "provider": "cheaper_inference",
+        "model": "claude-sonnet-5.5"
+      }
+    },
+    {
+      "id": "evt_bbc96153-74d4-42e4-b57c-892e709483d8",
+      "runId": "run_ed21198a-ee5a-4930-834c-ebc151355095",
+      "sequence": 4,
+      "timestamp": "2026-10-30T15:32:58.760Z",
+      "actor": "system",
+      "type": "repository_found",
+      "status": "completed",
+      "summary": "Independent agents will verify and reproduce the reviewed claim",
+      "evidence": [],
+      "publicPayload": {
+        "candidates": [
+          "https://github.com/mtesha/tdl-vs-ml-urbanlandcover"
+        ],
+        "autonomous": true,
+        "reviewedTarget": "urban-land-cover-random-forest"
+      }
+    },
+    {
+      "id": "evt_0fcfcbdc-45cb-4885-8ffb-7cc767965407",
+      "runId": "run_ed21198a-ee5a-4930-834c-ebc151355095",
+      "sequence": 5,
+      "timestamp": "2026-10-30T15:32:58.764Z",
+      "actor": "system",
+      "type": "study_team",
+      "status": "started",
+      "summary": "Independent agents will run the study, stage by stage",
+      "evidence": [],
+      "publicPayload": {
+        "runtime": "native autonomous agent runtime",
+        "provider": "cheaper_inference",
+        "model": "claude-sonnet-5.5",
+        "platform": "linux/arm64",
+        "resumed": false
+      }
+    },
+    {
+      "id": "evt_fc2a9c82-99fb-4595-b25c-a6ce4c8fbac8",
+      "runId": "run_ed21198a-ee5a-4930-834c-ebc151355095",
+      "sequence": 6,
+      "timestamp": "2026-10-30T15:32:58.765Z",
+      "actor": "system",
+      "type": "target_sealed",
+      "status": "completed",
+      "summary": "Paper target sealed: the reported value stays hidden until the experiment and review are locked",
+      "evidence": [],
+      "publicPayload": {
+        "caseId": "urban-land-cover-random-forest",
+        "commitment": "d10ff378f55cb591d8dc2cf835de008f4a2a744bacc31afdecb16ec4fbde6c44",
+        "metric": "test accuracy",
+        "sealedAt": "2026-10-30T15:32:58.765Z"
+      }
+    },
+    {
+      "id": "evt_9d1dac67-0070-411c-9779-bf678ffe9013",
+      "runId": "run_ed21198a-ee5a-4930-834c-ebc151355095",
+      "sequence": 7,
+      "timestamp": "2026-10-30T15:32:58.765Z",
+      "actor": "system",
+      "type": "agents_started",
+      "status": "started",
+      "summary": "Blind agents start: none of them is told the paper's value",
+      "evidence": [],
+      "publicPayload": {
+        "condition": {
+          "targetVisibility": "blind",
+          "labMode": "open",
+          "controlRerun": true,
+          "shownValueSha256": null
+        }
+      }
+    },
+    {
+      "id": "evt_94e3e93a-5d6f-4bbe-9e0b-7a3579957893",
+      "runId": "run_ed21198a-ee5a-4930-834c-ebc151355095",
+      "sequence": 8,
+      "timestamp": "2026-10-30T15:32:58.766Z",
+      "actor": "system",
+      "type": "stage_started",
+      "status": "started",
+      "summary": "Stage ingesting started",
+      "evidence": [],
+      "publicPayload": {
+        "stage": "ingesting",
+        "attempt": 1,
+        "retryReason": null
+      }
+    },
+    {
+      "id": "evt_4967ff22-dd95-4452-9375-4d1f686ecefe",
+      "runId": "run_ed21198a-ee5a-4930-834c-ebc151355095",
+      "sequence": 9,
+      "timestamp": "2026-10-30T15:32:58.768Z",
+      "actor": "system",
+      "type": "stage_started",
+      "status": "started",
+      "summary": "Stage analyzing paper started",
+      "evidence": [],
+      "publicPayload": {
+        "stage": "analyzing_paper",
+        "attempt": 1,
+        "retryReason": null
+      }
+    },
+    {
+      "id": "evt_7d3d3e2f-e0b4-4e11-956d-f6e12bfd3625",
+      "runId": "run_ed21198a-ee5a-4930-834c-ebc151355095",
+      "sequence": 10,
+      "timestamp": "2026-10-30T15:32:58.768Z",
+      "actor": "paper_analyst",
+      "type": "agent_started",
+      "status": "started",
+      "summary": "Paper Analyst started (paper-analyst)",
+      "evidence": [],
+      "publicPayload": {
+        "agentId": "agt_e33b5b1b6fa791e72d45ceac4657c918",
+        "role": "paper_analyst",
+        "label": "paper-analyst",
+        "grants": [
+          "paper_list_pages",
+          "paper_read_page",
+          "paper_search"
+        ],
+        "limits": {
+          "maxIterations": 20,
+          "maxToolCalls": 30,
+          "maxInputTokens": 1500000,
+          "maxOutputTokens": 120000,
+          "maxWallMs": 600000,
+          "maxContextChars": 240000,
+          "maxTurnOutputTokens": 8000,
+          "maxToolResultChars": 16000
+        },
+        "provider": "cheaper_inference",
+        "model": "claude-sonnet-5.5",
+        "parentAgentId": null
+      }
+    },
+    {
+      "id": "evt_779cb919-e5d5-4bf0-99bf-b4a36198a26d",
+      "runId": "run_ed21198a-ee5a-4930-834c-ebc151355095",
+      "sequence": 11,
+      "timestamp": "2026-10-30T15:32:58.771Z",
+      "actor": "system",
+      "type": "stage_started",
+      "status": "started",
+      "summary": "Stage analyzing repository started",
+      "evidence": [],
+      "publicPayload": {
+        "stage": "analyzing_repository",
+        "attempt": 1,
+        "retryReason": null
+      }
+    },
+    {
+      "id": "evt_900b3859-6cd1-43e7-a0fc-b3cab917c4f7",
+      "runId": "run_ed21198a-ee5a-4930-834c-ebc151355095",
+      "sequence": 12,
+      "timestamp": "2026-10-30T15:32:58.771Z",
+      "actor": "repository_analyst",
+      "type": "agent_started",
+      "status": "started",
+      "summary": "Repository Analyst started (repository-analyst)",
+      "evidence": [],
+      "publicPayload": {
+        "agentId": "agt_b96487e5733bae417e9492c2d5d1ca2d",
+        "role": "repository_analyst",
+        "label": "repository-analyst",
+        "grants": [
+          "repo_acquire",
+          "repo_list",
+          "repo_read",
+          "repo_search",
+          "dependency_discover"
+        ],
+        "limits": {
+          "maxIterations": 25,
+          "maxToolCalls": 40,
+          "maxInputTokens": 1500000,
+          "maxOutputTokens": 120000,
+          "maxWallMs": 600000,
+          "maxContextChars": 240000,
+          "maxTurnOutputTokens": 8000,
+          "maxToolResultChars": 16000
+        },
+        "provider": "cheaper_inference",
+        "model": "claude-sonnet-5.5",
+        "parentAgentId": null
+      }
+    },
+    {
+      "id": "evt_01535ba4-afdc-4880-85b0-4201ce80edcc",
+      "runId": "run_ed21198a-ee5a-4930-834c-ebc151355095",
+      "sequence": 13,
+      "timestamp": "2026-10-30T15:33:04.220Z",
+      "actor": "paper_analyst",
+      "type": "agent_turn",
+      "status": "progress",
+      "summary": "Paper Analyst turn 1: paper_read_page",
+      "evidence": [],
+      "publicPayload": {
+        "agentId": "agt_e33b5b1b6fa791e72d45ceac4657c918",
+        "role": "paper_analyst",
+        "label": "paper-analyst",
+        "iteration": 1,
+        "tools": [
+          "paper_read_page"
+        ],
+        "tokens": {
+          "input": 2438,
+          "output": 59
+        },
+        "costUsd": null
+      }
+    },
+    {
+      "id": "evt_d433db5f-6ec2-42c4-9a09-2502417cefae",
+      "runId": "run_ed21198a-ee5a-4930-834c-ebc151355095",
+      "sequence": 14,
+      "timestamp": "2026-10-30T15:33:08.342Z",
+      "actor": "repository_analyst",
+      "type": "agent_turn",
+      "status": "progress",
+      "summary": "Repository Analyst turn 1: repo_acquire, repo_list, dependency_discover",
+      "evidence": [],
+      "publicPayload": {
+        "agentId": "agt_b96487e5733bae417e9492c2d5d1ca2d",
+        "role": "repository_analyst",
+        "label": "repository-analyst",
+        "iteration": 1,
+        "tools": [
+          "repo_acquire",
+          "repo_list",
+          "dependency_discover"
+        ],
+        "tokens": {
+          "input": 2603,
+          "output": 155
+        },
+        "costUsd": null
+      }
+    },
+    {
+      "id": "evt_fbe1c498-9372-42d4-9bd7-f4fdde85806d",
+      "runId": "run_ed21198a-ee5a-4930-834c-ebc151355095",
+      "sequence": 15,
+      "timestamp": "2026-10-30T15:33:10.314Z",
+      "actor": "system",
+      "type": "repository_acquired",
+      "status": "completed",
+      "summary": "Pinned https://github.com/mtesha/tdl-vs-ml-urbanlandcover at 49ece7ff4cc4",
+      "evidence": [],
+      "publicPayload": {
+        "repositoryUrl": "https://github.com/mtesha/tdl-vs-ml-urbanlandcover",
+        "commitSha": "49ece7ff4cc43fd4cb258678d44854f1cb2a417d",
+        "defaultBranch": "main",
+        "acquiredAt": "2026-10-30T15:33:10.285Z",
+        "fileCount": 5,
+        "totalBytes": 8835473,
+        "manifestSha256": "7094ab864d280b2cd17509c1a4c1e93dbf2eb2c41769186d3b49cfd83db81249",
+        "metadataSource": "github_api"
+      }
+    },
+    {
+      "id": "evt_01607636-c846-4ad5-a741-3473465cd8f1",
+      "runId": "run_ed21198a-ee5a-4930-834c-ebc151355095",
+      "sequence": 16,
+      "timestamp": "2026-10-30T15:33:11.473Z",
+      "actor": "paper_analyst",
+      "type": "agent_turn",
+      "status": "progress",
+      "summary": "Paper Analyst turn 2: finish",
+      "evidence": [],
+      "publicPayload": {
+        "agentId": "agt_e33b5b1b6fa791e72d45ceac4657c918",
+        "role": "paper_analyst",
+        "label": "paper-analyst",
+        "iteration": 2,
+        "tools": [
+          "finish"
+        ],
+        "tokens": {
+          "input": 3849,
+          "output": 464
+        },
+        "costUsd": null
+      }
+    },
+    {
+      "id": "evt_1f4bef4c-8db2-4fa1-bd2b-efd31b9271e2",
+      "runId": "run_ed21198a-ee5a-4930-834c-ebc151355095",
+      "sequence": 17,
+      "timestamp": "2026-10-30T15:33:11.476Z",
+      "actor": "paper_analyst",
+      "type": "agent_finished",
+      "status": "completed",
+      "summary": "Paper Analyst completed",
+      "evidence": [],
+      "publicPayload": {
+        "agentId": "agt_e33b5b1b6fa791e72d45ceac4657c918",
+        "role": "paper_analyst",
+        "label": "paper-analyst",
+        "status": "completed",
+        "reason": null,
+        "usage": {
+          "iterations": 2,
+          "toolCalls": 2,
+          "inputTokens": 6287,
+          "outputTokens": 523,
+          "costUsd": null,
+          "providerAttempts": 2,
+          "segments": 1
+        }
+      }
+    },
+    {
+      "id": "evt_7ee254ad-eefd-48b5-9f69-84e87a4cd4ba",
+      "runId": "run_ed21198a-ee5a-4930-834c-ebc151355095",
+      "sequence": 18,
+      "timestamp": "2026-10-30T15:33:14.773Z",
+      "actor": "repository_analyst",
+      "type": "agent_turn",
+      "status": "progress",
+      "summary": "Repository Analyst turn 2: repo_read, repo_search, repo_search",
+      "evidence": [],
+      "publicPayload": {
+        "agentId": "agt_b96487e5733bae417e9492c2d5d1ca2d",
+        "role": "repository_analyst",
+        "label": "repository-analyst",
+        "iteration": 2,
+        "tools": [
+          "repo_read",
+          "repo_search",
+          "repo_search"
+        ],
+        "tokens": {
+          "input": 3391,
+          "output": 146
+        },
+        "costUsd": null
+      }
+    },
+    {
+      "id": "evt_ea335ef9-ab4e-48ae-862a-b8799ce87267",
+      "runId": "run_ed21198a-ee5a-4930-834c-ebc151355095",
+      "sequence": 19,
+      "timestamp": "2026-10-30T15:33:18.825Z",
+      "actor": "repository_analyst",
+      "type": "agent_turn",
+      "status": "progress",
+      "summary": "Repository Analyst turn 3: repo_read",
+      "evidence": [],
+      "publicPayload": {
+        "agentId": "agt_b96487e5733bae417e9492c2d5d1ca2d",
+        "role": "repository_analyst",
+        "label": "repository-analyst",
+        "iteration": 3,
+        "tools": [
+          "repo_read"
+        ],
+        "tokens": {
+          "input": 5322,
+          "output": 89
+        },
+        "costUsd": null
+      }
+    },
+    {
+      "id": "evt_a2a3d7dc-64b7-4fe8-ac9b-98758194c2a8",
+      "runId": "run_ed21198a-ee5a-4930-834c-ebc151355095",
+      "sequence": 20,
+      "timestamp": "2026-10-30T15:33:36.562Z",
+      "actor": "repository_analyst",
+      "type": "agent_turn",
+      "status": "progress",
+      "summary": "Repository Analyst turn 4: finish",
+      "evidence": [],
+      "publicPayload": {
+        "agentId": "agt_b96487e5733bae417e9492c2d5d1ca2d",
+        "role": "repository_analyst",
+        "label": "repository-analyst",
+        "iteration": 4,
+        "tools": [
+          "finish"
+        ],
+        "tokens": {
+          "input": 13502,
+          "output": 1996
+        },
+        "costUsd": null
+      }
+    },
+    {
+      "id": "evt_9d3e172a-266c-467b-b291-a85bb542cf3d",
+      "runId": "run_ed21198a-ee5a-4930-834c-ebc151355095",
+      "sequence": 21,
+      "timestamp": "2026-10-30T15:33:36.565Z",
+      "actor": "repository_analyst",
+      "type": "agent_finished",
+      "status": "completed",
+      "summary": "Repository Analyst completed",
+      "evidence": [],
+      "publicPayload": {
+        "agentId": "agt_b96487e5733bae417e9492c2d5d1ca2d",
+        "role": "repository_analyst",
+        "label": "repository-analyst",
+        "status": "completed",
+        "reason": null,
+        "usage": {
+          "iterations": 4,
+          "toolCalls": 8,
+          "inputTokens": 24818,
+          "outputTokens": 2386,
+          "costUsd": null,
+          "providerAttempts": 4,
+          "segments": 1
+        }
+      }
+    },
+    {
+      "id": "evt_bd5d7a59-1fe9-4fac-b7d4-e78e8e4e226b",
+      "runId": "run_ed21198a-ee5a-4930-834c-ebc151355095",
+      "sequence": 22,
+      "timestamp": "2026-10-30T15:33:36.571Z",
+      "actor": "system",
+      "type": "stage_started",
+      "status": "started",
+      "summary": "Stage reconciling started",
+      "evidence": [],
+      "publicPayload": {
+        "stage": "reconciling",
+        "attempt": 1,
+        "retryReason": null
+      }
+    },
+    {
+      "id": "evt_0462139f-5382-4635-8a7f-d38cfeeac7b3",
+      "runId": "run_ed21198a-ee5a-4930-834c-ebc151355095",
+      "sequence": 23,
+      "timestamp": "2026-10-30T15:33:36.573Z",
+      "actor": "reproduction_planner",
+      "type": "agent_started",
+      "status": "started",
+      "summary": "Reproduction Planner started (planner)",
+      "evidence": [],
+      "publicPayload": {
+        "agentId": "agt_d27359674160c6cdf29c2ae533286c60",
+        "role": "reproduction_planner",
+        "label": "planner",
+        "grants": [
+          "board_read",
+          "repo_list",
+          "repo_read",
+          "repo_search",
+          "dependency_discover",
+          "dependency_check"
+        ],
+        "limits": {
+          "maxIterations": 30,
+          "maxToolCalls": 40,
+          "maxInputTokens": 1500000,
+          "maxOutputTokens": 120000,
+          "maxWallMs": 1200000,
+          "maxContextChars": 240000,
+          "maxTurnOutputTokens": 8000,
+          "maxToolResultChars": 16000
+        },
+        "provider": "cheaper_inference",
+        "model": "claude-sonnet-5.5",
+        "parentAgentId": null
+      }
+    },
+    {
+      "id": "evt_d9327867-ac74-4b86-bfc8-1ff18f5c3787",
+      "runId": "run_ed21198a-ee5a-4930-834c-ebc151355095",
+      "sequence": 24,
+      "timestamp": "2026-10-30T15:33:43.636Z",
+      "actor": "reproduction_planner",
+      "type": "agent_turn",
+      "status": "progress",
+      "summary": "Reproduction Planner turn 1: board_read, repo_list",
+      "evidence": [],
+      "publicPayload": {
+        "agentId": "agt_d27359674160c6cdf29c2ae533286c60",
+        "role": "reproduction_planner",
+        "label": "planner",
+        "iteration": 1,
+        "tools": [
+          "board_read",
+          "repo_list"
+        ],
+        "tokens": {
+          "input": 8947,
+          "output": 50
+        },
+        "costUsd": null
+      }
+    },
+    {
+      "id": "evt_6338c3ed-d75f-4e7e-89b8-7b4557b15177",
+      "runId": "run_ed21198a-ee5a-4930-834c-ebc151355095",
+      "sequence": 25,
+      "timestamp": "2026-10-30T15:33:49.053Z",
+      "actor": "reproduction_planner",
+      "type": "agent_turn",
+      "status": "progress",
+      "summary": "Reproduction Planner turn 2: dependency_check",
+      "evidence": [],
+      "publicPayload": {
+        "agentId": "agt_d27359674160c6cdf29c2ae533286c60",
+        "role": "reproduction_planner",
+        "label": "planner",
+        "iteration": 2,
+        "tools": [
+          "dependency_check"
+        ],
+        "tokens": {
+          "input": 12712,
+          "output": 194
+        },
+        "costUsd": null
+      }
+    },
+    {
+      "id": "evt_c29354bb-2777-4968-ab25-80695a6b58b5",
+      "runId": "run_ed21198a-ee5a-4930-834c-ebc151355095",
+      "sequence": 26,
+      "timestamp": "2026-10-30T15:34:05.418Z",
+      "actor": "reproduction_planner",
+      "type": "agent_turn",
+      "status": "progress",
+      "summary": "Reproduction Planner turn 3: repo_list, repo_search",
+      "evidence": [],
+      "publicPayload": {
+        "agentId": "agt_d27359674160c6cdf29c2ae533286c60",
+        "role": "reproduction_planner",
+        "label": "planner",
+        "iteration": 3,
+        "tools": [
+          "repo_list",
+          "repo_search"
+        ],
+        "tokens": {
+          "input": 13031,
+          "output": 372
+        },
+        "costUsd": null
+      }
+    },
+    {
+      "id": "evt_e8baf6a8-fbba-4ba3-8ac8-eebf571c4603",
+      "runId": "run_ed21198a-ee5a-4930-834c-ebc151355095",
+      "sequence": 27,
+      "timestamp": "2026-10-30T15:34:21.596Z",
+      "actor": "reproduction_planner",
+      "type": "agent_turn",
+      "status": "progress",
+      "summary": "Reproduction Planner turn 4: finish",
+      "evidence": [],
+      "publicPayload": {
+        "agentId": "agt_d27359674160c6cdf29c2ae533286c60",
+        "role": "reproduction_planner",
+        "label": "planner",
+        "iteration": 4,
+        "tools": [
+          "finish"
+        ],
+        "tokens": {
+          "input": 13320,
+          "output": 1903
+        },
+        "costUsd": null
+      }
+    },
+    {
+      "id": "evt_50df84be-4913-458c-a2bf-b64a3097e8d4",
+      "runId": "run_ed21198a-ee5a-4930-834c-ebc151355095",
+      "sequence": 28,
+      "timestamp": "2026-10-30T15:34:21.600Z",
+      "actor": "reproduction_planner",
+      "type": "agent_finished",
+      "status": "completed",
+      "summary": "Reproduction Planner completed",
+      "evidence": [],
+      "publicPayload": {
+        "agentId": "agt_d27359674160c6cdf29c2ae533286c60",
+        "role": "reproduction_planner",
+        "label": "planner",
+        "status": "completed",
+        "reason": null,
+        "usage": {
+          "iterations": 4,
+          "toolCalls": 6,
+          "inputTokens": 48010,
+          "outputTokens": 2519,
+          "costUsd": null,
+          "providerAttempts": 4,
+          "segments": 1
+        }
+      }
+    },
+    {
+      "id": "evt_cefa6ec9-1f59-47a7-9093-22409d7bfe02",
+      "runId": "run_ed21198a-ee5a-4930-834c-ebc151355095",
+      "sequence": 29,
+      "timestamp": "2026-10-30T15:34:21.606Z",
+      "actor": "system",
+      "type": "stage_started",
+      "status": "started",
+      "summary": "Stage policy review started",
+      "evidence": [],
+      "publicPayload": {
+        "stage": "policy_review",
+        "attempt": 1,
+        "retryReason": null
+      }
+    },
+    {
+      "id": "evt_7ace430b-916a-4d21-a721-74311bb87805",
+      "runId": "run_ed21198a-ee5a-4930-834c-ebc151355095",
+      "sequence": 30,
+      "timestamp": "2026-10-30T15:34:21.607Z",
+      "actor": "system",
+      "type": "plan_refused",
+      "status": "warning",
+      "summary": "Policy review refused the plan: dataset host archive.ics.uci.edu is not on the administrator's allowlist",
+      "evidence": [],
+      "publicPayload": {
+        "outcome": "policy_blocked",
+        "violations": [
+          "dataset host archive.ics.uci.edu is not on the administrator's allowlist"
+        ]
+      }
+    },
+    {
+      "id": "evt_9614637e-e91c-4351-947a-03f401f95964",
+      "runId": "run_ed21198a-ee5a-4930-834c-ebc151355095",
+      "sequence": 31,
+      "timestamp": "2026-10-30T15:34:21.620Z",
+      "actor": "system",
+      "type": "stage_started",
+      "status": "started",
+      "summary": "Stage preparing started",
+      "evidence": [],
+      "publicPayload": {
+        "stage": "preparing",
+        "attempt": 1,
+        "retryReason": null
+      }
+    },
+    {
+      "id": "evt_a8a8e02d-437c-4ac2-bf1b-873bdf0dee60",
+      "runId": "run_ed21198a-ee5a-4930-834c-ebc151355095",
+      "sequence": 32,
+      "timestamp": "2026-10-30T15:34:21.621Z",
+      "actor": "system",
+      "type": "stage_started",
+      "status": "started",
+      "summary": "Stage executing started",
+      "evidence": [],
+      "publicPayload": {
+        "stage": "executing",
+        "attempt": 1,
+        "retryReason": null
+      }
+    },
+    {
+      "id": "evt_4ebac4bd-cf01-4f59-b319-d83d5dd7cd97",
+      "runId": "run_ed21198a-ee5a-4930-834c-ebc151355095",
+      "sequence": 33,
+      "timestamp": "2026-10-30T15:34:21.623Z",
+      "actor": "system",
+      "type": "stage_started",
+      "status": "started",
+      "summary": "Stage reviewing started",
+      "evidence": [],
+      "publicPayload": {
+        "stage": "reviewing",
+        "attempt": 1,
+        "retryReason": null
+      }
+    },
+    {
+      "id": "evt_371c8808-3169-43f5-bf11-d041cbe6952a",
+      "runId": "run_ed21198a-ee5a-4930-834c-ebc151355095",
+      "sequence": 34,
+      "timestamp": "2026-10-30T15:34:21.624Z",
+      "actor": "system",
+      "type": "stage_started",
+      "status": "started",
+      "summary": "Stage deciding started",
+      "evidence": [],
+      "publicPayload": {
+        "stage": "deciding",
+        "attempt": 1,
+        "retryReason": null
+      }
+    },
+    {
+      "id": "evt_899510fe-599b-4fb0-94d5-728621f31c76",
+      "runId": "run_ed21198a-ee5a-4930-834c-ebc151355095",
+      "sequence": 35,
+      "timestamp": "2026-10-30T15:34:21.625Z",
+      "actor": "supervisor",
+      "type": "agent_started",
+      "status": "started",
+      "summary": "Supervisor started (supervisor-verdict)",
+      "evidence": [],
+      "publicPayload": {
+        "agentId": "agt_b386b87c9ca89824526ca98de885663b",
+        "role": "supervisor",
+        "label": "supervisor-verdict",
+        "grants": [
+          "board_read"
+        ],
+        "limits": {
+          "maxIterations": 8,
+          "maxToolCalls": 10,
+          "maxInputTokens": 1500000,
+          "maxOutputTokens": 120000,
+          "maxWallMs": 300000,
+          "maxContextChars": 240000,
+          "maxTurnOutputTokens": 8000,
+          "maxToolResultChars": 16000
+        },
+        "provider": "cheaper_inference",
+        "model": "claude-sonnet-5.5",
+        "parentAgentId": null
+      }
+    },
+    {
+      "id": "evt_8c958a0d-a1b0-4700-9e00-1bbe70ed7652",
+      "runId": "run_ed21198a-ee5a-4930-834c-ebc151355095",
+      "sequence": 36,
+      "timestamp": "2026-10-30T15:34:29.741Z",
+      "actor": "supervisor",
+      "type": "agent_turn",
+      "status": "progress",
+      "summary": "Supervisor turn 1: board_read",
+      "evidence": [],
+      "publicPayload": {
+        "agentId": "agt_b386b87c9ca89824526ca98de885663b",
+        "role": "supervisor",
+        "label": "supervisor-verdict",
+        "iteration": 1,
+        "tools": [
+          "board_read"
+        ],
+        "tokens": {
+          "input": 1458,
+          "output": 26
+        },
+        "costUsd": null
+      }
+    },
+    {
+      "id": "evt_487d3f20-5441-466a-a5c9-11c2366a2200",
+      "runId": "run_ed21198a-ee5a-4930-834c-ebc151355095",
+      "sequence": 37,
+      "timestamp": "2026-10-30T15:34:36.207Z",
+      "actor": "supervisor",
+      "type": "agent_turn",
+      "status": "progress",
+      "summary": "Supervisor turn 2: finish",
+      "evidence": [],
+      "publicPayload": {
+        "agentId": "agt_b386b87c9ca89824526ca98de885663b",
+        "role": "supervisor",
+        "label": "supervisor-verdict",
+        "iteration": 2,
+        "tools": [
+          "finish"
+        ],
+        "tokens": {
+          "input": 7545,
+          "output": 236
+        },
+        "costUsd": null
+      }
+    },
+    {
+      "id": "evt_d95c5bdd-adeb-4b75-b337-1d9e541b29b9",
+      "runId": "run_ed21198a-ee5a-4930-834c-ebc151355095",
+      "sequence": 38,
+      "timestamp": "2026-10-30T15:34:36.210Z",
+      "actor": "supervisor",
+      "type": "agent_finished",
+      "status": "completed",
+      "summary": "Supervisor completed",
+      "evidence": [],
+      "publicPayload": {
+        "agentId": "agt_b386b87c9ca89824526ca98de885663b",
+        "role": "supervisor",
+        "label": "supervisor-verdict",
+        "status": "completed",
+        "reason": null,
+        "usage": {
+          "iterations": 2,
+          "toolCalls": 2,
+          "inputTokens": 9003,
+          "outputTokens": 262,
+          "costUsd": null,
+          "providerAttempts": 2,
+          "segments": 1
+        }
+      }
+    },
+    {
+      "id": "evt_57732707-d2ae-4a19-9d53-95138d3e8464",
+      "runId": "run_ed21198a-ee5a-4930-834c-ebc151355095",
+      "sequence": 39,
+      "timestamp": "2026-10-30T15:34:36.214Z",
+      "actor": "system",
+      "type": "final_status",
+      "status": "completed",
+      "summary": "Final status recorded; the paper target stays sealed",
+      "evidence": [],
+      "publicPayload": {
+        "status": "policy_blocked",
+        "sealed": true
+      }
+    },
+    {
+      "id": "evt_c7574a70-bf41-4246-8afc-b8b779ce1005",
+      "runId": "run_ed21198a-ee5a-4930-834c-ebc151355095",
+      "sequence": 40,
+      "timestamp": "2026-10-30T15:34:36.281Z",
+      "actor": "system",
+      "type": "study_cleanup",
+      "status": "completed",
+      "summary": "Destroyed 0 lab(s) and removed prepared files; nothing from this study is left running",
+      "evidence": [],
+      "publicPayload": {
+        "labs": [],
+        "dependenciesRemoved": true,
+        "datasetsRemoved": true,
+        "workDirRemoved": true,
+        "leftoverContainers": [],
+        "leftoverNetworks": [],
+        "liveAgents": [],
+        "verified": true
+      }
+    },
+    {
+      "id": "evt_e483ccd2-3bfb-4e63-b8c3-5038ca338562",
+      "runId": "run_ed21198a-ee5a-4930-834c-ebc151355095",
+      "sequence": 41,
+      "timestamp": "2026-10-30T15:34:36.283Z",
+      "actor": "system",
+      "type": "study_result",
+      "status": "warning",
+      "summary": "Result: policy blocked",
+      "evidence": [],
+      "publicPayload": {
+        "status": "policy_blocked",
+        "reasons": [
+          "policy: dataset host archive.ics.uci.edu is not on the administrator's allowlist"
+        ]
+      }
+    },
+    {
+      "id": "evt_58f0c5e1-3342-40a1-8931-a5712899b5b6",
+      "runId": "run_ed21198a-ee5a-4930-834c-ebc151355095",
+      "sequence": 42,
+      "timestamp": "2026-10-30T15:34:36.285Z",
+      "actor": "system",
+      "type": "run_finished",
+      "status": "warning",
+      "summary": "Study finished: inconclusive",
+      "evidence": [],
+      "publicPayload": {
+        "runStatus": "inconclusive",
+        "verdict": "inconclusive"
+      }
+    }
+  ]
+}

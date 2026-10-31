@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 1,
+  "name": "blinding-smoke-2026-10",
+  "note": "ROCKET-only copy of smoke-matrix.json (same seed, replicates, arms) to finish the remaining ROCKET slots; kept outside the repo.",
+  "seed": 20261028,
+  "replicates": 2,
+  "papers": [
+    {
+      "id": "rocket-ecg200",
+      "reviewedCaseId": "rocket-ecg200",
+      "pdf": "/Users/aayush07/Desktop/ClaudeWork/papers/02_ROCKET.pdf",
+      "sha256": "b58acd66dbd188978fc379f6949a4ea26c3c97aeaf6a27f5f16ccc182628df7a"
+    }
+  ],
+  "arms": [
+    {
+      "targetVisibility": "blind",
+      "labMode": "open"
+    },
+    {
+      "targetVisibility": "decoy",
+      "labMode": "open"
+    }
+  ]
+}

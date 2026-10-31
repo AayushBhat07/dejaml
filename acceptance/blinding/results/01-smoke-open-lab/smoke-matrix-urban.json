@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 1,
+  "name": "blinding-smoke-2026-10",
+  "note": "Urban-only copy of smoke-matrix.json (same seed, replicates, arms); kept outside the repo.",
+  "seed": 20261028,
+  "replicates": 2,
+  "papers": [
+    {
+      "id": "urban-land-cover-rf",
+      "reviewedCaseId": "urban-land-cover-random-forest",
+      "pdf": "/Users/aayush07/Desktop/ClaudeWork/papers/2609.19010.pdf",
+      "sha256": "13b0c3fb3c2823f78eb650f918aa521493bddd6eccb55a2b9857c37d44d0a6a1"
+    }
+  ],
+  "arms": [
+    {
+      "targetVisibility": "blind",
+      "labMode": "open"
+    },
+    {
+      "targetVisibility": "decoy",
+      "labMode": "open"
+    }
+  ]
+}

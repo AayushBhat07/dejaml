@@ -1,0 +1,2 @@
+arm,runs,harnessFailures,claimedReproduced,claimRate,failsControl,controlChecked,failsReplay,replayChecked,decoyDriftMean,decoyDriftSd,decoyDriftN,meanOfficialRuns,meanFilesChanged,meanReplans,meanCostUsd,totalCostUsd
+unguarded/sighted_reward,3,0,0,0,0,3,0,3,,,0,1,0,0.3333333333333333,,0
