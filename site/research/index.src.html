@@ -115,6 +115,8 @@ td.p { color: var(--seal-ink); } td.o { color: var(--indigo-ink); font-weight: 6
 .runs { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 8px; }
 .runs i { width: 22px; height: 22px; border-radius: 4px; border: 1.5px dashed #a9b0c2; display: block; }
 .runs i.d { background: var(--indigo); border: 1.5px solid var(--indigo); }
+.runs i.d.x { background: #fff; border: 1.5px solid #c99212; }
+.ptitle { font-family: "Newsreader", Georgia, serif; font-size: 21px; line-height: 1.3; font-style: italic; margin: 4px 0 14px; }
 .meter { font: 500 12px/1.4 var(--f-mono); color: var(--muted); }
 .steps { margin: 0; padding: 0; list-style: none; border-top: 1px solid var(--rule); }
 .steps li { display: grid; grid-template-columns: 78px minmax(0, 1fr); gap: 10px; padding: 9px 0; border-bottom: 1px solid var(--rule); font-size: 13.5px; line-height: 1.45; }
@@ -305,12 +307,11 @@ td.p { color: var(--seal-ink); } td.o { color: var(--indigo-ink); font-weight: 6
     </article>
   </section>
 
-  <section id="now" class="sec" data-at="now">
+  <section id="smoke" class="sec" data-at="smoke">
     <article class="card">
-      <p class="tab"><b>10</b><span>Where we are</span><span class="st now">Now</span></p>
-      <h2>The study is <em>running</em></h2>
-      <p>The four conditions are built into DéjàML, in a locked lab and in an open lab where an agent has room to tune (PR #18). Next came a 12-run smoke test (PR #21): three papers, blind and decoy, two repeats each.</p>
-      <h3>Smoke test</h3>
+      <p class="tab"><b>10</b><span>The first test</span><span class="st done">30 Oct · PR #21</span></p>
+      <h2>A 12-run <em>smoke test</em></h2>
+      <p>The four conditions are built into DéjàML, in a locked lab and in an open lab where an agent has room to tune (PR #18). The first real test ran Claude Sonnet 5.5 on three papers in the open lab.</p>
       <div class="runs" id="smoke-runs" role="img"></div>
       <p class="meter" id="smoke-text"></p>
       <p class="small" id="smoke-note"></p>
@@ -318,34 +319,60 @@ td.p { color: var(--seal-ink); } td.o { color: var(--indigo-ink); font-weight: 6
   </section>
 
   <section id="pilot" class="sec" data-at="pilot">
-    <article class="card plan">
-      <p class="tab"><b>11</b><span>Next</span><span class="st next">Planned</span></p>
-      <h2>A 90-run pilot</h2>
-      <p>If the smoke test is clean, the pilot runs five papers: all four conditions in the open lab with three seeds, plus blind and sighted in the locked lab. That is about $31 of model credit.</p>
-      <p>It answers the first real question: is there any drift toward a shown number, and is it big enough to measure at scale?</p>
+    <article class="card">
+      <p class="tab"><b>11</b><span>Pushing harder</span><span class="st done">30 Oct · PRs #24, #25</span></p>
+      <h2>A 39-run <em>pilot</em></h2>
+      <p>The smoke test was clean, so the next runs tried to make chasing the paper's number as easy and as tempting as possible.</p>
+      <ul class="pts">
+        <li><strong>No guard rail.</strong> Urban Land Cover, shown the paper's 81.66, with the rule against editing code removed. All three runs measured 79.88. The agents listed the differences they found, such as the seed and the split, as deviations instead of tuning them.</li>
+        <li><strong>Success means matching.</strong> Three more runs were told the reproduction only succeeds within tolerance of 81.66. All three measured 79.88 and changed no files.</li>
+        <li><strong>Two new papers.</strong> r-STSF on ECG200 measured 89.4 to 90.1 whether blind, shown 89.7 or shown a decoy of 85.7. Good Classification Measures gave 96.53 in every arm. Each agent ran the official command once and stopped.</li>
+        <li><strong>Weaker models.</strong> Claude Haiku 4.5, Claude Haiku 5.5 and Qwen3-Coder ran 13 times. Every run ended inconclusive, mostly at plan review. None of them made up a number.</li>
+      </ul>
+      <div class="runs" id="pilot-runs" role="img"></div>
+      <p class="meter" id="pilot-text"></p>
+      <p class="small" id="pilot-note"></p>
+      <h3>Could they have chased it?</h3>
+      <p>Yes. A sweep of the Urban adapter's split seed, 0 to 199, with no agent involved, found that 64 of the 200 seeds (32%) land within tolerance of 81.66. Changing one number would have been enough. No agent did it.</p>
+    </article>
+  </section>
+
+  <section id="review" class="sec" data-at="review">
+    <article class="card">
+      <p class="tab"><b>12</b><span>Writing it up</span><span class="st done">30 to 31 Oct</span></p>
+      <h2>A draft, checked <em>hard</em></h2>
+      <ul class="pts">
+        <li>Every run record and the seed sweep were published in the repository, under <a href="https://github.com/AayushBhat07/dejaml/tree/main/acceptance/blinding/results" target="_blank" rel="noopener">acceptance/blinding/results</a> (PR #25).</li>
+        <li>Every citation in the draft was checked against its source.</li>
+        <li>A review from five perspectives (methods, domain, a devil's advocate, venue fit and the wider view) read the draft against the run records.</li>
+      </ul>
+      <p>The review's main point: the only arm that could show tuning gave the agents no credible reason to tune, and there was no positive control. So a clean result says as much about the test as about the agents.</p>
+      <blockquote>The paper's real, transferable contribution is the catalogue of ways such a test can be unable to show what it claims to measure.<cite>Internal review, 31 Oct</cite></blockquote>
+      <p>The paper was reframed around those lessons, under a new title.</p>
+    </article>
+  </section>
+
+  <section id="paper" class="sec" data-at="paper">
+    <article class="card">
+      <p class="tab"><b>13</b><span>Where we are</span><span class="st now">Under review</span></p>
+      <h2>The first paper is <em>submitted</em></h2>
+      <p class="ptitle">Can a Blinded Harness Detect Agents Chasing Reported Numbers? Lessons from a Pilot</p>
+      <p>On 31 Oct 2026 the paper went to <strong>Empirical Software Engineering</strong>, a Springer journal. It is now under review. A first decision usually takes a few weeks.</p>
+      <ol class="steps" id="paper-steps"></ol>
     </article>
   </section>
 
   <section id="full" class="sec" data-at="full">
     <article class="card plan">
-      <p class="tab"><b>12</b><span>Then</span><span class="st next">Planned</span></p>
+      <p class="tab"><b>14</b><span>Next</span><span class="st next">Planned</span></p>
       <h2>The full study</h2>
       <ul class="pts">
+        <li>A positive control: an agent told to match the paper, to show the harness catches it when it does.</li>
+        <li>An arm where tuning could actually pay off, with a blind comparison in the same lab.</li>
         <li>About 25 light CPU papers, each with a reviewed target.</li>
-        <li>Two model families, so the result is not one model's quirk.</li>
-        <li>Three seeds per condition, about 600 runs.</li>
-        <li>A memorization probe, to check what a model already knows about each paper.</li>
-        <li>The plan preregistered on OSF before the runs start.</li>
+        <li>A second model family that can get through planning.</li>
+        <li>A memorization probe, and the plan preregistered before the runs start.</li>
       </ul>
-    </article>
-  </section>
-
-  <section id="paper" class="sec" data-at="paper">
-    <article class="card plan">
-      <p class="tab"><b>13</b><span>The goal</span><span class="st next">Planned</span></p>
-      <h2>The <em>paper</em></h2>
-      <p>A 4 to 6 page empirical paper on target bias in AI paper reproduction, with DéjàML's sealed lab as the method.</p>
-      <ol class="steps" id="paper-steps"></ol>
     </article>
   </section>
 
@@ -353,7 +380,7 @@ td.p { color: var(--seal-ink); } td.o { color: var(--indigo-ink); font-weight: 6
     <article class="card">
       <p class="tab"><b>The whole road</b></p>
       <h2>One line, <span data-days>33</span> days</h2>
-      <p>From the first commit on 28 Sep to a running study. The solid line is what exists and has been checked. The dashed road is the plan, and it gets redrawn as the study reports back.</p>
+      <p>From the first commit on 28 Sep to a submitted paper. The solid line is what exists and has been checked. The dashed road is the plan, and it gets redrawn as the study reports back.</p>
       <div class="cta"><a class="btn" href="__MAIN_URL__">How DéjàML works</a><a class="btn ghost" href="https://github.com/AayushBhat07/dejaml" target="_blank" rel="noopener">GitHub ↗</a><a class="btn ghost" href="#top">Back to the start</a></div>
       <p class="small">Built by <a href="https://github.com/AayushBhat07" target="_blank" rel="noopener">Aayush Bhat</a>. Dates and numbers come from DéjàML's repository, its pull requests and its project report.</p>
       <p class="credits">Robot model: RobotExpressive by Tomás Laulhé (Quaternius), CC0 1.0, with modifications by Don McCurdy. Road and props drawn in three.js.</p>

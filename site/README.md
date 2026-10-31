@@ -54,12 +54,17 @@ indigo line is drawn up to "now":
 8. **Any lightweight paper**: the open-paper work in review.
 9. **The research question**: does seeing the number bias the agent? Four
    lanes fork off the road for blind, sighted, sighted + rule and decoy.
-10. **Now**: the conditions are built and the 12-run smoke test is running.
+10. **The smoke test**: 12 runs, blind and decoy, no drift (30 Oct).
+11. **The 39-run pilot**: no guard rail, a reward for matching, two new papers,
+    weaker models and the Urban seed sweep (30 Oct).
+12. **Draft and review**: run records published, citations checked, a
+    five-perspective review and a reframe (31 Oct).
+13. **Now**: the first paper is submitted to Empirical Software Engineering
+    and under review (31 Oct).
 
-Past "now" the road is a dashed plan with see-through models: the 90-run pilot,
-the full study and the paper. Edit `research/progress.json` as the study
-moves (`now` is the stop where the line ends; `smoke` and `paper` fill the
-cards), then rebuild.
+Past "now" the road is a dashed plan with see-through models: the full study.
+Edit `research/progress.json` as the study moves (`now` is the stop where the
+line ends; `smoke`, `pilot` and `paper` fill the cards), then rebuild.
 
 | Path | What it is |
 |---|---|

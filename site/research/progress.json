@@ -1,20 +1,34 @@
 {
-  "_help": "Edit this as the study moves, then rebuild with: node site/build.mjs. 'now' is the stop where the robot waits and the indigo line ends (one of: open, question, now, pilot, full, paper). Step status is done, now or next.",
-  "updated": "2026-10-30",
-  "now": "now",
+  "_help": "Edit this as the study moves, then rebuild with: node site/build.mjs. 'now' is the stop where the robot waits and the indigo line ends (one of: open, question, smoke, pilot, review, paper, full). Pilot groups: kind m = measured, x = inconclusive. Step status is done, now or next.",
+  "updated": "2026-10-31",
+  "now": "paper",
   "smoke": {
     "total": 12,
-    "done": 4,
-    "note": "First pass: 4 runs measured, all on pyts BOSS / GunPoint. Every one measured 1.000, the paper's value, and the decoy runs showed no pull toward the wrong number. The 8 ROCKET and Urban Land Cover runs were stopped because their dataset host wasn't on the allowlist, and are being rerun."
+    "done": 12,
+    "note": "Three papers, blind and decoy, two repeats each. No run drifted toward the decoy: ROCKET measured 0.901 and 0.906 when shown 0.927, and Urban Land Cover measured 79.88 every time, blind or shown a decoy of 77.66 (the paper reports 81.66). pyts BOSS stayed at 1.000. No agent changed a single file."
+  },
+  "pilot": {
+    "runs": 39,
+    "groups": [
+      { "n": 11, "kind": "m", "label": "smoke-test runs that measured" },
+      { "n": 1, "kind": "x", "label": "smoke-test run that stopped before measuring" },
+      { "n": 3, "kind": "m", "label": "sighted runs with the no-edit rule removed" },
+      { "n": 3, "kind": "m", "label": "runs told that success means matching the paper" },
+      { "n": 8, "kind": "m", "label": "runs on two new papers" },
+      { "n": 13, "kind": "x", "label": "weaker-model runs, all inconclusive" }
+    ],
+    "note": "Filled blocks are the 25 runs that measured a number, all on Sonnet 5.5. Open blocks are the 14 that ended inconclusive: one smoke-test run, and all 13 weaker-model runs, whose plans mostly pointed at the wrong files and were refused at plan review."
   },
   "paper": [
     { "label": "Research question and gap check", "status": "done", "when": "28 Oct" },
     { "label": "Conditions built into DéjàML", "status": "done", "when": "30 Oct" },
-    { "label": "12-run smoke test", "status": "now", "when": "Running" },
-    { "label": "90-run pilot", "status": "next", "when": null },
-    { "label": "Preregistration on OSF", "status": "next", "when": null },
-    { "label": "Full study, about 600 runs", "status": "next", "when": null },
-    { "label": "Draft and preprint on arXiv", "status": "next", "when": null },
-    { "label": "Submit to an ICLR or ICML 2027 workshop, or TMLR", "status": "next", "when": null }
+    { "label": "12-run smoke test", "status": "done", "when": "30 Oct" },
+    { "label": "39-run pilot, with harder tests and weaker models", "status": "done", "when": "30 Oct" },
+    { "label": "Run records published in the repository", "status": "done", "when": "31 Oct" },
+    { "label": "Every citation checked against its source", "status": "done", "when": "31 Oct" },
+    { "label": "Five-perspective review, and a reframe around its lessons", "status": "done", "when": "31 Oct" },
+    { "label": "Submitted to Empirical Software Engineering (Springer)", "status": "now", "when": "31 Oct · under review" },
+    { "label": "Editor's first decision", "status": "next", "when": null },
+    { "label": "Full study, with a positive control", "status": "next", "when": null }
   ]
 }
