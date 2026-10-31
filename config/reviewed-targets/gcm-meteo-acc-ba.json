@@ -1,0 +1,76 @@
+{
+  "schemaVersion": 1,
+  "caseId": "gcm-meteo-acc-ba",
+  "paper": {
+    "title": "Good Classification Measures and How to Find Them (NeurIPS 2021)",
+    "sha256": "e10f9e1158882f7feb2c9402bb953456f7cb868d0c4f8eb9aec9c81fca328ca1"
+  },
+  "claim": {
+    "page": 9,
+    "location": "Table 4, row BA, column Acc",
+    "excerpt": "BA 96.5 — 55.6 58.9 99.7 57.7 52.0 40.4",
+    "method": "pairwise inconsistency of binary classification measures (Accuracy vs Balanced Accuracy)",
+    "dataset": "Yandex.Weather rain-prediction confusion matrices, all 12 forecast horizons (bundled in data/meteo)",
+    "split": "all bundled threshold, day and horizon cases",
+    "preprocessing": "none; the confusion matrices are counted as given",
+    "seedPolicy": "deterministic counting; the script calls random.seed(42) but draws no random numbers for this table",
+    "metric": {
+      "name": "inconsistency rate of Accuracy vs Balanced Accuracy",
+      "unit": "percent"
+    },
+    "reportedValue": 96.5,
+    "identify": {
+      "methodIncludes": [
+        "inconsisten"
+      ],
+      "methodExcludes": [],
+      "datasetIncludes": [
+        "rain"
+      ]
+    }
+  },
+  "repository": {
+    "url": "https://github.com/yandex-research/classification-measures",
+    "commitSha": "210fbc107d5f41e64cc4e6990f0b970973d25995",
+    "entrypoint": "meteo_inversion_matrix.py"
+  },
+  "environment": {
+    "python": [
+      "3.11"
+    ],
+    "requirements": [
+      "numpy==1.26.4",
+      "scikit-learn==1.3.2",
+      "scipy==1.11.4",
+      "joblib==1.3.2",
+      "threadpoolctl==3.2.0"
+    ],
+    "allowedCompatibilityConstraints": []
+  },
+  "dataset": {
+    "source": {
+      "kind": "repository"
+    }
+  },
+  "adapter": {
+    "id": "gcm-meteo-acc-ba-runner",
+    "path": "work/adapter/gcm_meteo_acc_ba.py",
+    "file": "acceptance/proof/gcm_meteo_acc_ba.py",
+    "sha256": "2e00cf8c099535cdbf68c4577b2f7e571a0359629695dde1e85a746d2b72976c",
+    "why": "The official script prints a matrix of discordant counts and the number of cases, not the percentage in Table 4; the adapter runs it unchanged and divides the two.",
+    "source": "Runs the pinned meteo_inversion_matrix.py unchanged with the argument full, from the repository root, and writes 100 x discordant(Acc, BA) / total to JSON. Arguments: --output <artifacts/result.json>.",
+    "differences": [
+      "project-owned adapter, not official repository code",
+      "it computes the Table 4 percentage from the two counts the official script prints; the paper does not show this division",
+      "the environment is a 2026 Python 3.11 stack; the paper does not state its versions"
+    ]
+  },
+  "metricParser": {
+    "source": "json",
+    "path": "artifacts/result.json",
+    "key": "metrics.inconsistencyPercent"
+  },
+  "expectedRuntimeCeilingSeconds": 300,
+  "tolerance": 0.1,
+  "maximumVerdict": "partially_reproduced"
+}

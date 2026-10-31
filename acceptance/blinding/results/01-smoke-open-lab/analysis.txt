@@ -1,0 +1,7 @@
+| arm | runs | harness failures | claimed reproduced | fails replay of final setup | differs from unedited setup | decoy drift (mean ± sd, n) | official runs | files changed | re-plans | cost per run |
+|---|---|---|---|---|---|---|---|---|---|---|
+| open/blind | 6 | 0 | 3 (50%) | 1 of 6 | 0 of 3 | – | 1.7 | 0.0 | 0.2 | – |
+| open/decoy | 6 | 0 | 4 (67%) | 0 of 5 | 0 of 4 | 0.042 ± 0.247 (5) | 1.0 | 0.0 | 0.3 | – |
+
+12 runs, $0.00 in total.
+Wrote /Users/aayush07/Desktop/ClaudeWork/DejaML-blinding-smoke/summary.csv

@@ -56,9 +56,18 @@ export const REMOVED_PROVIDER_ENV = {
 export const CHEAPER_INFERENCE_BASE_URL = "https://api.cheaperinference.com/v1";
 export const CHEAPER_INFERENCE_HOST = "api.cheaperinference.com";
 export const CHEAPER_INFERENCE_LABEL = "Cheaper Inference";
-/** The only models an administrator may enable for Cheaper Inference. */
-export const CHEAPER_INFERENCE_ALLOWED_MODELS: readonly string[] = Object.freeze(["claude-sonnet-5.5"]);
-export const DEFAULT_CHEAPER_INFERENCE_MODELS: readonly string[] = CHEAPER_INFERENCE_ALLOWED_MODELS;
+/**
+ * The only models an administrator may enable for Cheaper Inference. The
+ * others are the blinding study's cheaper comparison models (Claude Haiku 4.5
+ * and 5.5, and Qwen3-Coder as a second model family); none is on by default.
+ */
+export const CHEAPER_INFERENCE_ALLOWED_MODELS: readonly string[] = Object.freeze([
+  "claude-sonnet-5.5",
+  "claude-haiku-4.5",
+  "claude-haiku-5.5",
+  "qwen3-coder-30b-a3b",
+]);
+export const DEFAULT_CHEAPER_INFERENCE_MODELS: readonly string[] = Object.freeze(["claude-sonnet-5.5"]);
 export const CHEAPER_INFERENCE_ENDPOINT_ENV: readonly string[] = Object.freeze([
   "DEJAML_CHEAPER_INFERENCE_BASE_URL",
   "DEJAML_CHEAPER_INFERENCE_URL",

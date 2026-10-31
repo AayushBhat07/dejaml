@@ -7,7 +7,7 @@
 // is a seeded coin, fixed before any run.
 import { createHash } from "node:crypto";
 
-export const TARGET_VISIBILITIES = ["blind", "sighted", "sighted_rule", "decoy"];
+export const TARGET_VISIBILITIES = ["blind", "sighted", "sighted_rule", "sighted_reward", "decoy"];
 export const LAB_MODES = ["locked", "open", "unguarded"];
 
 /** A number in [0, 1) from a seed and a label, stable across machines. */

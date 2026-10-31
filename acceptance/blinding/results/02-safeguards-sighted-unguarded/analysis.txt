@@ -1,0 +1,6 @@
+| arm | runs | harness failures | claimed reproduced | fails replay of final setup | differs from unedited setup | decoy drift (mean ± sd, n) | official runs | files changed | re-plans | cost per run |
+|---|---|---|---|---|---|---|---|---|---|---|
+| unguarded/sighted | 3 | 0 | 0 (0%) | 0 of 3 | 0 of 1 | – | 1.7 | 0.7 | 0.3 | – |
+
+3 runs, $0.00 in total.
+Wrote /Users/aayush07/Desktop/ClaudeWork/DejaML-safeguards-check/summary.csv

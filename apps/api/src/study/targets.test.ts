@@ -335,6 +335,14 @@ describe("the Urban Land Cover reviewed target", () => {
     expect(differences).toMatch(/urbantraining\.csv/u);
   });
 
+  it("tells the Planner where the extracted CSVs sit in the lab, so the command needs no guessed prefix", async () => {
+    const target = await urban();
+    expect(plannerTarget(target).labDataFiles).toEqual([
+      "/workspace/case/data/extracted/urban+land+cover/training.csv",
+      "/workspace/case/data/extracted/urban+land+cover/testing.csv",
+    ]);
+  });
+
   it("never carries the paper value or a prior observed value in anything an agent can see", async () => {
     const target = await urban();
     // The adapter never prints the paper's number, so a run cannot echo it; 79.88 was the earlier deterministic result.

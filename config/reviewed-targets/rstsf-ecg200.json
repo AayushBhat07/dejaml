@@ -1,0 +1,96 @@
+{
+  "schemaVersion": 1,
+  "caseId": "rstsf-ecg200",
+  "paper": {
+    "title": "Fast, Accurate and Interpretable Time Series Classification Through Randomization (arXiv 2105.14876v1)",
+    "sha256": "7f1bfe9cf66545bf0c042687f333b84d1bc3559a8dc603d273c1bcad4ee3808c"
+  },
+  "claim": {
+    "page": 48,
+    "location": "Appendix A, Table 5, row ECG200, column r-STSF",
+    "excerpt": "ECG200 88.00 85.50 87.00 87.40 85.00 90.90 86.18 91.80 90.60 89.70",
+    "method": "r-STSF: extremely randomized trees over supervised interval features (4 representations, 9 aggregation functions, d = 50, r = 500 trees)",
+    "dataset": "UCR ECG200 (100 train / 100 test series)",
+    "split": "the fixed UCR train/test split (100 train, 100 test)",
+    "preprocessing": "minority-class oversampling and z-normalization inside r-STSF's training procedure",
+    "seedPolicy": "10 runs with different randomness; no seeds are stated or set",
+    "metric": {
+      "name": "mean test accuracy over 10 runs",
+      "unit": "percent"
+    },
+    "reportedValue": 89.7,
+    "identify": {
+      "methodIncludes": [
+        "STSF"
+      ],
+      "methodExcludes": [],
+      "datasetIncludes": [
+        "ECG200"
+      ]
+    }
+  },
+  "repository": {
+    "url": "https://github.com/stevcabello/r-STSF",
+    "commitSha": "b094a6bf4c2bf356b27dd5bac2581c3a7b7fdb11",
+    "entrypoint": "history_arxiv/code/r-STSF.ipynb"
+  },
+  "environment": {
+    "python": [
+      "3.11"
+    ],
+    "requirements": [
+      "numpy==1.26.4",
+      "scipy==1.11.4",
+      "pandas==2.1.4",
+      "python-dateutil==2.8.2",
+      "pytz==2023.3.post1",
+      "tzdata==2023.4",
+      "six==1.16.0",
+      "scikit-learn==1.3.2",
+      "joblib==1.3.2",
+      "threadpoolctl==3.2.0",
+      "numba==0.59.1",
+      "llvmlite==0.42.0",
+      "pyFFTW==0.13.1",
+      "matplotlib==3.8.2",
+      "contourpy==1.2.0",
+      "cycler==0.12.1",
+      "fonttools==4.47.0",
+      "kiwisolver==1.4.5",
+      "packaging==23.2",
+      "pillow==10.2.0",
+      "pyparsing==3.1.1",
+      "statsmodels==0.14.1",
+      "patsy==0.5.6"
+    ],
+    "allowedCompatibilityConstraints": []
+  },
+  "dataset": {
+    "source": {
+      "kind": "repository"
+    }
+  },
+  "adapter": {
+    "id": "rstsf-ecg200-notebook-runner",
+    "path": "work/adapter/rstsf_ecg200_notebook.py",
+    "file": "acceptance/proof/rstsf_ecg200_notebook.py",
+    "sha256": "e9d5f24f39d4d8ed6c043665e1dd7b21c3526bc4a1cf3b7588db5c4d8dcc1e0e",
+    "why": "The official result is a notebook, not a script, and its active dataset line runs ItalyPowerDemand; the adapter runs the notebook's own cells on ECG200 and writes the 10-run mean to JSON.",
+    "source": "Executes the code cells of the pinned history_arxiv/code/r-STSF.ipynb in order, from history_arxiv/code (it moves there when started from the repository root). Arguments: --notebook r-STSF.ipynb --dataset ECG200 --output <artifacts/result.json>. It writes metrics.accuracyPercentMean.",
+    "differences": [
+      "project-owned adapter, not official repository code: it executes the notebook's cells rather than the notebook itself",
+      "the notebook's active dataset line (ItalyPowerDemand) is replaced by ECG200, which the notebook lists among its alternatives and bundles in sampleUCRdatasets/",
+      "the notebook's last cell, which writes a timestamped CSV under output/, is skipped; the per-run accuracies and their mean go to a JSON artifact instead",
+      "no seeds are set, as in the notebook, so each run of the adapter gives a different 10-run mean",
+      "the environment is a 2026 Python 3.11 stack (NumPy 1.26, scikit-learn 1.3, numba 0.59); the paper does not state its versions"
+    ]
+  },
+  "metricParser": {
+    "source": "json",
+    "path": "artifacts/result.json",
+    "key": "metrics.accuracyPercentMean"
+  },
+  "expectedRuntimeCeilingSeconds": 600,
+  "tolerance": 1.0,
+  "maximumVerdict": "partially_reproduced"
+}
