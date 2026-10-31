@@ -87,11 +87,11 @@ async function start3D() {
 
   // ── the ground and the model base
   mesh(new THREE.PlaneGeometry(1200, 1200), std(C.ground), scene, [90, -0.62, 0], [-Math.PI / 2, 0, 0], false);
-  const BX0 = -24, BX1 = 200, BZ0 = -30, BZ1 = 28;
+  const BX0 = -24, BX1 = 215, BZ0 = -30, BZ1 = 28;
   box(BX1 - BX0, 0.6, BZ1 - BZ0, [M.side, M.side, M.base, M.side, M.side, M.side], (BX0 + BX1) / 2, -0.6, (BZ0 + BZ1) / 2, scene, 0, false);
 
   // ── the road: a centripetal Catmull-Rom curve through one point per stop (plus a lead-in and a tail), measured by arc length
-  const RP = [[-14, 8], [0, 0], [15, -8], [30, 3], [45, -6], [60, 4], [75, -5], [90, 5], [105, -6], [121, 1], [139, -5], [154, 4], [169, -5], [184, 1], [196, 7]];
+  const RP = [[-14, 8], [0, 0], [15, -8], [30, 3], [45, -6], [60, 4], [75, -5], [90, 5], [105, -6], [121, 1], [139, -5], [154, 4], [169, -5], [184, 1], [199, -5], [211, 2]];
   const curve = new THREE.CatmullRomCurve3(RP.map(([x, z]) => V(x, 0, z)), false, 'centripetal');
   const PER = 120, NS = (RP.length - 1) * PER, SP = [], SL = [0];
   for (let k = 0; k <= NS; k++) SP.push(curve.getPoint(k / NS));
@@ -146,7 +146,7 @@ async function start3D() {
 
   // ── the fork: between the research question and "now" the four conditions run as four lanes beside the road, then rejoin it
   const CONDS = [['blind', 'BLIND', -7.6], ['sighted', 'SIGHTED', -4.6], ['rule', 'SIGHTED + RULE', 4.6], ['decoy', 'DECOY', 7.6]];
-  const fs0 = stopS[stopIndexOf('question')] + 2.5, fs1 = stopS[stopIndexOf('now')] - 2.5;
+  const fs0 = stopS[stopIndexOf('question')] + 2.5, fs1 = stopS[stopIndexOf('smoke')] - 2.5;
   const bump = (s) => { const u = (s - fs0) / (fs1 - fs0); return Math.sin(Math.PI * Math.max(0, Math.min(1, u))) ** 0.7; };
   const lanes = new THREE.Group(); scene.add(lanes);
   for (const [key, name, off] of CONDS) {
@@ -312,9 +312,8 @@ async function start3D() {
     plane(1.1, 1.1, q, p, [-1.9, 1.6, 0.6], [0, 0.4, 0], { transparent: true, side: THREE.DoubleSide });
     PAD.question.top = 5.0;
   }
-  // 10 now: the smoke test, one block per run (filled = finished), and a beacon
-  const beacon = new THREE.Group();
-  { const p = PAD.now.props, { total, done } = PROGRESS.smoke, cols = 6;
+  // 10 the smoke test, one block per run (filled = finished)
+  { const p = PAD.smoke.props, { total, done } = PROGRESS.smoke, cols = 6;
     for (let k = 0; k < total; k++) {
       const x = (k % cols - (cols - 1) / 2) * 0.82, z = Math.floor(k / cols) * 0.82 - 0.2;
       const b = box(0.62, 0.62, 0.62, k < done ? M.indigo : new THREE.MeshStandardMaterial({ color: 0xffffff, transparent: true, opacity: 0.55, depthWrite: false }), x, 0, z, p);
@@ -323,35 +322,55 @@ async function start3D() {
     const t = tex(400, 110, (g, w) => { g.fillStyle = '#3a4fd8'; roundRect(g, 0, 0, w, 110, 18); g.fill(); g.fillStyle = '#fff'; g.font = `600 44px ${FM}`; g.textAlign = 'center'; g.fillText(`${done} / ${total} RUNS`, w / 2, 70); });
     box(0.1, 1.5, 0.1, M.slate, 0, 0, -1.7, p);
     plane(1.8, 0.5, t, p, [0, 1.75, -1.64]);
-    // the beacon on the road: a pulsing ring where the line ends
-    const P = PAD.now.road; beacon.position.set(P.x, ROAD_H + 0.02, P.z); scene.add(beacon);
+    PAD.smoke.top = 3.6;
+  }
+  // the beacon on the road: a pulsing ring where the line ends
+  const beacon = new THREE.Group();
+  { const P = pads[NOW_I].road; beacon.position.set(P.x, ROAD_H + 0.02, P.z); scene.add(beacon);
     for (let k = 0; k < 2; k++) { const r = mesh(new THREE.RingGeometry(1.1, 1.3, 48), new THREE.MeshBasicMaterial({ color: C.indigo, transparent: true, opacity: 0.6, depthWrite: false }), beacon, [0, 0.01 + k * 0.002, 0], [-Math.PI / 2, 0, 0], false); r.userData.k = k; }
-    PAD.now.top = 3.6;
   }
-  // 11 pilot: 90 runs, five papers
-  { const p = PAD.pilot.props;
-    const n = 90, im = new THREE.InstancedMesh(new THREE.BoxGeometry(0.3, 0.3, 0.3), M.white, n), m4 = new THREE.Matrix4();
-    for (let k = 0; k < n; k++) { const x = (k % 15 - 7) * 0.4, z = Math.floor(k / 15) * 0.4 - 1.2; m4.makeTranslation(x, 0.15, z); im.setMatrixAt(k, m4); }
-    p.add(im);
-    const t = tex(400, 110, (g, w) => { g.strokeStyle = '#8e97b0'; g.setLineDash([14, 10]); g.lineWidth = 6; roundRect(g, 4, 4, w - 8, 102, 18); g.stroke(); g.fillStyle = '#586078'; g.font = `600 44px ${FM}`; g.textAlign = 'center'; g.fillText('90 RUNS', w / 2, 72); });
-    plane(1.8, 0.5, t, p, [0, 1.55, -1.6]); box(0.1, 1.3, 0.1, M.slate, 0, 0, -1.66, p);
-    ghost(p); PAD.pilot.top = 3.4;
+  // 11 pilot: one block per run (filled = measured, open = inconclusive), and the seed sweep as a strip of 200 seeds (lit = within tolerance)
+  { const p = PAD.pilot.props, kinds = PROGRESS.pilot.groups.flatMap((g) => Array(g.n).fill(g.kind)), cols = 8;
+    const openM = new THREE.MeshStandardMaterial({ color: 0xffffff, transparent: true, opacity: 0.6, depthWrite: false }), amberEdge = new THREE.LineBasicMaterial({ color: C.amber });
+    kinds.forEach((k, i) => {
+      const x = (i % cols - (cols - 1) / 2) * 0.5, z = Math.floor(i / cols) * 0.5 - 1.3;
+      const b = box(0.38, 0.38, 0.38, k === 'm' ? M.indigo : openM, x, 0, z, p);
+      if (k !== 'm') b.add(new THREE.LineSegments(new THREE.EdgesGeometry(UNIT), amberEdge));
+    });
+    const t = tex(400, 110, (g, w) => { g.fillStyle = '#3a4fd8'; roundRect(g, 0, 0, w, 110, 18); g.fill(); g.fillStyle = '#fff'; g.font = `600 44px ${FM}`; g.textAlign = 'center'; g.fillText(`${kinds.length} RUNS`, w / 2, 70); });
+    box(0.1, 1.5, 0.1, M.slate, 0, 0, -1.9, p); plane(1.8, 0.5, t, p, [0, 1.75, -1.84]);
+    PAD.pilot.top = 3.6;
   }
-  // 12 full study: about 600 runs, two model families
+  // 12 draft and review: the manuscript on a desk, with five review cards around it
+  { const p = PAD.review.props;
+    box(3.4, 0.7, 1.8, M.cap, 0, 0, 0.2, p);
+    const d = sheetTex('DRAFT', 7, { ts: 56, extra: (g, w) => { g.fillStyle = '#3a4fd8'; g.fillRect(0, 0, w, 18); } });
+    plane(1.0, 1.33, d, p, [0, 0.72, 0.2], [-Math.PI / 2, 0, 0.12], { shadow: true });
+    ['METHODS', 'DOMAIN', 'DEVIL\'S\nADVOCATE', 'VENUE FIT', 'WIDER\nVIEW'].forEach((name, k) => {
+      const a = -1.0 + k * 0.5, x = Math.sin(a) * 2.5, z = -Math.cos(a) * 2.5 + 0.9;
+      const st = new THREE.Group(); st.position.set(x, 0, z); st.rotation.y = -a; p.add(st);
+      box(0.06, 0.6, 0.06, M.slate, 0, 0, 0, st);
+      plane(0.78, 1.03, sheetTex(name, 4, { ts: 50, tf: FM, extra: (g, w) => { g.fillStyle = '#c99212'; g.fillRect(0, 0, w, 18); } }), st, [0, 1.15, 0.04], [-0.08, 0, 0], { side: THREE.DoubleSide, shadow: true });
+    });
+    PAD.review.top = 3.4;
+  }
+  // 14 full study (planned): about 600 runs, two model families
   { const p = PAD.full.props;
     const n = 600, im = new THREE.InstancedMesh(new THREE.BoxGeometry(0.14, 0.14, 0.14), M.white, n), m4 = new THREE.Matrix4();
     for (let k = 0; k < n; k++) { const x = (k % 30 - 14.5) * 0.18, z = Math.floor(k / 30) * 0.18 - 1.6; m4.makeTranslation(x, 0.07, z); im.setMatrixAt(k, m4); }
     p.add(im);
     for (const [x, c] of [[-2.2, 0x6f86e8], [2.2, 0x0f9b8e]]) { box(0.08, 2.6, 0.08, M.slate, x, 0, 2.0, p); box(0.9, 0.55, 0.03, std(c), x + 0.49, 1.95, 2.0, p); }
-    ghost(p); PAD.full.top = 3.6;
+    if (PAD.full.plan) ghost(p);
+    PAD.full.top = 3.6;
   }
   // 13 the paper: a tall sheet on a plinth
   { const p = PAD.paper.props;
     box(2.6, 0.5, 1.2, M.cap, 0, 0, -0.4, p);
-    const t = sheetTex('Does seeing the\nnumber bias the\nagent?', 9, { ts: 50, tf: FD, extra: (g, w, h) => { g.fillStyle = '#8a91a6'; g.font = `500 22px ${FM}`; g.fillText('WORKSHOP PAPER · DRAFT', 44, h - 44); } });
+    const t = sheetTex('Can a blinded\nharness detect\nagents chasing\nreported numbers?', 6, { ts: 46, tf: FD, extra: (g, w, h) => { g.fillStyle = '#3a4fd8'; g.font = `600 22px ${FM}`; g.fillText('SUBMITTED · UNDER REVIEW', 44, h - 44); } });
     const sh = new THREE.Group(); sh.position.set(0, 0.5, -0.4); sh.rotation.x = -0.08; p.add(sh);
     box(2.3, 3.1, 0.06, M.white, 0, 0, 0, sh); plane(2.2, 2.92, t, sh, [0, 1.55, 0.035]);
-    ghost(p); PAD.paper.top = 5.0;
+    if (PAD.paper.plan) ghost(p);
+    PAD.paper.top = 5.0;
   }
   // a few trees along the edges of the model, kept clear of the road and the pads
   {
@@ -429,12 +448,12 @@ async function start3D() {
   const VIEWS = {};
   for (const pd of pads) {
     const look = pd.road.clone().lerp(pd.c, 0.62).setY(1.3);
-    const off = { question: V(-2, 17, 21), now: V(6, 9, 14.5), pilot: V(-1, 9, 15), full: V(-1, 12, 16), paper: V(-1.5, 7.5, 15.5), results: V(-1.5, 7.5, 15.5) }[pd.st.id] || V(-2.5, 8.2, 15.5);
+    const off = { question: V(-2, 17, 21), smoke: V(6, 9, 14.5), pilot: V(-1, 10, 15.5), review: V(-1.5, 8.5, 15.5), full: V(-1, 12, 16), paper: V(-1.5, 7.5, 15.5), results: V(-1.5, 7.5, 15.5) }[pd.st.id] || V(-2.5, 8.2, 15.5);
     if (pd.st.id === 'question') look.lerp(at((fs0 + fs1) / 2, V(0, 0, 0)), 0.45).setY(1.0);
     VIEWS[pd.st.id] = { pos: look.clone().add(off), look, off: [-0.2, 0], offM: [0, 0.25], fov: 34, m: 1.45 };
   }
-  VIEWS.hero = { pos: V(22, 66, 104), look: V(84, 0, -4), off: [-0.15, 0.02], offM: [0, -0.2], fov: 34, m: 1.15 };
-  VIEWS.end = { pos: V(150, 96, 130), look: V(96, 0, -2), off: [-0.17, 0.02], offM: [0, 0.22], fov: 34, m: 1.15 };
+  VIEWS.hero = { pos: V(26, 70, 110), look: V(92, 0, -4), off: [-0.15, 0.02], offM: [0, -0.2], fov: 34, m: 1.15 };
+  VIEWS.end = { pos: V(196, 134, 182), look: V(124, 0, -2), off: [-0.17, 0.02], offM: [0, 0.22], fov: 34, m: 1.15 };
   { const q = new URLSearchParams(location.search).get('cam'); // debug: ?cam=x,y,z,lx,ly,lz,offx,view
     if (q) { const v = q.split(','), n = v.slice(0, 7).map(Number), k = v[7] || 'hero'; VIEWS[k] = { ...VIEWS[k], pos: V(n[0], n[1], n[2]), look: V(n[3], n[4], n[5]), off: [n[6], VIEWS[k].off[1]] }; } }
   const MOB = new Map();
@@ -445,7 +464,7 @@ async function start3D() {
     return m;
   }
   // where the robot should stand for each section: at its stop, never past "now"
-  const robotAt = (id) => id === 'top' ? 2 : id === 'end' || id === 'now' ? S_NOW : Math.min(S_NOW, stopS[stopIndexOf(id)] - 3.4);   // just short of the stop, so it doesn't hide the model
+  const robotAt = (id) => id === 'top' ? 2 : id === 'end' || stopIndexOf(id) === NOW_I ? S_NOW : Math.min(S_NOW, stopS[stopIndexOf(id)] - 3.4);   // just short of the stop, so it doesn't hide the model
   const cam = { pos: VIEWS.hero.pos.clone(), look: VIEWS.hero.look.clone(), off: [...VIEWS.hero.off], fov: 34 }, tgt = { pos: V(0, 0, 0), look: V(0, 0, 0), off: [0, 0], fov: 34, s: 0 };
   const anchors = secs.map(() => ({ v: null, y: 0, s: 0 }));
   let CL = 0;
