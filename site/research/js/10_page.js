@@ -17,10 +17,11 @@ const STOPS = [
   { id: 'show', date: '8 to 30 Oct', label: 'Showing the work' },
   { id: 'open', date: 'From 15 Oct', label: 'Any lightweight paper' },
   { id: 'question', date: '28 Oct', label: 'The research question' },
-  { id: 'now', date: '30 Oct', label: 'Smoke test' },
-  { id: 'pilot', date: 'Next', label: '90-run pilot' },
-  { id: 'full', date: 'Then', label: 'Full study' },
-  { id: 'paper', date: 'Goal', label: 'The paper' },
+  { id: 'smoke', date: '30 Oct', label: 'Smoke test' },
+  { id: 'pilot', date: '30 Oct', label: '39-run pilot' },
+  { id: 'review', date: '31 Oct', label: 'Draft and review' },
+  { id: 'paper', date: '31 Oct', label: 'Paper submitted' },
+  { id: 'full', date: 'Next', label: 'Full study' },
 ];
 const stopIndexOf = (id) => STOPS.findIndex((s) => s.id === id);
 const NOW_I = Math.max(0, stopIndexOf(PROGRESS.now));
@@ -28,7 +29,7 @@ STOPS.forEach((s, i) => { s.state = i < NOW_I ? 'done' : i === NOW_I ? 'now' : '
 
 // the progress line in the top bar: a few milestones, done / today / planned, and the one the reader is at
 const PHASES = [['Start', 'brief'], ['First build', 'slice'], ['Agents', 'blind'], ['Results', 'results'], ['Open papers', 'open'],
-  ['Question', 'question'], ['Smoke test', 'now'], ['Pilot', 'pilot'], ['Full study', 'full'], ['Paper', 'paper']];
+  ['Question', 'question'], ['Smoke test', 'smoke'], ['Pilot', 'pilot'], ['Review', 'review'], ['Submitted', 'paper'], ['Full study', 'full']];
 const lineEl = $('#line');
 lineEl.innerHTML = PHASES.map(([name, id]) => {
   const i = stopIndexOf(id), cls = i < NOW_I ? 'done' : i === NOW_I ? 'today' : 'plan';
@@ -53,8 +54,16 @@ $$('[data-days]').forEach((el) => { el.textContent = String(Math.round((Date.par
   const { total, done, note } = PROGRESS.smoke;
   $('#smoke-runs').innerHTML = Array.from({ length: total }, (_, i) => `<i class="${i < done ? 'd' : ''}"></i>`).join('');
   $('#smoke-runs').setAttribute('aria-label', `${done} of ${total} smoke-test runs finished`);
-  $('#smoke-text').textContent = `${done} of ${total} runs finished`;
+  $('#smoke-text').textContent = done >= total ? `All ${total} runs finished` : `${done} of ${total} runs finished`;
   $('#smoke-note').textContent = note || '';
+}
+// the pilot card: one block per run, coloured by what the run was
+{
+  const { runs, groups, note } = PROGRESS.pilot;
+  $('#pilot-runs').innerHTML = groups.map((g) => Array.from({ length: g.n }, () => `<i class="d ${g.kind}"></i>`).join('')).join('');
+  $('#pilot-runs').setAttribute('aria-label', `${runs} pilot runs: ` + groups.map((g) => `${g.n} ${g.label}`).join(', '));
+  $('#pilot-text').textContent = `${runs} runs in all`;
+  $('#pilot-note').textContent = note || '';
 }
 // the paper's steps
 {
