@@ -1,0 +1,604 @@
+{
+  "units": "meters",
+  "up_axis": "Y",
+  "origin": "bottom centre of bounding box",
+  "bbox_order": "[x, y, z]",
+  "compression": "EXT_meshopt_compression, EXT_texture_webp (max 1024px)",
+  "assets": [
+    {
+      "id": "16OCP_ORV3_racks_Computer_racks",
+      "file": "16OCP_ORV3_racks_Computer_racks.glb",
+      "name": "Server rack (ORV3)",
+      "category": "computing",
+      "source_dataset": "Vertiv/simready-assets",
+      "source_url": "https://huggingface.co/datasets/Vertiv/simready-assets",
+      "original_path": "16OCP_ORV3_racks_Computer_racks/simready_usd/_16OCP_ORV3_racks_Computer_racks_main.usd",
+      "license": "CC-BY-4.0",
+      "bbox_m": [
+        1.083,
+        2.29,
+        0.601
+      ],
+      "triangles": 58755,
+      "bytes": 691220
+    },
+    {
+      "id": "cart_computer_a01",
+      "file": "cart_computer_a01.glb",
+      "name": "Computer cart",
+      "category": "computing",
+      "source_dataset": "nvidia/simready-assets",
+      "source_url": "https://huggingface.co/datasets/nvidia/simready-assets",
+      "original_path": "cart_computer_a01/simready_usd/sm_cart_computer_a01_01.usd",
+      "license": "CC-BY-4.0",
+      "bbox_m": [
+        0.618,
+        1.082,
+        0.741
+      ],
+      "triangles": 56478,
+      "bytes": 1115992
+    },
+    {
+      "id": "computer_desktop_tower_a01",
+      "file": "computer_desktop_tower_a01.glb",
+      "name": "Desktop tower PC",
+      "category": "computing",
+      "source_dataset": "nvidia/simready-assets",
+      "source_url": "https://huggingface.co/datasets/nvidia/simready-assets",
+      "original_path": "computer_desktop_tower_a01/simready_usd/sm_computer_desktop_tower_a01_01.usd",
+      "license": "CC-BY-4.0",
+      "bbox_m": [
+        0.197,
+        0.489,
+        0.624
+      ],
+      "triangles": 57722,
+      "bytes": 1713588
+    },
+    {
+      "id": "computer_keyboard_a01",
+      "file": "computer_keyboard_a01.glb",
+      "name": "Keyboard",
+      "category": "computing",
+      "source_dataset": "nvidia/simready-assets",
+      "source_url": "https://huggingface.co/datasets/nvidia/simready-assets",
+      "original_path": "computer_keyboard_a01/simready_usd/sm_computer_keyboard_a01_01.usd",
+      "license": "CC-BY-4.0",
+      "bbox_m": [
+        0.442,
+        0.02,
+        0.142
+      ],
+      "triangles": 15806,
+      "bytes": 158060
+    },
+    {
+      "id": "computer_monitor_office_a01",
+      "file": "computer_monitor_office_a01.glb",
+      "name": "Office monitor",
+      "category": "computing",
+      "source_dataset": "nvidia/simready-assets",
+      "source_url": "https://huggingface.co/datasets/nvidia/simready-assets",
+      "original_path": "computer_monitor_office_a01/simready_usd/sm_computer_monitor_office_a01_01.usd",
+      "license": "CC-BY-4.0",
+      "bbox_m": [
+        0.542,
+        0.394,
+        0.172
+      ],
+      "triangles": 8503,
+      "bytes": 207908
+    },
+    {
+      "id": "laptop_16z90tl",
+      "file": "laptop_16z90tl.glb",
+      "name": "Laptop",
+      "category": "computing",
+      "source_dataset": "LGElectronics/simready-assets",
+      "source_url": "https://huggingface.co/datasets/LGElectronics/simready-assets",
+      "original_path": "laptop_16z90tl/simready_usd/laptop_16z90tl.usd",
+      "license": "CC-BY-4.0",
+      "bbox_m": [
+        0.311,
+        0.242,
+        0.358
+      ],
+      "triangles": 59766,
+      "bytes": 344836
+    },
+    {
+      "id": "bookshelf_with_books",
+      "file": "bookshelf_with_books.glb",
+      "name": "Bookshelf with books",
+      "category": "furniture",
+      "source_dataset": "ForgeCAD/simready-assets",
+      "source_url": "https://huggingface.co/datasets/ForgeCAD/simready-assets",
+      "original_path": "bookshelf_with_books/simready_usd/bookshelf_with_books.usda",
+      "license": "CC-BY-4.0",
+      "bbox_m": [
+        0.8,
+        1.232,
+        0.32
+      ],
+      "triangles": 57428,
+      "bytes": 896064
+    },
+    {
+      "id": "cabinet_file_a01",
+      "file": "cabinet_file_a01.glb",
+      "name": "Tall storage cabinet",
+      "category": "furniture",
+      "source_dataset": "nvidia/simready-assets",
+      "source_url": "https://huggingface.co/datasets/nvidia/simready-assets",
+      "original_path": "cabinet_file_a01/simready_usd/sm_cabinet_file_a01_01.usd",
+      "license": "CC-BY-4.0",
+      "bbox_m": [
+        0.375,
+        2.0,
+        0.826
+      ],
+      "triangles": 37785,
+      "bytes": 428764
+    },
+    {
+      "id": "chair_office_fabric_manager_a01",
+      "file": "chair_office_fabric_manager_a01.glb",
+      "name": "Manager office chair",
+      "category": "furniture",
+      "source_dataset": "nvidia/simready-assets",
+      "source_url": "https://huggingface.co/datasets/nvidia/simready-assets",
+      "original_path": "chair_office_fabric_manager_a01/simready_usd/sm_chair_office_fabric_manager_a01_01.usd",
+      "license": "CC-BY-4.0",
+      "bbox_m": [
+        0.622,
+        1.091,
+        0.706
+      ],
+      "triangles": 58290,
+      "bytes": 1538104
+    },
+    {
+      "id": "desk_a01",
+      "file": "desk_a01.glb",
+      "name": "Sit-stand office desk",
+      "category": "furniture",
+      "source_dataset": "nvidia/simready-assets",
+      "source_url": "https://huggingface.co/datasets/nvidia/simready-assets",
+      "original_path": "desk_a01/simready_usd/sm_desk_a01_01.usd",
+      "license": "CC-BY-4.0",
+      "bbox_m": [
+        0.802,
+        0.759,
+        1.802
+      ],
+      "triangles": 27603,
+      "bytes": 339912
+    },
+    {
+      "id": "labware_cabinet_a01",
+      "file": "labware_cabinet_a01.glb",
+      "name": "Lab base cabinet",
+      "category": "furniture",
+      "source_dataset": "nvidia/simready-assets",
+      "source_url": "https://huggingface.co/datasets/nvidia/simready-assets",
+      "original_path": "labware_cabinet_a01/simready_usd/sm_labware_cabinet_a01_01.usda",
+      "license": "CC-BY-4.0",
+      "bbox_m": [
+        0.669,
+        0.783,
+        0.765
+      ],
+      "triangles": 6229,
+      "bytes": 254636
+    },
+    {
+      "id": "mobile_whiteboard",
+      "file": "mobile_whiteboard.glb",
+      "name": "Mobile whiteboard",
+      "category": "furniture",
+      "source_dataset": "ForgeCAD/simready-assets",
+      "source_url": "https://huggingface.co/datasets/ForgeCAD/simready-assets",
+      "original_path": "mobile_whiteboard/simready_usd/mobile_whiteboard.usda",
+      "license": "CC-BY-4.0",
+      "bbox_m": [
+        1.381,
+        1.656,
+        0.73
+      ],
+      "triangles": 9128,
+      "bytes": 62856
+    },
+    {
+      "id": "equipment_3d_printer_a01",
+      "file": "equipment_3d_printer_a01.glb",
+      "name": "3D printer",
+      "category": "lab",
+      "source_dataset": "nvidia/simready-assets",
+      "source_url": "https://huggingface.co/datasets/nvidia/simready-assets",
+      "original_path": "equipment_3d_printer_a01/simready_usd/sm_equipment_3d_printer_a01_01.usd",
+      "license": "CC-BY-4.0",
+      "bbox_m": [
+        1.025,
+        1.652,
+        1.0
+      ],
+      "triangles": 59497,
+      "bytes": 1819296
+    },
+    {
+      "id": "furniture_workbench_modular_a01",
+      "file": "furniture_workbench_modular_a01.glb",
+      "name": "Modular workbench",
+      "category": "lab",
+      "source_dataset": "nvidia/simready-assets",
+      "source_url": "https://huggingface.co/datasets/nvidia/simready-assets",
+      "original_path": "furniture_workbench_modular_a01/simready_usd/sm_furniture_workbench_modular_a01_01.usd",
+      "license": "CC-BY-4.0",
+      "bbox_m": [
+        0.714,
+        2.05,
+        1.445
+      ],
+      "triangles": 30282,
+      "bytes": 350368
+    },
+    {
+      "id": "laboratory_incubator",
+      "file": "laboratory_incubator.glb",
+      "name": "Lab incubator",
+      "category": "lab",
+      "source_dataset": "ForgeCAD/simready-assets",
+      "source_url": "https://huggingface.co/datasets/ForgeCAD/simready-assets",
+      "original_path": "laboratory_incubator/simready_usd/laboratory_incubator.usda",
+      "license": "CC-BY-4.0",
+      "bbox_m": [
+        0.529,
+        0.65,
+        0.633
+      ],
+      "triangles": 23950,
+      "bytes": 266716
+    },
+    {
+      "id": "labware_table_thorlabs_a01",
+      "file": "labware_table_thorlabs_a01.glb",
+      "name": "Optical lab table",
+      "category": "lab",
+      "source_dataset": "nvidia/simready-assets",
+      "source_url": "https://huggingface.co/datasets/nvidia/simready-assets",
+      "original_path": "labware_table_thorlabs_a01/simready_usd/sm_labware_table_thorlabs_a01_01.usda",
+      "license": "CC-BY-4.0",
+      "bbox_m": [
+        0.9,
+        0.802,
+        0.76
+      ],
+      "triangles": 51999,
+      "bytes": 673952
+    },
+    {
+      "id": "desk_lamp",
+      "file": "desk_lamp.glb",
+      "name": "Desk lamp",
+      "category": "lighting",
+      "source_dataset": "ForgeCAD/simready-assets",
+      "source_url": "https://huggingface.co/datasets/ForgeCAD/simready-assets",
+      "original_path": "desk_lamp/simready_usd/desk_lamp.usda",
+      "license": "CC-BY-4.0",
+      "bbox_m": [
+        0.434,
+        0.472,
+        0.19
+      ],
+      "triangles": 48540,
+      "bytes": 733068
+    },
+    {
+      "id": "lamp_table_bedside_a01",
+      "file": "lamp_table_bedside_a01.glb",
+      "name": "Table lamp",
+      "category": "lighting",
+      "source_dataset": "nvidia/simready-assets",
+      "source_url": "https://huggingface.co/datasets/nvidia/simready-assets",
+      "original_path": "lamp_table_bedside_a01/simready_usd/sm_lamp_table_bedside_a01_01.usd",
+      "license": "CC-BY-4.0",
+      "bbox_m": [
+        0.198,
+        0.372,
+        0.199
+      ],
+      "triangles": 27675,
+      "bytes": 257688
+    },
+    {
+      "id": "floor_plant",
+      "file": "floor_plant.glb",
+      "name": "Floor plant",
+      "category": "plants",
+      "source_dataset": "imagine-io/PhysicalAI-Simready-Kitchen-Assets",
+      "source_url": "https://huggingface.co/datasets/imagine-io/PhysicalAI-Simready-Kitchen-Assets",
+      "original_path": "Models/clutters/Floor_plant.glb",
+      "license": "CC-BY-4.0",
+      "bbox_m": [
+        0.331,
+        0.874,
+        0.299
+      ],
+      "triangles": 11326,
+      "bytes": 421064
+    },
+    {
+      "id": "floor_plant_2",
+      "file": "floor_plant_2.glb",
+      "name": "Floor plant (tall)",
+      "category": "plants",
+      "source_dataset": "imagine-io/PhysicalAI-Simready-Kitchen-Assets",
+      "source_url": "https://huggingface.co/datasets/imagine-io/PhysicalAI-Simready-Kitchen-Assets",
+      "original_path": "Models/clutters/Floor_plant_2.glb",
+      "license": "CC-BY-4.0",
+      "bbox_m": [
+        0.638,
+        1.054,
+        0.307
+      ],
+      "triangles": 42008,
+      "bytes": 1835544
+    },
+    {
+      "id": "table_plant",
+      "file": "table_plant.glb",
+      "name": "Table plant",
+      "category": "plants",
+      "source_dataset": "imagine-io/PhysicalAI-Simready-Kitchen-Assets",
+      "source_url": "https://huggingface.co/datasets/imagine-io/PhysicalAI-Simready-Kitchen-Assets",
+      "original_path": "Models/clutters/table_plant.glb",
+      "license": "CC-BY-4.0",
+      "bbox_m": [
+        0.684,
+        0.408,
+        0.631
+      ],
+      "triangles": 58506,
+      "bytes": 448620
+    },
+    {
+      "id": "book_open_a01",
+      "file": "book_open_a01.glb",
+      "name": "Open book",
+      "category": "props",
+      "source_dataset": "nvidia/simready-assets",
+      "source_url": "https://huggingface.co/datasets/nvidia/simready-assets",
+      "original_path": "book_open_a01/simready_usd/sm_book_open_a01_01.usd",
+      "license": "CC-BY-4.0",
+      "bbox_m": [
+        0.207,
+        0.037,
+        0.32
+      ],
+      "triangles": 17955,
+      "bytes": 755480
+    },
+    {
+      "id": "bottle_laboratory_a01",
+      "file": "bottle_laboratory_a01.glb",
+      "name": "Lab bottle",
+      "category": "props",
+      "source_dataset": "nvidia/simready-assets",
+      "source_url": "https://huggingface.co/datasets/nvidia/simready-assets",
+      "original_path": "bottle_laboratory_a01/simready_usd/sm_bottle_laboratory_a01_01.usd",
+      "license": "CC-BY-4.0",
+      "bbox_m": [
+        0.06,
+        0.143,
+        0.066
+      ],
+      "triangles": 53696,
+      "bytes": 370212
+    },
+    {
+      "id": "container_vial_glass_a01",
+      "file": "container_vial_glass_a01.glb",
+      "name": "Glass vial",
+      "category": "props",
+      "source_dataset": "nvidia/simready-assets",
+      "source_url": "https://huggingface.co/datasets/nvidia/simready-assets",
+      "original_path": "container_vial_glass_a01/simready_usd/sm_container_vial_glass_a01_01.usd",
+      "license": "CC-BY-4.0",
+      "bbox_m": [
+        0.033,
+        0.083,
+        0.033
+      ],
+      "triangles": 5232,
+      "bytes": 202360
+    },
+    {
+      "id": "dishware_mug_a01",
+      "file": "dishware_mug_a01.glb",
+      "name": "Mug",
+      "category": "props",
+      "source_dataset": "nvidia/simready-assets",
+      "source_url": "https://huggingface.co/datasets/nvidia/simready-assets",
+      "original_path": "dishware_mug_a01/simready_usd/sm_dishware_mug_a01_01.usda",
+      "license": "CC-BY-4.0",
+      "bbox_m": [
+        0.114,
+        0.08,
+        0.09
+      ],
+      "triangles": 10628,
+      "bytes": 125084
+    },
+    {
+      "id": "misc_notebook_a01",
+      "file": "misc_notebook_a01.glb",
+      "name": "Notebook",
+      "category": "props",
+      "source_dataset": "nvidia/simready-assets",
+      "source_url": "https://huggingface.co/datasets/nvidia/simready-assets",
+      "original_path": "misc_notebook_a01/simready_usd/sm_misc_notebook_a01_01.usd",
+      "license": "CC-BY-4.0",
+      "bbox_m": [
+        0.229,
+        0.01,
+        0.17
+      ],
+      "triangles": 2374,
+      "bytes": 223640
+    },
+    {
+      "id": "paper_stack_a01",
+      "file": "paper_stack_a01.glb",
+      "name": "Paper stack",
+      "category": "props",
+      "source_dataset": "nvidia/simready-assets",
+      "source_url": "https://huggingface.co/datasets/nvidia/simready-assets",
+      "original_path": "paper_stack_a01/simready_usd/sm_paper_stack_a01_01.usd",
+      "license": "CC-BY-4.0",
+      "bbox_m": [
+        0.225,
+        0.032,
+        0.308
+      ],
+      "triangles": 634,
+      "bytes": 189360
+    },
+    {
+      "id": "fr3v2_1",
+      "file": "fr3v2_1.glb",
+      "name": "Franka FR3 robot arm",
+      "category": "robots",
+      "source_dataset": "frankarobotics/simready-assets",
+      "source_url": "https://huggingface.co/datasets/frankarobotics/simready-assets",
+      "original_path": "fr3v2_1/simready_usd/fr3v2_1.usda",
+      "license": "CC-BY-4.0",
+      "bbox_m": [
+        0.583,
+        0.779,
+        0.26
+      ],
+      "triangles": 47694,
+      "bytes": 225004
+    },
+    {
+      "id": "robotics_small_bot_a01",
+      "file": "robotics_small_bot_a01.glb",
+      "name": "Small mobile robot",
+      "category": "robots",
+      "source_dataset": "nvidia/simready-assets",
+      "source_url": "https://huggingface.co/datasets/nvidia/simready-assets",
+      "original_path": "robotics_small_bot_a01/simready_usd/sm_robotics_small_bot_a01_01.usd",
+      "license": "CC-BY-4.0",
+      "bbox_m": [
+        0.749,
+        0.195,
+        0.688
+      ],
+      "triangles": 59323,
+      "bytes": 1660648
+    },
+    {
+      "id": "box_cardboard_a01",
+      "file": "box_cardboard_a01.glb",
+      "name": "Cardboard box",
+      "category": "storage",
+      "source_dataset": "nvidia/simready-assets",
+      "source_url": "https://huggingface.co/datasets/nvidia/simready-assets",
+      "original_path": "box_cardboard_a01/simready_usd/sm_box_cardboard_a01_01.usd",
+      "license": "CC-BY-4.0",
+      "bbox_m": [
+        0.699,
+        0.51,
+        0.521
+      ],
+      "triangles": 540,
+      "bytes": 54924
+    },
+    {
+      "id": "crate_blue_a01",
+      "file": "crate_blue_a01.glb",
+      "name": "Plastic crate",
+      "category": "storage",
+      "source_dataset": "nvidia/simready-assets",
+      "source_url": "https://huggingface.co/datasets/nvidia/simready-assets",
+      "original_path": "crate_blue_a01/simready_usd/sm_crate_blue_a01_01.usd",
+      "license": "CC-BY-4.0",
+      "bbox_m": [
+        0.605,
+        0.253,
+        0.405
+      ],
+      "triangles": 58164,
+      "bytes": 519428
+    },
+    {
+      "id": "pallet_a01",
+      "file": "pallet_a01.glb",
+      "name": "Wooden pallet",
+      "category": "storage",
+      "source_dataset": "nvidia/simready-assets",
+      "source_url": "https://huggingface.co/datasets/nvidia/simready-assets",
+      "original_path": "pallet_a01/simready_usd/sm_pallet_a01_01.usd",
+      "license": "CC-BY-4.0",
+      "bbox_m": [
+        1.204,
+        0.209,
+        0.8
+      ],
+      "triangles": 2036,
+      "bytes": 247420
+    },
+    {
+      "id": "rack_large_empty_a01",
+      "file": "rack_large_empty_a01.glb",
+      "name": "Pallet rack",
+      "category": "storage",
+      "source_dataset": "nvidia/simready-assets",
+      "source_url": "https://huggingface.co/datasets/nvidia/simready-assets",
+      "original_path": "rack_large_empty_a01/simready_usd/sm_rack_large_empty_a01_01.usd",
+      "license": "CC-BY-4.0",
+      "bbox_m": [
+        4.0,
+        3.01,
+        2.067
+      ],
+      "triangles": 33183,
+      "bytes": 725804
+    },
+    {
+      "id": "small_load_carrier",
+      "file": "small_load_carrier.glb",
+      "name": "Plastic tote",
+      "category": "storage",
+      "source_dataset": "ForgeCAD/simready-assets",
+      "source_url": "https://huggingface.co/datasets/ForgeCAD/simready-assets",
+      "original_path": "small_load_carrier/simready_usd/small_load_carrier.usda",
+      "license": "CC-BY-4.0",
+      "bbox_m": [
+        0.396,
+        0.148,
+        0.297
+      ],
+      "triangles": 29836,
+      "bytes": 432260
+    },
+    {
+      "id": "storage_box_a01",
+      "file": "storage_box_a01.glb",
+      "name": "Storage container",
+      "category": "storage",
+      "source_dataset": "nvidia/simready-assets",
+      "source_url": "https://huggingface.co/datasets/nvidia/simready-assets",
+      "original_path": "storage_box_a01/simready_usd/sm_storage_box_a01_01.usd",
+      "license": "CC-BY-4.0",
+      "bbox_m": [
+        0.754,
+        0.53,
+        1.047
+      ],
+      "triangles": 55580,
+      "bytes": 1344716
+    }
+  ]
+}
