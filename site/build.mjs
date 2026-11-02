@@ -2,7 +2,7 @@
 //   node site/build.mjs                    → site/dist/index.html + site/dist/research-paper/index.html (see research/build.mjs)
 //   node site/build.mjs --paper=URL        points the "Research paper" links somewhere else; --paper=none hides them
 // Sources: index.src.html (markup + CSS, page head before the skip link) and js/NN_*.js (concatenated, in order, into one module scope).
-// three.js r169 loads from jsDelivr and the fonts from Google Fonts. The robot and the SimReady props are copied to dist/models/ and
+// three.js r169 loads from jsDelivr and the fonts from Google Fonts. The robot, the SimReady props and the Poly Haven trees and textures are copied to dist/models/ and
 // fetched after the page shows, so the HTML stays small; the three.js modules and the robot are preloaded in parallel.
 import { readFileSync, writeFileSync, readdirSync, mkdirSync, copyFileSync } from "node:fs";
 import { preloads, THREE_BASE as three } from "./preload.mjs";
@@ -25,10 +25,15 @@ const web = new URL("./models/simready/web/", here);
 const props = readdirSync(web).filter((f) => f.endsWith(".glb"));
 for (const f of props) copyFileSync(new URL(f, web), new URL(`./models/simready/${f}`, dist));
 copyFileSync(new URL("./models/simready/CREDITS.md", here), new URL("./models/simready/CREDITS.md", dist));
+// the trees and surface textures (Poly Haven, CC0)
+mkdirSync(new URL("./models/polyhaven/", dist), { recursive: true });
+const ph = readdirSync(new URL("./models/polyhaven/", here)).filter((f) => /\.(glb|webp)$/.test(f));
+for (const f of ph) copyFileSync(new URL(`./models/polyhaven/${f}`, here), new URL(`./models/polyhaven/${f}`, dist));
+copyFileSync(new URL("./models/CREDITS.md", here), new URL("./models/CREDITS.md", dist));
 
 let html = readFileSync(new URL("./index.src.html", here), "utf8").replace(
   "/*__APP__*/",
-  () => `const ROBOT_GLB_URL = "models/RobotExpressive.glb", SIMREADY_URL = "models/simready/";\n` + js,
+  () => `const ROBOT_GLB_URL = "models/RobotExpressive.glb", SIMREADY_URL = "models/simready/", POLYHAVEN_URL = "models/polyhaven/";\n` + js,
 );
 html = html.replace(
   /<script type="importmap">[\s\S]*?<\/script>/,
@@ -54,7 +59,7 @@ const doc =
   rest.join("") +
   "\n</body>\n</html>\n";
 writeFileSync(new URL("./index.html", dist), doc);
-console.log(`site/dist/index.html ${(doc.length / 1024).toFixed(0)} KB · ${parts.join(" + ")} · ${props.length} SimReady props`);
+console.log(`site/dist/index.html ${(doc.length / 1024).toFixed(0)} KB · ${parts.join(" + ")} · ${props.length} SimReady props · ${ph.length} Poly Haven files`);
 
 // the Research Road page, linked from the explainer
 await import("./research/build.mjs");

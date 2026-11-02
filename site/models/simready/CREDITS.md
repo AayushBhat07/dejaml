@@ -109,4 +109,4 @@ Assets used:
 
 ## Web copies
 
-`web/*.glb` are lighter copies of 15 of the models above, used by the campus page: further decimated (about 0.5k to 43k triangles each) with textures at 256 to 512 px. Same sources, same CC BY 4.0 attributions.
+`web/*.glb` are lighter copies of 20 of the models above, used by the campus page: further decimated (about 0.5k to 17k triangles each) with textures at 256 to 512 px. Same sources, same CC BY 4.0 attributions.

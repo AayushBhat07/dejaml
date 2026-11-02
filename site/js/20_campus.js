@@ -1,9 +1,12 @@
 // The 3D Research Campus: scene, robot agents, labels, camera stations and the scroll-driven story.
 // Shares one module scope with 10_page.js (uses: $, $$, RM, sstep, root, secs, renderChip, revealSeal, gateBlocked, gateOutcome?, lastChapter, commitment)
-// and with build.mjs's ROBOT_GLB_URL (RobotExpressive by Tomás Laulhé / Quaternius, CC0, from the three.js r169 examples) and SIMREADY_URL (the props, see models/simready/CREDITS.md).
+// and with build.mjs's ROBOT_GLB_URL (RobotExpressive by Tomás Laulhé / Quaternius, CC0, from the three.js r169 examples), SIMREADY_URL (the props, see models/simready/CREDITS.md)
+// and POLYHAVEN_URL (the trees and surface textures, CC0, see models/CREDITS.md).
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
 import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 // ───────────── the Research Campus ─────────────
 // the campus draws at once; canvas textures are redrawn when the web fonts arrive (no waiting on them)
 const fontsReady = Promise.race([
@@ -32,7 +35,11 @@ async function start3D() {
   const scene = new THREE.Scene();
   scene.fog = new THREE.Fog(BG, 150, 360);
   const camera = new THREE.PerspectiveCamera(34, 1, 0.1, 500);
-  scene.add(new THREE.HemisphereLight(0xf7f8ff, 0xbcc2d3, 1.25));
+  { // a soft studio environment for reflections, so metal, glass and the SimReady materials read as real
+    const pmrem = new THREE.PMREMGenerator(renderer);
+    scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture; scene.environmentIntensity = 0.4; pmrem.dispose();
+  }
+  scene.add(new THREE.HemisphereLight(0xf7f8ff, 0xbcc2d3, 1.0));
   const sun = new THREE.DirectionalLight(0xfff0dc, 2.9); sun.position.set(36, 58, 32); sun.target.position.set(16, 0, 15);
   sun.castShadow = true; const SM = SMALL ? 1024 : 2048; sun.shadow.mapSize.set(SM, SM);
   Object.assign(sun.shadow.camera, { left: -40, right: 40, top: 40, bottom: -40, near: 1, far: 180 }); sun.shadow.bias = -0.0003; sun.shadow.normalBias = 0.025;
@@ -68,27 +75,92 @@ async function start3D() {
   const roundRect = (g, x, y, w, h, r) => { g.beginPath(); g.moveTo(x + r, y); g.arcTo(x + w, y, x + w, y + h, r); g.arcTo(x + w, y + h, x, y + h, r); g.arcTo(x, y + h, x, y, r); g.arcTo(x, y, x + w, y, r); g.closePath(); };
   const DESK_H = 0.6, DESK_TOP = DESK_H + 0.07;   // desks sized for the robots
 
+  // ── streamed assets. Everything is first built from flat-coloured boxes so the campus shows at once; after the first frame the real
+  //    surfaces (Poly Haven CC0 textures), trees (Poly Haven CC0) and props (NVIDIA SimReady and partners, CC BY 4.0; metres, Y up, origin at
+  //    the bottom centre) stream in, the most visible first, and replace them.
+  const srLoader = new GLTFLoader().setMeshoptDecoder(MeshoptDecoder), srCache = {}, srQueue = [];
+  let srGo = false;
+  const later = (run, prio = 1) => { if (srGo) run(); else srQueue.push([prio, run]); };
+  const gltfAt = (url) => srCache[url] || (srCache[url] = srLoader.loadAsync(url).then((gltf) => {
+    gltf.scene.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
+    return gltf.scene;
+  }));
+  const simready = (id) => gltfAt(SIMREADY_URL + id + '.glb');
+  // dress(group, id, [[x, y, z, ry, sx, sy?, sz?], …]): add the model at each placement (in the group's space), then hide the group's stand-in parts
+  const SMALL_PROPS = new Set(['computer_keyboard_a01', 'dishware_mug_a01', 'desk_lamp', 'computer_desktop_tower_a01', 'box_cardboard_a01', 'small_load_carrier', 'crate_blue_a01']);
+  function dress(g, id, at) {
+    const standIn = g.children.slice();
+    later(() => simready(id).then((src) => {
+      for (const [x, y, z, ry = 0, sx = 1, sy = sx, sz = sx] of at) { const o = src.clone(); o.position.set(x, y, z); o.rotation.y = ry; o.scale.set(sx, sy, sz); g.add(o); }
+      standIn.forEach((o) => { o.visible = false; });
+    }).catch((err) => console.warn(`SimReady ${id} unavailable, keeping the simple model:`, err)), SMALL_PROPS.has(id) ? 0 : 1);
+    return g;
+  }
+  const group = (x, y, z, ry = 0, parent = scene) => { const g = new THREE.Group(); g.position.set(x, y, z); g.rotation.y = ry; parent.add(g); return g; };
+  // surface(name, flat, tint, tile): a material that shows the flat colour at once, then takes the texture set name_diff/_nor.webp,
+  // tinted by tint and repeated every tile metres (the geometry's UVs are in metres, see uvBox)
+  const texLoader = new THREE.TextureLoader(), texCache = {};
+  const texAt = (url) => texCache[url] || (texCache[url] = texLoader.loadAsync(url));
+  function surface(name, flat, tint, tile, o = {}) {
+    const m = new THREE.MeshStandardMaterial({ color: flat, roughness: o.rough ?? 0.85, metalness: o.metal ?? 0 });
+    later(() => Promise.all(['diff', 'nor'].map((k) => texAt(`${POLYHAVEN_URL}${name}_${k}.webp`))).then(([d, n]) => {
+      const rep = (t, srgb) => { t = t.clone(); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(1 / tile, 1 / tile); t.anisotropy = 8; if (srgb) t.colorSpace = THREE.SRGBColorSpace; t.needsUpdate = true; return t; };
+      m.map = rep(d, true); m.normalMap = rep(n, false); m.normalScale.setScalar(o.nor ?? 0.8); if (Array.isArray(tint)) m.color.setRGB(...tint); else m.color.set(tint); m.needsUpdate = true;
+    }).catch((err) => console.warn(`texture ${name} unavailable, keeping the flat colour:`, err)), 2);
+    return m;
+  }
+  // a box geometry whose UVs are in metres, so tiled textures keep their real size on every face
+  function uvBox(w, h, d) {
+    const g = new THREE.BoxGeometry(w, h, d), uv = g.attributes.uv, dims = [[d, h], [d, h], [w, d], [w, d], [w, h], [w, h]];
+    for (let f = 0; f < 6; f++) for (let k = 0; k < 4; k++) { const i = f * 4 + k; uv.setXY(i, uv.getX(i) * dims[f][0], uv.getY(i) * dims[f][1]); }
+    return g;
+  }
+  // static boxes that share a material are merged into one mesh (walls, caps, skirting, walkways, frames): few draw calls
+  const BATCH = new Map();
+  const bbox = (w, h, d, mat, x, y, z, ry = 0, shadow = true) => {
+    const g = uvBox(w, h, d); g.rotateY(ry); g.translate(x, y + h / 2, z);
+    const k = BATCH.get(mat) || (BATCH.set(mat, { geos: [], shadow: false }), BATCH.get(mat)); k.geos.push(g); k.shadow ||= shadow;
+  };
+  const flushBatches = () => { for (const [mat, { geos, shadow }] of BATCH) { const o = new THREE.Mesh(mergeGeometries(geos), mat); o.castShadow = shadow; o.receiveShadow = true; scene.add(o); } BATCH.clear(); };
+  // real-looking materials for metal and stone (they reflect the environment)
+  const steel = new THREE.MeshStandardMaterial({ color: 0xb4bac4, metalness: 1, roughness: 0.3 });
+  const alu = new THREE.MeshStandardMaterial({ color: 0xd3d7de, metalness: 0.9, roughness: 0.35 });
+  const brass = new THREE.MeshStandardMaterial({ color: 0xc8a25e, metalness: 1, roughness: 0.32 });
+  const blackMetal = new THREE.MeshStandardMaterial({ color: 0x2a2e38, metalness: 0.6, roughness: 0.42 });
+  const granite = new THREE.MeshStandardMaterial({ color: 0x2c303b, metalness: 0, roughness: 0.3 });
+  const S = { // the surfaces
+    lawn: surface('sparse_grass', 0xdde4d6, [1.25, 1.75, 1.05], 3.2, { rough: 0.95, nor: 0.6 }),
+    ground: surface('gravel_floor_02', C.ground, 0xe4e2dc, 4, { rough: 0.95 }),
+    plinth: surface('brushed_concrete_03', C.side, 0xd9d7d2, 2.5, { rough: 0.9 }),
+    walk: surface('concrete_pavement', C.walk, 0xf1efea, 2.2, { rough: 0.92 }),
+    wall: surface('white_plaster_02', C.wall, 0xf3f5ff, 2.2, { rough: 0.95, nor: 0.5 }),
+    oak: surface('white_oak_veneer', C.wood, 0xd8b48a, 1.2, { rough: 0.6 }),
+    tin: surface('corrugated_iron_02', 0xb8c2d0, 0xe2e8f2, 1.4, { rough: 0.6, metal: 0.05, nor: 1.0 }),
+  };
+  const skirt = std(0x7d8496, { rough: 0.55 });
+
   // ── the ground, the model base, the walkways
-  mesh(new THREE.PlaneGeometry(600, 600), std(C.ground), scene, [16, -0.62, 15], [-Math.PI / 2, 0, 0], false);
+  { const g = new THREE.PlaneGeometry(600, 600); g.attributes.uv.array.forEach((v, i, a) => { a[i] = v * 600; }); mesh(g, S.ground, scene, [16, -0.62, 15], [-Math.PI / 2, 0, 0], false); }
   const BX0 = -14, BX1 = 46, BZ0 = -7, BZ1 = 37;
-  box(BX1 - BX0, 0.6, BZ1 - BZ0, [M.side, M.side, M.base, M.side, M.side, M.side], (BX0 + BX1) / 2, -0.6, (BZ0 + BZ1) / 2, scene, 0, false);
+  // the plinth: concrete sides, a lawn on top
+  mesh(uvBox(BX1 - BX0, 0.6, BZ1 - BZ0), [S.plinth, S.plinth, S.lawn, S.plinth, S.plinth, S.plinth], scene, [(BX0 + BX1) / 2, -0.3, (BZ0 + BZ1) / 2], [0, 0, 0], false);
   { // a faint survey grid and the campus name, painted on the base
     const W = SMALL ? 2048 : 4096, H = Math.round(W * (BZ1 - BZ0) / (BX1 - BX0)), u = W / (BX1 - BX0);
     const X = (x) => (x - BX0) * u, Z = (z) => (z - BZ0) * u;
     const t = tex(W, H, (g) => {
-      g.fillStyle = '#e9ebf3'; g.fillRect(0, 0, W, H);
-      g.strokeStyle = 'rgba(58,79,216,0.06)'; g.lineWidth = 2;
+      g.clearRect(0, 0, W, H);   // transparent: the lawn shows through
+      g.strokeStyle = 'rgba(58,79,216,0.07)'; g.lineWidth = 2;
       for (let x = Math.ceil(BX0); x <= BX1; x += 2) { g.beginPath(); g.moveTo(X(x), 0); g.lineTo(X(x), H); g.stroke(); }
       for (let z = Math.ceil(BZ0); z <= BZ1; z += 2) { g.beginPath(); g.moveTo(0, Z(z)); g.lineTo(W, Z(z)); g.stroke(); }
-      g.fillStyle = '#8a92a9'; g.font = `600 ${u * 0.7}px ${FM}`; g.fillText('DÉJÀML · RESEARCH CAMPUS', X(-11.5), Z(35.6));
-      g.fillStyle = '#a5acc0'; g.font = `500 ${u * 0.45}px ${FM}`;
+      g.fillStyle = '#5d6478'; g.font = `600 ${u * 0.7}px ${FM}`; g.fillText('DÉJÀML · RESEARCH CAMPUS', X(-11.5), Z(35.6));
+      g.fillStyle = '#6e7589'; g.font = `500 ${u * 0.45}px ${FM}`;
       g.fillText('INTAKE + SEAL', X(-8.7), Z(19.3)); g.fillText('POLICY GATE', X(23.2), Z(16.4)); g.fillText('PREP · APPROVED SITES ONLY', X(17.6), Z(35.4));
     });
-    mesh(new THREE.PlaneGeometry(BX1 - BX0, BZ1 - BZ0), texMat(t), scene, [(BX0 + BX1) / 2, 0.002, (BZ0 + BZ1) / 2], [-Math.PI / 2, 0, 0], false);
+    mesh(new THREE.PlaneGeometry(BX1 - BX0, BZ1 - BZ0), texMat(t, { transparent: true, depthWrite: false }), scene, [(BX0 + BX1) / 2, 0.002, (BZ0 + BZ1) / 2], [-Math.PI / 2, 0, 0], false);
   }
   const WALKS = [[-9, 13.2, 41, 14.8], [13.7, 2, 15.3, 29.5], [12, 6.9, 13.7, 8.3], [12, 19.9, 13.7, 21.3], [20.8, 11, 22.2, 13.2], [20.8, 14.8, 22.2, 17],
     [26, 20.7, 27.9, 22.1], [27.9, 14.8, 29.5, 29.5], [29.5, 17, 33.7, 18.6], [29.5, 27.9, 33.7, 29.5], [32.3, 27, 33.7, 27.9], [20.8, 25, 22.2, 29.6]];
-  WALKS.forEach(([x0, z0, x1, z1], i) => box(x1 - x0, 0.03 + i * 0.0004, z1 - z0, M.walk, (x0 + x1) / 2, 0, (z0 + z1) / 2, scene, 0, false));
+  WALKS.forEach(([x0, z0, x1, z1], i) => bbox(x1 - x0, 0.03 + i * 0.0004, z1 - z0, S.walk, (x0 + x1) / 2, 0, (z0 + z1) / 2, 0, false));
 
   // ── rooms, from DéjàML's own floor plan (apps/web/src/components/campus/layout.ts)
   const ROOMS = [
@@ -99,12 +171,19 @@ async function start3D() {
     { id: 'ver', x: 30, y: 9, w: 7, d: 8, tint: 0xfbd8e2, doors: [['y2', 33]] },
     { id: 'store', x: 30, y: 21, w: 6, d: 6, tint: 0xdbe2ff, doors: [['y2', 33]] },
   ];
-  const glassM = new THREE.MeshStandardMaterial({ color: C.glass, transparent: true, opacity: 0.18, roughness: 0.15, depthWrite: false, side: THREE.DoubleSide });
-  const edgeM = new THREE.LineBasicMaterial({ color: 0x4fae9f });
+  const glassM = new THREE.MeshStandardMaterial({ color: C.glass, transparent: true, opacity: 0.16, roughness: 0.05, metalness: 0.1, depthWrite: false, side: THREE.DoubleSide });
   const wallH = 1.2, wallT = 0.22, gap = 1.7;
-  const EDGES_UNIT = new THREE.EdgesGeometry(UNIT);
-  for (const r of ROOMS) {
-    box(r.w, 0.07, r.d, std(r.tint), r.x + r.w / 2, 0, r.y + r.d / 2, scene, 0, false);
+  // a glass pane of w × h × t (centred at x, z, standing on y0), framed in aluminium: rails top and bottom, posts at the ends and every 1.3 m
+  function pane(w, h, x, z, ry, put, y0 = 0) {
+    put(w, 0.05, 0.08, alu, x, y0, z, ry); put(w, 0.05, 0.08, alu, x, y0 + h - 0.05, z, ry);
+    const n = Math.max(1, Math.round(w / 1.3));
+    for (let i = 0; i <= n; i++) { const a = -w / 2 + (w * i) / n, c = Math.cos(ry), s = Math.sin(ry); put(0.06, h, 0.09, alu, x + a * c, y0, z - a * s, ry); }
+  }
+  const putB = (w, h, d, mat, x, y, z, ry) => bbox(w, h, d, mat, x, y, z, ry);
+  const ROOM_FLOOR = { read: 'laminate_floor_02', plan: 'laminate_floor_02', repo: 'laminate_floor_02', ver: 'laminate_floor_02', lab: 'granular_concrete', store: 'granular_concrete' };
+  for (const r of ROOMS) { // floors: real wood or polished concrete, keeping each room's colour as a light tint
+    const tint = new THREE.Color(0xffffff).lerp(new THREE.Color(r.tint), ROOM_FLOOR[r.id] === 'granular_concrete' ? 0.55 : 0.4).getHex();
+    mesh(uvBox(r.w, 0.07, r.d), surface(ROOM_FLOOR[r.id], r.tint, tint, ROOM_FLOOR[r.id] === 'granular_concrete' ? 2.4 : 1.6, { rough: ROOM_FLOOR[r.id] === 'granular_concrete' ? 0.45 : 0.6 }), scene, [r.x + r.w / 2, 0.035, r.y + r.d / 2], [0, 0, 0], false);
     const edges = { y1: [[r.x, r.y], [r.x + r.w, r.y]], y2: [[r.x, r.y + r.d], [r.x + r.w, r.y + r.d]], x1: [[r.x, r.y], [r.x, r.y + r.d]], x2: [[r.x + r.w, r.y], [r.x + r.w, r.y + r.d]] };
     for (const [e, [[ax, az], [bx, bz]]] of Object.entries(edges)) {
       const along = e[0] === 'y' ? 'x' : 'z', a0 = along === 'x' ? ax : az, a1 = along === 'x' ? bx : bz;
@@ -118,9 +197,11 @@ async function start3D() {
         const [w, d] = along === 'x' ? [len, wallT] : [wallT, len];
         const [cx, cz] = along === 'x' ? [mid, az] : [ax, mid];
         if (r.glass) {
-          const g = new THREE.Mesh(UNIT, glassM); g.scale.set(w, h, d); g.position.set(cx, h / 2, cz); scene.add(g);
-          const l = new THREE.LineSegments(EDGES_UNIT, edgeM); l.scale.copy(g.scale); l.position.copy(g.position); scene.add(l);
-        } else { box(w, h, d, M.wall, cx, 0, cz); box(w + 0.05, 0.05, d + 0.05, M.cap, cx, h, cz, scene, 0, false); }
+          const g = new THREE.Mesh(UNIT, glassM); g.scale.set(w, h, d); g.scale[along === 'x' ? 'z' : 'x'] = 0.04; g.position.set(cx, h / 2, cz); scene.add(g);
+          pane(len, h, cx, cz, along === 'x' ? 0 : Math.PI / 2, putB);
+        } else { // plastered wall, a dark skirting board and an oak cap
+          bbox(w, h, d, S.wall, cx, 0, cz); bbox(w + 0.03, 0.12, d + 0.03, skirt, cx, 0, cz, 0, false); bbox(w + 0.06, 0.05, d + 0.06, S.oak, cx, h, cz, 0, false);
+        }
       }
     }
   }
@@ -147,27 +228,27 @@ async function start3D() {
       m4.compose(V(x + 0.18 * s, th * s + 1.45 * s, z - 0.1 * s), q, V(0.62 * s, 0.7 * s, 0.62 * s)); crowns.setMatrixAt(i * 2 + 1, m4); crowns.setColorAt(i * 2 + 1, leaves[(i + 1) % 3]);
     });
     scene.add(trunks, crowns);
+    // the real trees (Poly Haven scans, CC0: Island Tree 02 and Tree Small 02, their leaves baked onto crossed cards), instanced per species
+    const SPECIES = [['island_tree_02', 0.62], ['tree_small_02', 0.6]];
+    later(() => Promise.all(SPECIES.map(([id]) => gltfAt(POLYHAVEN_URL + id + '.glb'))).then((models) => {
+      models.forEach((src, k) => {
+        const mine = spots.map((p, i) => [p, i]).filter(([, i]) => i % SPECIES.length === k);
+        src.updateMatrixWorld(true);
+        src.traverse((o) => {
+          if (!o.isMesh) return;
+          const mat = o.material;
+          if (mat.transparent || mat.name === 'leaves') Object.assign(mat, { transparent: false, alphaTest: 0.5, depthWrite: true, side: THREE.DoubleSide });
+          const inst = new THREE.InstancedMesh(o.geometry, mat, mine.length); inst.castShadow = true; inst.receiveShadow = true;
+          mine.forEach(([[x, z], i], j) => {
+            const s = SPECIES[k][1] * (0.85 + ((i * 37) % 10) / 30);
+            m4.compose(V(x, 0, z), q.setFromEuler(e.set(0, i * 1.7, 0)), V(s, s * (0.95 + ((i * 13) % 7) / 40), s)).multiply(o.matrixWorld); inst.setMatrixAt(j, m4);
+          });
+          scene.add(inst);
+        });
+      });
+      trunks.visible = crowns.visible = false;
+    }).catch((err) => console.warn('trees unavailable, keeping the simple ones:', err)), 1.5);
   }
-
-  // ── SimReady props (NVIDIA SimReady and partners, CC BY 4.0; metres, Y up, origin at the bottom centre).
-  //    Every prop is first built from simple boxes so the campus shows at once; the real model streams in after the first frame and replaces them.
-  const srLoader = new GLTFLoader().setMeshoptDecoder(MeshoptDecoder), srCache = {}, srQueue = [];
-  let srGo = false;
-  const simready = (id) => srCache[id] || (srCache[id] = srLoader.loadAsync(SIMREADY_URL + id + '.glb').then((gltf) => {
-    gltf.scene.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
-    return gltf.scene;
-  }));
-  // dress(group, id, [[x, y, z, ry, sx, sy?, sz?], …]): add the model at each placement (in the group's space), then hide the group's stand-in parts
-  function dress(g, id, at) {
-    const standIn = g.children.slice();
-    const run = () => simready(id).then((src) => {
-      for (const [x, y, z, ry = 0, sx = 1, sy = sx, sz = sx] of at) { const o = src.clone(); o.position.set(x, y, z); o.rotation.y = ry; o.scale.set(sx, sy, sz); g.add(o); }
-      standIn.forEach((o) => { o.visible = false; });
-    }).catch((err) => console.warn(`SimReady ${id} unavailable, keeping the simple model:`, err));
-    if (srGo) run(); else srQueue.push(run);
-    return g;
-  }
-  const group = (x, y, z, ry = 0, parent = scene) => { const g = new THREE.Group(); g.position.set(x, y, z); g.rotation.y = ry; parent.add(g); return g; };
 
   // ── furniture
   function desk(x, z, w = 2.2, d = 1.0, ry = 0, parent = scene) {
@@ -194,14 +275,19 @@ async function start3D() {
   // a keyboard and a mug in front of a screen (in a desk's space)
   const desktopKit = (d, x, z, ry = 0) => dress(group(x, DESK_TOP, z, ry, d), 'computer_keyboard_a01', [[0, 0, 0, 0, 0.85]]);
   const mug = (parent, x, z) => dress(group(x, DESK_TOP, z, 0, parent), 'dishware_mug_a01', [[0, 0, 0, 0.6, 0.9]]);
-  // a monitor whose stand rests at pos (pos.y = the desk top)
-  function screen(parent, t, w, h, pos, ry = 0) {
+  // a monitor whose stand rests at pos (pos.y = the desk top), w wide across its screen: the SimReady office monitor
+  // (0.54 × 0.39 m, screen 0.534 × 0.29 m facing +z), scaled to fit; the live texture is laid over its screen
+  function screen(parent, t, w, pos, ry = 0) {
     const g = new THREE.Group(); g.position.set(...pos); g.rotation.y = ry; parent.add(g);
-    box(0.3, 0.03, 0.2, M.dark, 0, 0, 0, g); box(0.06, 0.24, 0.06, M.dark, 0, 0, 0, g); box(w + 0.08, h + 0.08, 0.06, M.dark, 0, 0.24, 0, g);
-    mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshBasicMaterial({ map: t, toneMapped: false }), g, [0, 0.24 + (h + 0.08) / 2, 0.035], [0, 0, 0], false);
+    const k = w / 0.534, body = group(0, 0, 0, 0, g);
+    box(0.3 * k, 0.012 * k, 0.17 * k, M.dark, 0, 0, -0.03 * k, body); box(0.04 * k, 0.1 * k, 0.03 * k, M.dark, 0, 0, -0.03 * k, body); box(0.542 * k, 0.3 * k, 0.03 * k, M.dark, 0, 0.096 * k, -0.013 * k, body);
+    dress(body, 'computer_monitor_office_a01', [[0, 0, 0, 0, k]]);
+    mesh(new THREE.PlaneGeometry(w, 0.29 * k), new THREE.MeshBasicMaterial({ map: t, toneMapped: false }), g, [0, 0.246 * k, 0.0045 * k + 0.003], [0, 0, 0], false);
     return g;
   }
-  const termTex = (lines, head) => tex(512, 320, (g, w, h) => {
+  // a desktop tower standing on the floor beside a desk (in the desk's space)
+  const tower = (d, x, z, ry = 0) => { const g = group(x, 0, z, ry, d); box(0.2, 0.49, 0.62, M.dark, 0, 0, 0, g); return dress(g, 'computer_desktop_tower_a01', [[0, 0, 0, 0, 1]]); };
+  const termTex = (lines, head) => tex(512, 280, (g, w, h) => {
     g.fillStyle = '#11141d'; g.fillRect(0, 0, w, h); g.fillStyle = '#8fa2ff'; g.font = `600 20px ${FM}`; g.fillText(head, 18, 34);
     g.fillStyle = '#d7dde8'; g.font = `400 17px ${FM}`; lines.forEach((l, i) => g.fillText(l, 18, 70 + i * 28));
   });
@@ -252,8 +338,8 @@ async function start3D() {
     }
     rug(7.6, 21.2, 3.8, 2.6, 0xd6c8f6);
     const d = desk(7.3, 21.7, 2.6, 1.0, -0.45);
-    screen(d, termTex(['code/', '  reproduce_experiments_ucr.py', '  rocket_functions.py', 'README.md', '! versions not pinned'], 'angus924/rocket @ 36bd908'), 1.2, 0.74, [-0.25, DESK_TOP, 0.05], 0);
-    desktopKit(d, -0.25, 0.33); mug(d, 0.85, 0.15);
+    screen(d, termTex(['code/', '  reproduce_experiments_ucr.py', '  rocket_functions.py', 'README.md', '! versions not pinned'], 'angus924/rocket @ 36bd908'), 1.0, [-0.25, DESK_TOP, 0.0], 0);
+    desktopKit(d, -0.25, 0.33); mug(d, 0.85, 0.15); tower(d, 1.0, -0.05);
     plant(4.8, 23.2, 1.0);
   }
   // Planning Room: long table, the plan on a board
@@ -265,9 +351,10 @@ async function start3D() {
       g.fillStyle = '#c18a0b'; g.font = `600 34px ${FM}`; g.fillText('EXPERIMENT PLAN', 40, 70);
       g.fillStyle = '#151a2d'; g.font = `400 27px ${FM}`;
       ['python 3.11 · 7 pinned wheels', 'ECG200.zip  sha256 755937ea…', 'runner --runs 10 --kernels 10000', 'parse metrics.accuracyMean', 'stop if exit ≠ 0 or no result.json', 'expected result: (never stated)'].forEach((l, i) => g.fillText(l, 40, 140 + i * 74)); });
-    const st = new THREE.Group(); st.position.set(20.6, 0, 4.75); scene.add(st);
-    box(0.08, 1.25, 0.08, M.dark, -1.15, 0, 0, st); box(0.08, 1.25, 0.08, M.dark, 1.15, 0, 0, st);
-    plane(2.4, 1.5, board, st, [0, 1.98, 0.05], [0, 0, 0]);
+    const st = group(20.6, 0, 4.75), stand = group(0, 0, 0, 0, st);   // the plan on a mobile whiteboard (writing surface 1.17 × 0.87 m, scaled 1.6)
+    box(0.08, 1.25, 0.08, M.dark, -1.0, 0, 0, stand); box(0.08, 1.25, 0.08, M.dark, 1.0, 0, 0, stand); box(1.95, 1.45, 0.05, M.white, 0, 1.2, 0, stand);
+    dress(stand, 'mobile_whiteboard', [[0, 0, 0, 0, 1.6]]);
+    plane(1.86, 1.16, board, st, [0, 1.92, 0.03], [0, 0, 0]);
     paperLit(plane(0.7, 0.9, pageTex, scene, [20.4, DESK_TOP + 0.005, 7.4], [-Math.PI / 2, 0, 0.3]));
     plant(24.3, 10.3, 0.9); plant(17.7, 10.3, 0.8);
   }
@@ -277,14 +364,15 @@ async function start3D() {
   {
     for (let i = 0; i < 3; i++) {
       const g = new THREE.Group(); g.position.set(18.6 + i * 2.9, 0, 22.6); scene.add(g);
+      const putG = (w, h, d, mat, x, y, z, ry) => { const o = mesh(uvBox(w, h, d), mat, g, [x, y + h / 2, z], [0, ry, 0]); o.castShadow = false; };
       for (const [w, x, z, ry] of [[2.5, 0, 1.3, 0], [2.6, -1.25, 0, Math.PI / 2], [2.6, 1.25, 0, Math.PI / 2]]) {
-        const p = new THREE.Mesh(UNIT, glassM); p.scale.set(w, 1.7, 0.05); p.position.set(x, 0.85, z); p.rotation.y = ry; g.add(p);
-        const l = new THREE.LineSegments(EDGES_UNIT, edgeM); l.scale.copy(p.scale); l.position.copy(p.position); l.rotation.y = ry; g.add(l);
+        const p = new THREE.Mesh(UNIT, glassM); p.scale.set(w, 1.7, 0.03); p.position.set(x, 0.85 + 0.07, z); p.rotation.y = ry; g.add(p);
+        pane(w, 1.7, x, z, ry, putG, 0.07);
       }
-      box(2.4, 0.03, 2.5, std(0xb5e2d8), 0, 0.07, 0, g, 0, false);
+      box(2.4, 0.03, 2.5, std(0xb5e2d8, { rough: 0.5 }), 0, 0.07, 0, g, 0, false);
       const d = desk(-0.25, 0.6, 1.6, 0.66, 0, g);
       const t = termTex(['$ python rocket_ecg200_runner.py', '  --runs 10 --kernels 10000'], `lab ${i + 1} · network: none`);
-      screen(d, t, 0.9, 0.56, [-0.2, DESK_TOP, -0.02], 0.22); desktopKit(d, -0.12, 0.2, 0.22);
+      screen(d, t, 0.8, [-0.2, DESK_TOP, -0.06], 0.22); desktopKit(d, -0.12, 0.2, 0.22); tower(d, 0.55, -0.05);
       pods.push(g); podScreens.push(t);
     }
     const cable = new THREE.CatmullRomCurve3([V(16.75, 1.5, 19.2), V(16.1, 1.35, 19.4), V(15.6, 0.55, 19.9), V(15.3, 0.08, 20.6), V(14.95, 0.08, 21.25)]);
@@ -309,14 +397,16 @@ async function start3D() {
   {
     rug(33.5, 12.6, 4.6, 3.2, 0xf7c4d3);
     desk(33.5, 12.6, 3.2, 1.4);
-    mesh(new THREE.CylinderGeometry(0.3, 0.36, 0.08, 24), M.dark, scale, [0, 0.04, 0]);
-    mesh(new THREE.CylinderGeometry(0.045, 0.045, 1.08, 10), M.dark, scale, [0, 0.56, 0]);
-    mesh(new THREE.ConeGeometry(0.09, 0.16, 12), M.dark, scale, [0, 1.17, 0]);
-    box(2.5, 0.06, 0.08, M.dark, 0, -0.03, 0, beam);
+    // a laboratory balance: a black granite base, a brass column and pivot, a steel beam and pans
+    mesh(new THREE.CylinderGeometry(0.3, 0.36, 0.08, 32), granite, scale, [0, 0.04, 0]);
+    mesh(new THREE.CylinderGeometry(0.14, 0.18, 0.06, 32), brass, scale, [0, 0.11, 0]);
+    mesh(new THREE.CylinderGeometry(0.04, 0.05, 1.04, 20), brass, scale, [0, 0.62, 0]);
+    mesh(new THREE.ConeGeometry(0.09, 0.16, 20), brass, scale, [0, 1.17, 0]);
+    box(2.5, 0.06, 0.08, steel, 0, -0.03, 0, beam); mesh(new THREE.SphereGeometry(0.06, 16, 12), brass, beam, [0, 0, 0]);
     for (const s of [-1, 1]) {
       const hang = new THREE.Group(); hang.position.set(s * 1.15, 0, 0); beam.add(hang);
-      mesh(new THREE.CylinderGeometry(0.012, 0.012, 0.52, 6), M.dark, hang, [0, -0.26, 0]);
-      const pan = mesh(new THREE.CylinderGeometry(0.6, 0.5, 0.05, 32), M.white, hang, [0, -0.54, 0]);
+      for (const a of [0, 2.1, 4.2]) mesh(new THREE.CylinderGeometry(0.008, 0.008, 0.56, 6), steel, hang, [Math.cos(a) * 0.18, -0.27, Math.sin(a) * 0.18], [Math.sin(a) * 0.3, 0, -Math.cos(a) * 0.3]);
+      const pan = mesh(new THREE.CylinderGeometry(0.6, 0.5, 0.05, 48), steel, hang, [0, -0.54, 0]);
       pans.push({ hang, pan });
     }
     plant(36.3, 9.9, 0.9); plant(30.7, 16.1, 0.85);
@@ -330,11 +420,22 @@ async function start3D() {
   // Run Store: shelves of receipts, the report stack
   const reports = [];
   {
+    // a pallet rack (4.0 × 3.0 × 2.1 m, fitted to 5.0 × 1.96 × 0.66: decks at 0.29 and 1.53 m) of storage boxes, cartons and crates
+    const s = group(33, 0, 22.0);
     for (let i = 0; i < 3; i++) {
-      const s = new THREE.Group(); s.position.set(31.3 + i * 1.7, 0, 22.0); scene.add(s);
-      box(1.4, 1.95, 0.6, M.wall, 0, 0, 0, s); box(1.45, 0.05, 0.65, M.cap, 0, 1.95, 0, s, 0, false);
-      for (let k = 0; k < 4; k++) for (let j = 0; j < 3; j++) box(0.36, 0.3, 0.42, std([0xd9e0ff, 0xe6dcfb, 0xfbe7c6, 0xcdeee6][(i + k + j) % 4]), -0.42 + j * 0.42, 0.12 + k * 0.45, 0.12, s);
+      box(1.4, 1.95, 0.6, M.wall, -1.7 + i * 1.7, 0, 0, s); box(1.45, 0.05, 0.65, M.cap, -1.7 + i * 1.7, 1.95, 0, s, 0, false);
+      for (let k = 0; k < 4; k++) for (let j = 0; j < 3; j++) box(0.36, 0.3, 0.42, std([0xd9e0ff, 0xe6dcfb, 0xfbe7c6, 0xcdeee6][(i + k + j) % 4]), -1.7 + i * 1.7 - 0.42 + j * 0.42, 0.12 + k * 0.45, 0.12, s);
     }
+    dress(s, 'rack_large_empty_a01', [[0, 0, 0, 0, 1.24, 0.65, 0.32]]);
+    const DECK = [0.3, 1.54], at = { storage_box_a01: [], box_cardboard_a01: [], crate_blue_a01: [] };
+    for (let k = 0; k < 2; k++) for (let j = 0; j < 9; j++) {
+      const x = -2.1 + j * 0.52, kind = (j * 3 + k * 5) % 7;
+      if (kind === 6) continue;   // a gap now and then
+      if (kind < 3) { at.storage_box_a01.push([x, DECK[k], 0.02, 0, 0.5]); if (k === 0) at.storage_box_a01.push([x, DECK[k] + 0.265, 0.02, 0.05 * (j % 3 - 1), 0.5]); }
+      else if (kind < 5) { at.box_cardboard_a01.push([x, DECK[k], 0.02, Math.PI / 2 + 0.06 * (j % 2), 0.6]); if (k === 0) at.box_cardboard_a01.push([x, DECK[k] + 0.306, 0.0, Math.PI / 2 - 0.05, 0.55]); }
+      else at.crate_blue_a01.push([x, DECK[k], 0.02, Math.PI / 2, 0.75]);
+    }
+    for (const [id, list] of Object.entries(at)) dress(s, id, list);
     const sd = desk(33, 25.2, 2.4, 1.0); mug(sd, -0.95, 0.3);
     for (let i = 0; i < 8; i++) reports.push(box(0.8, 0.05, 1.0, M.white, 32.45 + (i % 2) * 0.05, DESK_TOP + i * 0.055, 25.2, scene, (i % 3 - 1) * 0.05));
     plant(35.3, 26.2, 0.85);
@@ -349,17 +450,23 @@ async function start3D() {
   easel.lookAt(V(2.5, 0, 24)); // face the intake cameras (south-east)
   {
     // legs stand behind the board, so they never cross the page
-    box(0.08, 3.5, 0.08, M.wood, -0.95, 0, -0.22, easel, 0); box(0.08, 3.5, 0.08, M.wood, 0.95, 0, -0.22, easel, 0); box(0.08, 3.3, 0.08, M.wood, 0, 0, -0.95, easel, 0);
+    // an oak studio easel: two front legs and a back leg, a cross brace, a mast behind the board, a ledge and a top clamp
+    box(0.07, 3.5, 0.09, S.oak, -0.95, 0, -0.22, easel, 0); box(0.07, 3.5, 0.09, S.oak, 0.95, 0, -0.22, easel, 0);
+    mesh(uvBox(0.07, 3.45, 0.09), S.oak, easel, [0, 1.6, -0.62], [0.21, 0, 0]);
+    box(1.97, 0.07, 0.06, S.oak, 0, 0.62, -0.24, easel, 0); box(0.08, 3.9, 0.07, S.oak, 0, 0, -0.27, easel, 0);
     const board = new THREE.Group(); board.position.set(0, 2.35, 0.2); board.rotation.x = -0.1; easel.add(board);
-    box(2.66, 3.36, 0.07, M.slate, 0, -1.68, -0.04, board);
-    box(2.7, 0.08, 0.22, M.wood, 0, -1.72, 0.06, board);
+    box(2.66, 3.36, 0.05, std(0x8b8f99, { rough: 0.8 }), 0, -1.68, -0.035, board);   // a painted backing board
+    for (const [w, h, x, y] of [[2.72, 0.05, 0, 1.66], [2.72, 0.05, 0, -1.71], [0.05, 3.42, -1.34, -1.71], [0.05, 3.42, 1.34, -1.71]]) box(w, h, 0.07, S.oak, x, y, -0.02, board);   // its frame
+    box(2.8, 0.06, 0.24, S.oak, 0, -1.78, 0.06, board); box(2.8, 0.035, 0.05, S.oak, 0, -1.72, 0.17, board);   // the ledge and its lip
+    box(0.32, 0.12, 0.12, S.oak, 0, 1.62, -0.04, board);   // the top clamp
     easel.userData.page = paperLit(plane(2.44, 3.14, pageTex, board, [0, 0, 0.0], [0, 0, 0], { shadow: true }));
   }
   // the page cell holding 0.9060, in the page's own coordinates (canvas 290..430 × 760..818 of 1024 × 1320)
   const CELL = V((360 / 1024 - 0.5) * 2.44, (0.5 - 789 / 1320) * 3.14, 0.03);
   const sealTable = new THREE.Group(); sealTable.position.set(INTAKE.x + 1.55, 0, INTAKE.z + 0.9); scene.add(sealTable);
   sealTable.rotation.y = -0.5;
-  { box(1.7, 0.07, 1.1, M.desk, 0, 0.86, 0, sealTable); box(0.07, 0.86, 0.95, M.leg, -0.75, 0, 0, sealTable); box(0.07, 0.86, 0.95, M.leg, 0.75, 0, 0, sealTable); }
+  { box(1.7, 0.07, 1.1, M.desk, 0, 0.86, 0, sealTable); box(0.07, 0.86, 0.95, M.leg, -0.75, 0, 0, sealTable); box(0.07, 0.86, 0.95, M.leg, 0.75, 0, 0, sealTable);
+    dress(sealTable, 'desk_a01', [[0, 0, 0, Math.PI / 2, 1.1 / 0.802, 0.93 / 0.759, 1.7 / 1.802]]); }
   const envFront = tex(512, 340, (g, w, h) => { g.fillStyle = '#f0e3cb'; g.fillRect(0, 0, w, h); g.fillStyle = '#9b6a2c'; g.font = `600 30px ${FM}`; g.fillText('SEALED · SHA-256', 30, 230); g.fillStyle = '#b07f45'; g.font = `500 26px ${FM}`; g.fillText('commitment pending…', 30, 278); });
   const env = new THREE.Group(); scene.add(env);
   {
@@ -376,7 +483,8 @@ async function start3D() {
     g.fillStyle = '#f0e3cb'; g.fillRect(0, 250, 512, 60); g.fillStyle = '#7a4d16'; g.font = `600 27px ${FM}`; g.fillText(commitment.slice(0, 22) + '…', 30, 278); envFront.needsUpdate = true;
   }
   const stamp = new THREE.Group(); scene.add(stamp);
-  { mesh(new THREE.CylinderGeometry(0.17, 0.19, 0.12, 24), M.seal, stamp, [0, 0.06, 0]); mesh(new THREE.CylinderGeometry(0.06, 0.08, 0.36, 12), M.wood, stamp, [0, 0.3, 0]); mesh(new THREE.SphereGeometry(0.13, 16, 12), M.wood, stamp, [0, 0.52, 0]); }
+  { mesh(new THREE.CylinderGeometry(0.17, 0.19, 0.12, 32), M.seal, stamp, [0, 0.06, 0]); mesh(new THREE.CylinderGeometry(0.15, 0.17, 0.04, 32), brass, stamp, [0, 0.14, 0]);
+    mesh(new THREE.CylinderGeometry(0.06, 0.08, 0.36, 20), S.oak, stamp, [0, 0.33, 0]); mesh(new THREE.SphereGeometry(0.13, 24, 16), S.oak, stamp, [0, 0.55, 0]); }
   const flyNum = card(1.0, 0.39, numTex('0.906', '#d9480f')); flyNum.renderOrder = 5;
   // ingest: a scan bar over the page, and two tags that pop out of it (the PDF hash, the cited repository)
   const scanBar = new THREE.Mesh(new THREE.PlaneGeometry(2.5, 0.06), new THREE.MeshBasicMaterial({ color: C.indigo, transparent: true, opacity: 0.75, depthWrite: false }));
@@ -402,8 +510,13 @@ async function start3D() {
   const scanM = new THREE.MeshBasicMaterial({ color: C.indigo, transparent: true, opacity: 0.28, depthWrite: false, side: THREE.DoubleSide });
   let scanPlane;
   {
-    for (const s of [-1, 1]) { box(0.34, 2.9, 0.34, M.dark, GATE.x + s * 1.4, 0, GATE.z); box(0.5, 0.12, 0.5, M.slate, GATE.x + s * 1.4, 0, GATE.z); }
-    box(3.2, 0.34, 0.4, M.dark, GATE.x, 2.9, GATE.z);
+    // a security arch: brushed steel posts on black plinths, glass scanner fins, a dark steel lintel with a steel trim
+    for (const s of [-1, 1]) {
+      box(0.5, 0.12, 0.6, blackMetal, GATE.x + s * 1.4, 0, GATE.z); box(0.3, 2.9, 0.34, steel, GATE.x + s * 1.4, 0.12, GATE.z);
+      const fin = new THREE.Mesh(UNIT, glassM); fin.scale.set(0.04, 2.3, 0.9); fin.position.set(GATE.x + s * 1.18, 1.45, GATE.z); scene.add(fin);
+      box(0.05, 0.05, 0.92, alu, GATE.x + s * 1.18, 0.28, GATE.z); box(0.05, 0.05, 0.92, alu, GATE.x + s * 1.18, 2.58, GATE.z);
+    }
+    box(3.2, 0.34, 0.4, blackMetal, GATE.x, 2.9, GATE.z); box(3.24, 0.05, 0.44, steel, GATE.x, 2.88, GATE.z); box(3.24, 0.04, 0.44, steel, GATE.x, 3.24, GATE.z);
     mesh(new THREE.SphereGeometry(0.18, 18, 12), gateLight, scene, [GATE.x, 3.48, GATE.z]);
     scanPlane = mesh(new THREE.PlaneGeometry(2.45, 0.1), scanM, scene, [GATE.x, 1.5, GATE.z], [0, 0, 0], false);
   }
@@ -414,8 +527,13 @@ async function start3D() {
   {
     const lab = tex(1024, 400, (g, w, h) => { g.fillStyle = '#ffffff'; g.fillRect(0, 0, w, h); g.fillStyle = '#151a2d'; g.font = `600 64px ${FM}`; g.fillText('PREP', 40, 110);
       g.fillStyle = '#586078'; g.font = `500 36px ${FM}`; g.fillText('approved sites only · short-lived', 40, 190); g.fillText('hash-verified inputs only', 40, 250); });
-    const pm = std(0xd7dcea);
-    box(3.4, 2.0, 2.2, [pm, pm, M.cap, pm, texMat(lab), pm], PREP.x, 0, PREP.z + 1.4);
+    // a site container: corrugated steel walls in a dark steel frame, the PREP sign on the side the cameras see
+    mesh(uvBox(3.3, 1.9, 2.1), S.tin, scene, [PREP.x, 1.0, PREP.z + 1.4]);
+    for (const sx of [-1, 1]) for (const sz of [-1, 1]) box(0.12, 2.0, 0.12, blackMetal, PREP.x + sx * 1.64, 0, PREP.z + 1.4 + sz * 1.04);
+    for (const y of [0, 1.9]) { box(3.4, 0.1, 0.12, blackMetal, PREP.x, y, PREP.z + 2.44); box(3.4, 0.1, 0.12, blackMetal, PREP.x, y, PREP.z + 0.36);
+      box(0.12, 0.1, 2.2, blackMetal, PREP.x - 1.64, y, PREP.z + 1.4); box(0.12, 0.1, 2.2, blackMetal, PREP.x + 1.64, y, PREP.z + 1.4); }
+    plane(2.6, 1.02, lab, scene, [PREP.x, 1.05, PREP.z + 2.465], [0, 0, 0]);
+    { const g = group(PREP.x - 2.6, 0, PREP.z + 0.15, 0.15); dress(g, 'storage_box_a01', [[0, 0, 0, Math.PI / 2, 0.7], [0.05, 0.371, 0, Math.PI / 2 + 0.08, 0.7]]); }
     { // the loading pallets, on the side the cameras see (two EUR pallets, 1.20 × 0.21 × 0.80 m, flattened to the crates' 0.12)
       const g = group(PREP.x + 3.1, 0, PREP.z + 1.2); box(2.8, 0.12, 1.4, M.slate, 0, 0, 0, g);
       dress(g, 'pallet_a01', [[-0.7, 0, 0, Math.PI / 2, 1.16, 0.574, 1.75], [0.7, 0, 0, Math.PI / 2, 1.16, 0.574, 1.75]]);
@@ -424,16 +542,25 @@ async function start3D() {
     { const g = group(PREP.x - 2.9, 0, PREP.z + 1.6, 0.3);
       dress(g, 'box_cardboard_a01', [[0, 0, 0, 0, 0.7], [0.02, 0.357, 0.03, 0.4, 0.62], [0.62, 0, -0.25, -0.2, 0.7]]);
       dress(g, 'crate_blue_a01', [[0.1, 0, 0.75, 0.1, 0.85]]); dress(g, 'small_load_carrier', [[0.12, 0.215, 0.75, 0.15, 0.85]]); }
+    // the dataset and wheel crates: kraft cardboard (fibres, a tape strip over the lid) with a printed label on the front
+    const kraft = (g, w, h, seed) => { g.fillStyle = '#c4996a'; g.fillRect(0, 0, w, h);
+      for (let i = 0; i < 900; i++) { const r = Math.sin(i * 12.9898 + seed) * 43758.5453 % 1, q = Math.sin(i * 78.233 + seed) * 12345.678 % 1; g.fillStyle = i % 2 ? 'rgba(120,80,40,0.10)' : 'rgba(255,235,200,0.10)'; g.fillRect(Math.abs(r) * w, Math.abs(q) * h, 1 + (i % 3), 6 + (i % 9)); }
+      g.fillStyle = 'rgba(90,60,30,0.18)'; g.fillRect(0, 0, w, 3); g.fillRect(0, h - 3, w, 3); };
+    const kraftM = texMat(tex(128, 128, (g, w, h) => kraft(g, w, h, 1)), {}); kraftM.roughness = 0.95;
+    const lidM = texMat(tex(128, 128, (g, w, h) => { kraft(g, w, h, 2); g.fillStyle = 'rgba(215,190,140,0.85)'; g.fillRect(0, h * 0.4, w, h * 0.2); g.fillStyle = 'rgba(255,255,255,0.25)'; g.fillRect(0, h * 0.42, w, 3); }), {}); lidM.roughness = 0.7;
     const names = ['numpy', 'scipy', 'sklearn', 'joblib', 'threadpool', 'numba', 'llvmlite', 'ECG200'];
     names.forEach((n, i) => {
       const data = n === 'ECG200';
-      const t = tex(256, 128, (g, w, h) => { g.fillStyle = data ? '#fdeae0' : '#e7eafd'; g.fillRect(0, 0, w, h); g.fillStyle = data ? '#d9480f' : '#3a4fd8'; g.font = `600 30px ${FM}`; g.textAlign = 'center'; g.fillText(n, w / 2, 62); g.font = `500 22px ${FM}`; g.fillText('sha256 ✓', w / 2, 100); });
-      const m = box(0.6, 0.4, 0.48, [M.manila, M.manila, M.manila, M.manila, texMat(t), M.manila], 0, 0, 0);
+      const t = tex(256, 172, (g, w, h) => { kraft(g, w, h, 3 + i); g.fillStyle = '#ffffff'; roundRect(g, 18, 22, w - 36, h - 44, 10); g.fill(); g.strokeStyle = data ? '#d9480f' : '#3a4fd8'; g.lineWidth = 4; g.stroke();
+        g.fillStyle = data ? '#d9480f' : '#3a4fd8'; g.font = `600 30px ${FM}`; g.textAlign = 'center'; g.fillText(n, w / 2, 80); g.font = `500 22px ${FM}`; g.fillText('sha256 ✓', w / 2, 118); });
+      const m = box(0.6, 0.4, 0.48, [kraftM, kraftM, lidM, kraftM, texMat(t), kraftM], 0, 0, 0);
       m.userData.home = V(PREP.x + 3.1 - 0.99 + (i % 4) * 0.66, 0.12 + (i > 3 ? 0.4 : 0), PREP.z + 1.2);
       m.userData.dest = V(18.6 + (i % 3) * 2.9 - 0.8, Math.floor(i / 3) * 0.4 + 0.08, 22.6 - 0.75);
       crates.push(m);
     });
   }
+
+  flushBatches();
 
   // ── agents: DéjàML's seven roles as small robots in their role colours. Simple figures stand in until the model is parsed (and stay if it can't be).
   const AGENTS = [];
@@ -945,7 +1072,7 @@ async function start3D() {
     envHashDrawn = false; logKey = -1;
   });
   let srTimer = 0;
-  const startProps = () => { if (srGo) return; srGo = true; srQueue.splice(0).forEach((run) => run()); };
+  const startProps = () => { if (srGo) return; srGo = true; srQueue.splice(0).sort((p, q) => q[0] - p[0]).forEach(([, run]) => run()); };   // surfaces, then trees, then props, small props last
   if (/[?&]debug\b/.test(location.search)) window.__campus = { renderer, scene, agents: AGENTS };   // for QA: draw calls, robot state
   function frame(now) {
     const dt = Math.min(0.05, (now - last) / 1000); last = now; T += dt;

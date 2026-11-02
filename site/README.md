@@ -36,7 +36,8 @@ Every number on the page comes from the root README,
 | `js/10_page.js` | Page logic: the live seal, policy gate, Supervisor ladder, study strip and no-WebGL fallback. |
 | `js/20_campus.js` | The 3D Research Campus: scene, agents, labels, camera stations and the scroll-driven story. |
 | `models/RobotExpressive.glb` | The agents' robot (CC0, see `models/RobotExpressive-README.md`), copied to `dist/models/` and fetched by both pages. |
-| `models/simready/` | NVIDIA SimReady and partner models (CC BY 4.0, see `models/simready/CREDITS.md` and `manifest.json`). The full-quality `.glb` files are the library; `web/` holds the light copies the campus uses for its desks, chairs, plants, bookshelves, server racks, lamps, pallets and lab robot. |
+| `models/simready/` | NVIDIA SimReady and partner models (CC BY 4.0, see `models/simready/CREDITS.md` and `manifest.json`). The full-quality `.glb` files are the library; `web/` holds the light copies the campus uses for its desks, chairs, plants, bookshelves, server racks, monitors, PC towers, the pallet rack, storage boxes, the whiteboard, lamps, pallets and lab robot. |
+| `models/polyhaven/` | Trees (Island Tree 02, Tree Small 02, rebuilt with leaf-cluster cards) and the floor, wall, walkway, lawn, gravel, concrete, oak and corrugated steel textures, from Poly Haven (CC0, see `models/CREDITS.md`). |
 | `build.mjs` | Concatenates `js/NN_*.js` into one module, writes `dist/index.html` and copies the models into `dist/models/`. |
 | `preload.mjs` | The module and robot preload tags both pages share. |
 
