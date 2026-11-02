@@ -11,6 +11,7 @@ import { LiveRun } from "./LiveRun";
 
 afterEach(() => {
   document.body.innerHTML = "";
+  vi.restoreAllMocks();
 });
 
 const logOf = (events: readonly RunEvent[]) => appendEvents(EMPTY_LOG, events);
@@ -348,6 +349,8 @@ describe("Live Run Dashboard: blinding", () => {
   });
 
   it("rebuilds the same sealed state after a reload or a replay with duplicates", () => {
+    // The header shows a live elapsed clock; pin it so both renders read the same second.
+    vi.spyOn(Date, "now").mockReturnValue(Date.parse("2026-11-01T00:00:00Z"));
     const fresh = render(<LiveRun {...props} log={logOf(beforeReveal)} />);
     const html = fresh.container.innerHTML;
     fresh.unmount();
