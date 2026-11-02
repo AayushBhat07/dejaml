@@ -1,0 +1,17 @@
+cff-version: 1.2.0
+message: "If you use DéjàML in your research, please cite it as below."
+title: "DéjàML: a blinded, sandboxed harness for agent-run reproduction of machine-learning results"
+type: software
+authors:
+  - family-names: Bhat
+    given-names: Aayush
+    affiliation: "SIES Graduate School of Technology, Navi Mumbai, India"
+repository-code: "https://github.com/AayushBhat07/dejaml"
+url: "https://aayushbhat07.github.io/dejaml/"
+license: MIT
+version: 0.1.0
+keywords:
+  - reproducibility
+  - machine learning
+  - LLM agents
+  - Docker

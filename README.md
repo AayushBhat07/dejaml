@@ -130,12 +130,14 @@ Room, Planning Room, Disposable Lab, Verification Desk and Run Store), and a
 |---|---|---|---|---|
 | pyts BOSS on GunPoint, test accuracy (JMLR 2020, Table 2) | 1.000 | 1.000 | ±0.02 | Partially reproduced |
 | ROCKET on UCR ECG200, mean test accuracy over 10 runs | 0.906 | 0.904 | ±0.0053 | Partially reproduced |
-| Urban Land Cover Random Forest, test accuracy | 81.66% | 79.88% | ±2 pp | Partially reproduced |
+| Urban Land Cover Random Forest, test accuracy | 81.66% | 79.88% | ±1 pp | Not reproduced |
 
-All three landed within tolerance. Each is capped at _Partially reproduced_
-because the run needed a declared deviation (an adapter script or a
-compatibility constraint). DéjàML never claims a stronger verdict than the
-evidence supports.
+The pyts and ROCKET runs landed within tolerance and are capped at
+_Partially reproduced_ because each needed a declared deviation (an adapter
+script or a compatibility constraint). The Urban Land Cover run measured 79.88%,
+outside the 1 pp tolerance sealed in its case file, so it is _Not reproduced_.
+DéjàML never claims a stronger verdict than the evidence supports. The full run
+records are in [acceptance/blinding/results/](acceptance/blinding/results/).
 
 ### Under the hood
 

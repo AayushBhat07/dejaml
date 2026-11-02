@@ -1,0 +1,410 @@
+%% DéjàML: Original Software Publication for Science of Computer Programming.
+%% Written against the elsarticle class. Before submission, move the content
+%% into the journal's official OSP template (scico-osp-template.tex) without
+%% changing its formatting, and check the code metadata rows against it.
+\documentclass[preprint,12pt]{elsarticle}
+
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{lmodern}
+\usepackage{amssymb}
+\usepackage{booktabs}
+\usepackage{tabularx}
+\usepackage{array}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage[hidelinks]{hyperref}
+\usepackage{url}
+
+\lstset{basicstyle=\ttfamily\small,columns=fullflexible,keepspaces=true,
+  breaklines=true,frame=single,framerule=0.3pt,xleftmargin=2pt,xrightmargin=2pt}
+\newcommand{\dejaml}{D\'ej\`aML}
+\newcommand{\code}[1]{\texttt{#1}}
+
+\journal{Science of Computer Programming}
+
+\begin{document}
+
+\begin{frontmatter}
+
+\title{\dejaml{}: A blinded, sandboxed harness for agent-run reproduction of machine-learning results}
+
+\author{Aayush Bhat}
+\ead{aayushbhat747@gmail.com}
+\affiliation{organization={Department of Computer Science, SIES Graduate School of Technology},
+  city={Navi Mumbai},
+  country={India}}
+
+\begin{abstract}
+Re-running the experiment behind a published machine-learning result is slow,
+and handing the job to a language-model agent raises two problems: the
+repository code it runs is untrusted, and an agent that can see the published
+number can steer towards it. \dejaml{} is an open-source TypeScript system that
+re-runs the experiment behind one numeric claim of a paper and reports what
+happened with a receipt for every step. Separate agents locate the claim, map
+it to code at a pinned commit and plan the run, but deterministic code decides
+everything that matters for trust. A policy gate checks each plan; dependencies
+and data are fetched by hash in a short-lived container; the experiment runs in
+a disposable Docker container with no network, a read-only root filesystem and
+fixed resource limits; and the final status is computed from the evidence by a
+fixed rule. The reported value is sealed under a SHA-256 commitment and kept out of every
+request of the planning, execution and review agents, and it is compared with
+the observed value only after the observation and an independent review are
+locked. A model-free bootstrap reproduces a reference experiment offline,
+and the repository contains reviewed cases and run records for five published
+results, including two that the tool reports as not reproduced. \dejaml{} is intended for researchers who want to re-check a specific
+result and for researchers who study how agents behave when they reproduce
+work.
+\end{abstract}
+
+\begin{keyword}
+Reproducibility \sep Machine learning \sep LLM agents \sep Blind analysis \sep Sandboxing \sep Docker
+\end{keyword}
+
+\end{frontmatter}
+
+%% ---------------------------------------------------------------------------
+\section{Motivation and significance}
+\label{sec:motivation}
+
+Re-running published experiments is a basic check on machine-learning
+research~\cite{pineau2021improving,gundersen2018state}. In practice it means
+finding the code a paper used, the right revision, the data and a working
+environment, then deciding whether the number that comes out is close enough to
+the one in the paper. Language-model agents are now being evaluated on parts of
+this work, from setting up research repositories~\cite{bogin2024super} to
+replicating whole papers~\cite{starace2025paperbench,siegel2024corebench,salunkhe2026reclaim},
+with partial success. Using such agents as tools rather than benchmark subjects
+raises two problems that \dejaml{} is built to address.
+
+First, repository code is untrusted. An agent that can install packages and run
+scripts with network access and the user's permissions can do real damage, by
+accident or because the repository is malicious. Second, an agent that knows the
+number it is meant to reproduce can steer towards it: by changing seeds, splits
+or hyperparameters until the number appears, or by reporting success that the
+run does not support. Exploiting a visible grader or test has been documented
+in coding and machine-learning engineering
+tasks~\cite{zhong2025impossiblebench,metr2025rewardhacking,atinafu2026rewardhackingagents};
+the same incentive is present whenever the published value is in view.
+Experimental physics has long answered this second problem with blind analysis,
+in which the result is hidden until the analysis is
+fixed~\cite{klein2005blind,maccoun2015blind}.
+
+\dejaml{} applies both answers in code. It asks a deliberately narrow question:
+\emph{for this paper, this repository revision, this dataset and this
+environment, what was run, and how did its result compare with the published
+number?} It does not summarise papers or judge a paper as a whole.
+
+\paragraph{Related software}
+Container and provenance tools make an existing computation repeatable.
+ReproZip packs a run with its dependencies~\cite{chirigati2016reprozip}, Docker
+images capture an environment~\cite{boettiger2015introduction}, Binder and
+repo2docker build one from a repository~\cite{jupyter2018binder}, and Code
+Ocean and Whole Tale host executable research
+capsules~\cite{clyburne2019computational,brinckman2019computing}. They assume a
+person already knows what to run and how to judge the output. ReScience~C
+publishes human replications~\cite{rougier2017sustainable}. Agent benchmarks
+such as PaperBench~\cite{starace2025paperbench},
+CORE-Bench~\cite{siegel2024corebench}, MLE-bench~\cite{chan2024mlebench} and
+RECLAIM~\cite{salunkhe2026reclaim} grade agents against answers they do not
+see, but they are evaluation suites with fixed task sets, not tools that take a
+new paper, whose text contains the answer, and return an audited verdict on it.
+General agent platforms such as OpenHands~\cite{wang2025openhands} and
+SWE-agent~\cite{yang2024sweagent}, and evaluation frameworks such as
+Inspect~\cite{inspect2024}, provide sandboxed tool use and could host parts of
+this workflow. \dejaml{} was built as a separate system because its
+guarantees span the whole study rather than one agent loop: the claimed value
+has to be withheld from every agent but the one that reads the paper,
+dependency and data preparation has to happen in a separate, egress-limited
+step before an offline run, and the verdict has to be computed outside any
+model from receipts recorded along the way. These are properties of the
+orchestrator, its persisted state and its container lifecycle, not of a
+single agent's tools.
+
+%% ---------------------------------------------------------------------------
+\section{Software description}
+\label{sec:description}
+
+\subsection{Software architecture}
+
+\dejaml{} is a TypeScript monorepo for Node.js~24 organised as npm workspaces,
+each with its own tests (Table~\ref{tab:packages}). A Run API orchestrates each
+study as a stage machine persisted in SQLite, so a study resumes after a
+restart. A React web client shows a study live over server-sent events; it is
+one client of the API, and the same studies are driven from scripts for
+acceptance runs.
+
+\begin{table}[!htbp]
+\centering
+\small
+\caption{Workspaces of \dejaml{} and their responsibilities.}
+\label{tab:packages}
+\begin{tabularx}{\linewidth}{@{}>{\ttfamily}lX@{}}
+\toprule
+\normalfont Workspace & Responsibility \\
+\midrule
+paper-intake & Validate the PDF, extract text with page anchors, find cited GitHub repositories \\
+repository-intake & Guarded shallow clone at a pinned commit, with size and file limits \\
+contracts & Shared types and schemas for plans, events, evidence and results \\
+agent-runtime & Agents, their tools and budgets, the typed evidence board, provider adapters \\
+research-runtime & Reference pipeline: analysts, deterministic policy gate, lab agent \\
+net-guard & Egress allowlist for the preparation step \\
+prep & Hash-verified Python wheels and checksum-verified datasets in a short-lived container \\
+lab-manager & Disposable lab lifecycle, isolation audit and cleanup receipts \\
+result-verifier & Parse the metric from run output and compare it with the target \\
+run-store & Persisted run state, events, evidence and the append-only blinding ledger \\
+apps/api, apps/web & Run API (orchestrator) and web client \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\subsection{Software functionalities}
+
+\paragraph{The study pipeline}
+A study starts from a text-readable PDF. Seven agent roles, each run as a
+separate agent with its own
+history, tools and budget, communicate only through a typed evidence board: a
+Paper Analyst reads the paper and selects one numeric claim; a Repository
+Analyst maps it to code at a pinned commit; a Reproduction Planner writes an
+exact plan; one to three Lab Engineers execute it, with a Debugger on failure;
+an Independent Reviewer judges whether the run was faithful; and a Supervisor
+reviews the result. Models are reached through the Anthropic or OpenAI APIs or
+one OpenAI-compatible endpoint configured by an administrator; keys stay in the
+server environment and never reach the browser.
+
+\paragraph{Models propose, code decides}
+Every plan passes a deterministic policy gate before anything runs: CPU only,
+no GPU packages, dataset hosts on an allowlist with required checksums, a
+runtime ceiling, and no plan that states an expected result. The final status
+(\emph{Reproduced}, \emph{Partially reproduced}, \emph{Not reproduced},
+\emph{Inconclusive}, \emph{Policy blocked}, \emph{Failed} or \emph{Cancelled})
+is computed from the evidence by a fixed rule. A match within tolerance is
+capped at \emph{Partially reproduced} whenever the run needed a declared
+deviation, such as an adapter script or a newer library. The Supervisor may
+move the status only towards a weaker claim (for example from \emph{Reproduced}
+to \emph{Partially reproduced}, or to \emph{Inconclusive}), never towards a
+stronger one.
+
+\paragraph{Sandboxed execution}
+Repository code runs only in a lab container created with
+\code{--network none}, a read-only root filesystem, all capabilities dropped,
+\code{no-new-privileges}, a non-root user and fixed CPU, memory, swap and
+process limits, from a locally built image whose base is pinned by digest and
+whose image ID is recorded. Wheels and datasets are fetched
+beforehand in a separate, short-lived container whose egress is limited to
+allowlisted hosts, and each file is verified by hash. Each lab is destroyed on
+every path, including failure and cancellation, and a cleanup receipt records
+that it no longer exists.
+
+\paragraph{Blinding by commitment}
+The claimed value is sealed by a SHA-256 commitment recorded in an append-only
+ledger that SQLite triggers make immutable. When a person supplies a
+\emph{reviewed target} (the claim, page, repository commit, entry point and
+tolerance, chosen by a person), the seal is made before any agent starts. When
+there is no reviewed target, the Paper Analyst, which must read the paper,
+selects the value and it is sealed as soon as the analyst reports its claim;
+the Repository Analyst, which runs alongside it, may also have read the value
+in repository documentation before the seal, but neither hand-off carries it, and the analyst's hand-off is reduced in code to the execution
+details, without the value, excerpt or page. From the seal onwards, every model
+request from any other agent is scanned and refused if it contains the value in
+any of the formats the scanner knows, repository documentation is re-projected with the value withheld, and notebook
+outputs are removed. The observation and the
+Independent Reviewer's verdict are locked before the seal is opened, verified
+against its commitment and compared with the observation in code. The Supervisor, which can only weaken
+the status, runs after the reveal. The ledger
+also supports controlled research conditions (for example showing agents the
+true value or a decoy) for studies of agent behaviour; they are off by default.
+
+\paragraph{Receipts}
+A study records the page and excerpt of the claim, the repository commit, the
+plan digest, wheel hashes, the dataset checksum, the command, exit code and log
+hashes, the comparison and the cleanup receipt. A verdict can therefore be
+audited without trusting any agent's account of it.
+
+\subsection{Limitations}
+
+The guarantees above have stated limits. Blinding withholds the value from
+requests, documentation and notebook outputs, but source code, data and
+committed result files in the repository are passed through unchanged and only
+flagged by a static scan; a repository that prints the target in its own result
+files can still reveal it. The scanner matches known numeric formats and can
+miss a value restated in other units or derived from other numbers, and nothing
+stops a model from recalling a well-known benchmark result. Without a reviewed
+target the run is only as good as the Paper Analyst's choice of claim, and
+adapters written by agents are screened heuristically rather than reviewed.
+Studies are limited to one numeric claim that runs on a CPU from allowlisted
+data hosts. Papers whose repository matches the bundled reference case take an
+earlier, non-blinded reference pipeline kept for the bundled demonstration
+case. The API has no
+user accounts: it binds to loopback by default, and its optional administrator token protects
+only the audit-report download, so it is not ready to be exposed as a public service.
+
+%% ---------------------------------------------------------------------------
+\section{Illustrative examples}
+\label{sec:examples}
+
+\paragraph{Checking the execution path without a model account}
+On macOS or Linux with Node.js~24, Python~3 and a Docker engine:
+\begin{lstlisting}
+git clone https://github.com/AayushBhat07/dejaml.git
+cd dejaml
+npm run bootstrap
+\end{lstlisting}
+The bootstrap installs locked dependencies, builds and tests every workspace,
+downloads and checksum-verifies the public Urban Land Cover
+dataset~\cite{johnson2013urban}, builds the pinned Python CPU image, runs the
+reference Random Forest experiment offline in a non-root lab, and checks the
+expected 79.88\% test accuracy and the cleanup receipt. Network access is
+needed for the downloads and the image build; the experiment itself runs
+offline. \code{npm run demo:replay} then shows a labelled replay of a study in
+the web client.
+
+\paragraph{Running a live study}
+An administrator lists the providers and models that may be offered in
+\code{.env.local} and supplies the matching API key as a server environment
+variable. \code{npm run start:local} starts the API and web client on
+\code{127.0.0.1:8787}, where a user uploads a paper and picks a configured
+model. The same study can be driven without the browser against a reviewed
+case file:
+\begin{lstlisting}
+node apps/api/scripts/accept-real-paper.mjs \
+  acceptance/cases/pyts-boss-gunpoint.json
+\end{lstlisting}
+A case file names the paper, its pinned repository commit, the dataset sources
+and checksums, the claim and its tolerance; the script writes a sanitised report
+under \code{artifacts/acceptance/}. 
+
+\paragraph{Five published results}
+Table~\ref{tab:results} lists every real-model study in the blind condition
+(agents never shown the value) whose full record is released in
+\code{acceptance/blinding/results/}, all run with Claude Sonnet~5.5 against
+reviewed targets. These runs come from the study described in
+Section~\ref{sec:impact}~\cite{bhat2026blinded}; only the software's verdicts are
+reported here, and runs in the study's other conditions are left out. Each tolerance was fixed in the case file
+before the run; for ROCKET it is a 95\% two-sample allowance computed from the
+10-run standard deviation in the official repository. Matches are reported as
+\emph{Partially reproduced} because each needed a declared deviation (an
+adapter for a notebook-only repository or a compatibility constraint). The
+Urban Land Cover runs measured 79.88\% against a published 81.66\%, outside the
+1.0 percentage-point tolerance, so the status is \emph{Not reproduced}; one of
+the two ROCKET runs also fell just outside its tolerance. The r-STSF and inconsistency-rate
+runs used a research condition that gives agents a less restricted lab. Where model cost was recorded
+(the last two rows), a study cost US\$0.5--1.0.
+
+\begin{table}[!htbp]
+\centering
+\small
+\caption{Blind real-model studies with reviewed targets and released records (Claude Sonnet~5.5). P = \emph{Partially reproduced}, N = \emph{Not reproduced}; the number of runs is in brackets.}
+\label{tab:results}
+\begin{tabularx}{\linewidth}{@{}>{\raggedright\arraybackslash}Xrlrl@{}}
+\toprule
+Paper and claim & Paper & Observed & Tol. & Status \\
+\midrule
+pyts BOSS, GunPoint accuracy~\cite{faouzi2020pyts,schafer2015boss} & 1.000 & 1.000, 1.000 & $\pm$0.02 & P (2) \\
+ROCKET, ECG200 mean of 10 runs~\cite{dempster2020rocket,dau2019ucr} & 0.906 & 0.905, 0.900 & $\pm$0.0053 & P (1), N (1) \\
+Random Forest, Urban Land Cover~\cite{tabasum2026urban} & 81.66\% & 79.88, 79.88 & $\pm$1.0\,pp & N (2) \\
+r-STSF, ECG200 accuracy~\cite{cabello2021rstsf} & 89.7\% & 90.1 & $\pm$1.0\,pp & P (1) \\
+Accuracy vs balanced-accuracy inconsistency, weather data~\cite{gosgens2021good} & 96.5\% & 96.53, 96.53 & $\pm$0.1 & P (2) \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+%% ---------------------------------------------------------------------------
+\section{Impact}
+\label{sec:impact}
+
+\dejaml{} turns re-checking one published number into a bounded, inspectable
+procedure: a person states which claim matters, and the system returns either
+an audited comparison or a specific reason why none could be made, such as a
+missing entry point, an unlisted data host or a GPU requirement. Because the
+status is computed from receipts, two users who disagree about a verdict can
+point to the same evidence.
+
+The software is also a research instrument. Its blinding ledger and controlled
+conditions let a researcher run the same study with agents that see the true
+value, a decoy value or no value, while everything else stays fixed, and its
+receipts make each run auditable afterwards. The author has used it in this
+way to study whether agents chase a visible target; that study is reported in
+a separate manuscript that is under review~\cite{bhat2026blinded}, and its run
+records are released in the repository under
+\code{acceptance/blinding/results/}. This article describes only the software.
+
+The design is not specific to the five cases above. New studies are added
+as case files and, where needed, reviewed adapters; dataset hosts are added
+to the allowlist; and the lab image is replaced by digest. The software has
+1{,}115 automated tests, and continuous integration runs type
+checking, linting, all tests and separate proofs of Docker isolation and
+cleanup. \dejaml{} has no users outside its author yet; the code, cases and run
+records are public so that others can repeat and extend the studies.
+
+%% ---------------------------------------------------------------------------
+\section{Conclusions}
+\label{sec:conclusions}
+
+\dejaml{} re-runs the experiment behind one published machine-learning number
+with language-model agents, while keeping untrusted code in an offline sandbox
+and the published value away from the agents that plan, run and review the
+experiment. Its central design choice is that models propose and deterministic
+code decides, with a receipt for every step. Planned work includes studies on
+papers without a reviewed target, more than one claim per paper, broader data
+sources and lab images, and an authenticated hosted service.
+
+%% ---------------------------------------------------------------------------
+\section*{Declaration of generative AI and AI-assisted technologies in the manuscript preparation process}
+
+During the preparation of this work the author used Claude (Anthropic),
+through the Claude Code agent, in order to write and revise much of the
+software described here (including tests, continuous-integration workflows and
+documentation) and to draft and edit this manuscript; the draft was revised
+after simulated peer reviews that were also generated with Claude. Of the 77
+commits in the repository at the time of writing, 23 were made through the
+assistant under its own name, and most of the others, including squash-merged
+pull requests, also contain code written with it. The author defined the problem, chose the
+architecture and its guarantees (target sealing, deterministic status rules,
+the sandboxed lab and its policy), selected the papers and tolerances,
+approved every real-model run, and reviewed and tested every AI-assisted
+change. Statements about the code in this article were checked against the
+source, and every reference was checked against its publisher or arXiv record.
+After using this tool, the author reviewed and edited the content as needed and
+takes full responsibility for the content of the published article.
+Separately, language models from Anthropic, OpenAI and OpenAI-compatible
+providers are runtime components of the software, configured by its users.
+
+\section*{Declaration of competing interest}
+
+The author declares that he has no known competing financial interests or
+personal relationships that could have appeared to influence the work reported
+in this paper.
+
+\section*{Acknowledgements}
+
+This research did not receive any specific grant from funding agencies in the
+public, commercial, or not-for-profit sectors.
+
+\bibliographystyle{elsarticle-num}
+\bibliography{references}
+
+%% ---------------------------------------------------------------------------
+\section*{Code metadata}
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabularx}{\linewidth}{@{}lXX@{}}
+\toprule
+Nr. & Code metadata description & Metadata \\
+\midrule
+C1 & Current code version & v0.1.0 \\
+C2 & Permanent link to code/repository used for this code version & \url{https://github.com/AayushBhat07/dejaml/tree/v0.1.0} \\
+C3 & Permanent link to reproducible capsule & None; \code{npm run bootstrap} reproduces the reference experiment \\
+C4 & Legal code license & MIT \\
+C5 & Code versioning system used & git \\
+C6 & Software code languages, tools and services used & TypeScript, Node.js 24, React 19, Python 3, Docker, SQLite; Anthropic, OpenAI or OpenAI-compatible model APIs \\
+C7 & Compilation requirements, operating environments and dependencies & macOS or Linux; Node.js 24 or later; Python 3; a Docker engine; locked npm dependencies (\code{package-lock.json}); a model API key for live studies only \\
+C8 & Link to developer documentation/manual & \url{https://github.com/AayushBhat07/dejaml\#readme} (README, ARCHITECTURE.md, docs/, apps/api/README.md) \\
+C9 & Support email for questions & aayushbhat747@gmail.com \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\end{document}
