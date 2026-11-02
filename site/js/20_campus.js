@@ -1,14 +1,16 @@
 // The 3D Research Campus: scene, robot agents, labels, camera stations and the scroll-driven story.
 // Shares one module scope with 10_page.js (uses: $, $$, RM, sstep, root, secs, renderChip, revealSeal, gateBlocked, gateOutcome?, lastChapter, commitment)
-// and with build.mjs's ROBOT_GLB_B64 (RobotExpressive by Tomás Laulhé / Quaternius, CC0, from the three.js r169 examples).
+// and with build.mjs's ROBOT_GLB_URL (RobotExpressive by Tomás Laulhé / Quaternius, CC0, from the three.js r169 examples) and SIMREADY_URL (the props, see models/simready/CREDITS.md).
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
+import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
 // ───────────── the Research Campus ─────────────
+// the campus draws at once; canvas textures are redrawn when the web fonts arrive (no waiting on them)
 const fontsReady = Promise.race([
   Promise.all(['500 40px "Newsreader"', '600 20px "JetBrains Mono"', '600 20px "Schibsted Grotesk"'].map((f) => document.fonts.load(f))),
-  new Promise((r) => setTimeout(r, 2500)),
+  new Promise((r) => setTimeout(r, 6000)),
 ]).catch(() => {});
-fontsReady.then(start3D).catch((err) => { console.warn('3D campus unavailable:', err); root.classList.add('no-gl'); fallbackScroll(); });
+start3D().catch((err) => { console.warn('3D campus unavailable:', err); root.classList.add('no-gl'); fallbackScroll(); });
 
 function fallbackScroll() { // no WebGL: still drive the strip, the chip and the reveal from scroll
   const tick = () => { const mid = innerHeight * 0.5; let ch = 0; secs.forEach((s, i) => { if (s.getBoundingClientRect().top < mid) ch = i; });
@@ -53,8 +55,9 @@ async function start3D() {
   };
   // a box resting on y (w × h × d), on a shared unit geometry
   const box = (w, h, d, mat, x, y, z, parent = scene, ry = 0, shadow = true) => { const o = mesh(UNIT, mat, parent, [x, y + h / 2, z], [0, ry, 0], shadow); o.scale.set(w, h, d); return o; };
+  const TEXS = [];   // every canvas texture with its painter, repainted once the fonts have loaded
   function tex(w, h, draw) { const c = document.createElement('canvas'); c.width = w; c.height = h; const g = c.getContext('2d'); draw(g, w, h);
-    const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 8; t.userData = { c, g }; return t; }
+    const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 8; t.userData = { c, g }; TEXS.push([t, draw]); return t; }
   const FD = '"Newsreader", Georgia, serif', FM = '"JetBrains Mono", Menlo, monospace', FB = '"Schibsted Grotesk", system-ui, sans-serif';
   const texMat = (t, o = {}) => new THREE.MeshStandardMaterial({ map: t, roughness: 0.9, transparent: !!o.transparent, side: o.side ?? THREE.FrontSide, depthWrite: o.depthWrite ?? true });
   const plane = (w, h, t, parent, pos, rot, opts = {}) => mesh(new THREE.PlaneGeometry(w, h), texMat(t, opts), parent, pos, rot, !!opts.shadow);
@@ -70,7 +73,7 @@ async function start3D() {
   const BX0 = -14, BX1 = 46, BZ0 = -7, BZ1 = 37;
   box(BX1 - BX0, 0.6, BZ1 - BZ0, [M.side, M.side, M.base, M.side, M.side, M.side], (BX0 + BX1) / 2, -0.6, (BZ0 + BZ1) / 2, scene, 0, false);
   { // a faint survey grid and the campus name, painted on the base
-    const W = 4096, H = Math.round(4096 * (BZ1 - BZ0) / (BX1 - BX0)), u = W / (BX1 - BX0);
+    const W = SMALL ? 2048 : 4096, H = Math.round(W * (BZ1 - BZ0) / (BX1 - BX0)), u = W / (BX1 - BX0);
     const X = (x) => (x - BX0) * u, Z = (z) => (z - BZ0) * u;
     const t = tex(W, H, (g) => {
       g.fillStyle = '#e9ebf3'; g.fillRect(0, 0, W, H);
@@ -130,10 +133,10 @@ async function start3D() {
       || WALKS.some(([x0, z0, x1, z1]) => x > x0 - 0.7 && x < x1 + 0.7 && z > z0 - 0.7 && z < z1 + 0.7)
       || Math.hypot(x + 6, z - 14) < 4.6 || (x > 18 && x < 25.5 && z > 28.5 && z < 35);
     const spots = pts.filter(([x, z]) => !blocked(x, z) && x > BX0 + 0.8 && x < BX1 - 0.8 && z > BZ0 + 0.8 && z < BZ1 - 0.8);
-    const trunkGeo = new THREE.CylinderGeometry(0.11, 0.16, 1, 6).translate(0, 0.5, 0);
-    const crownGeo = new THREE.IcosahedronGeometry(1, 0);
+    const trunkGeo = new THREE.CylinderGeometry(0.11, 0.16, 1, 12).translate(0, 0.5, 0);
+    const crownGeo = new THREE.IcosahedronGeometry(1, 3);   // smooth, rounded crowns: a model-maker's trees rather than low-poly facets
     const trunks = new THREE.InstancedMesh(trunkGeo, std(C.trunk, { rough: 0.9 }), spots.length);
-    const crowns = new THREE.InstancedMesh(crownGeo, new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.85, flatShading: true }), spots.length * 2);
+    const crowns = new THREE.InstancedMesh(crownGeo, new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.75 }), spots.length * 2);
     trunks.castShadow = crowns.castShadow = true; trunks.receiveShadow = crowns.receiveShadow = true;
     const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), e = new THREE.Euler(), leaves = [C.leaf1, C.leaf2, C.leaf3].map((c) => new THREE.Color(c));
     spots.forEach(([x, z], i) => {
@@ -146,25 +149,51 @@ async function start3D() {
     scene.add(trunks, crowns);
   }
 
+  // ── SimReady props (NVIDIA SimReady and partners, CC BY 4.0; metres, Y up, origin at the bottom centre).
+  //    Every prop is first built from simple boxes so the campus shows at once; the real model streams in after the first frame and replaces them.
+  const srLoader = new GLTFLoader().setMeshoptDecoder(MeshoptDecoder), srCache = {}, srQueue = [];
+  let srGo = false;
+  const simready = (id) => srCache[id] || (srCache[id] = srLoader.loadAsync(SIMREADY_URL + id + '.glb').then((gltf) => {
+    gltf.scene.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
+    return gltf.scene;
+  }));
+  // dress(group, id, [[x, y, z, ry, sx, sy?, sz?], …]): add the model at each placement (in the group's space), then hide the group's stand-in parts
+  function dress(g, id, at) {
+    const standIn = g.children.slice();
+    const run = () => simready(id).then((src) => {
+      for (const [x, y, z, ry = 0, sx = 1, sy = sx, sz = sx] of at) { const o = src.clone(); o.position.set(x, y, z); o.rotation.y = ry; o.scale.set(sx, sy, sz); g.add(o); }
+      standIn.forEach((o) => { o.visible = false; });
+    }).catch((err) => console.warn(`SimReady ${id} unavailable, keeping the simple model:`, err));
+    if (srGo) run(); else srQueue.push(run);
+    return g;
+  }
+  const group = (x, y, z, ry = 0, parent = scene) => { const g = new THREE.Group(); g.position.set(x, y, z); g.rotation.y = ry; parent.add(g); return g; };
+
   // ── furniture
   function desk(x, z, w = 2.2, d = 1.0, ry = 0, parent = scene) {
-    const g = new THREE.Group(); g.position.set(x, 0, z); g.rotation.y = ry; parent.add(g);
+    const g = group(x, 0, z, ry, parent);
     box(w, 0.07, d, M.desk, 0, DESK_H, 0, g); box(0.07, DESK_H, d * 0.86, M.leg, -w / 2 + 0.12, 0, 0, g); box(0.07, DESK_H, d * 0.86, M.leg, w / 2 - 0.12, 0, 0, g);
-    return g;
+    // sit-stand desk (0.80 × 0.76 × 1.80 m, long side along z): turned a quarter and fitted so its top sits at DESK_TOP
+    return dress(g, 'desk_a01', [[0, 0, 0, Math.PI / 2, d / 0.802, DESK_TOP / 0.759, w / 1.802]]);
   }
   function chair(x, z, ry, color = 0x9aa3ba, parent = scene) {
-    const g = new THREE.Group(); g.position.set(x, 0, z); g.rotation.y = ry; parent.add(g);
+    const g = group(x, 0, z, ry, parent);
     const m = std(color, { rough: 0.7 });
     box(0.46, 0.06, 0.46, m, 0, 0.4, 0, g); box(0.46, 0.46, 0.06, m, 0, 0.46, -0.2, g); box(0.05, 0.4, 0.05, M.leg, 0, 0, 0, g);
-    return g;
+    return dress(g, 'chair_office_fabric_manager_a01', [[0, 0, 0, 0, 0.84]]);
   }
+  let plants = 0;
   function plant(x, z, s = 1) {
-    const g = new THREE.Group(); g.position.set(x, 0, z); g.scale.setScalar(s); scene.add(g);
+    const g = group(x, 0, z); g.scale.setScalar(s);
     mesh(new THREE.CylinderGeometry(0.2, 0.15, 0.36, 10), M.pot, g, [0, 0.18, 0]);
     const lm = new THREE.MeshStandardMaterial({ color: C.leaf2, roughness: 0.85, flatShading: true });
     mesh(new THREE.IcosahedronGeometry(0.32, 0), lm, g, [0, 0.62, 0]); mesh(new THREE.IcosahedronGeometry(0.22, 0), lm, g, [0.12, 0.88, 0.04]);
-    return g;
+    const tall = plants++ % 2;
+    return dress(g, tall ? 'floor_plant_2' : 'floor_plant', [[0, 0, 0, plants * 1.3, tall ? 1.0 : 1.15]]);
   }
+  // a keyboard and a mug in front of a screen (in a desk's space)
+  const desktopKit = (d, x, z, ry = 0) => dress(group(x, DESK_TOP, z, ry, d), 'computer_keyboard_a01', [[0, 0, 0, 0, 0.85]]);
+  const mug = (parent, x, z) => dress(group(x, DESK_TOP, z, 0, parent), 'dishware_mug_a01', [[0, 0, 0, 0.6, 0.9]]);
   // a monitor whose stand rests at pos (pos.y = the desk top)
   function screen(parent, t, w, h, pos, ry = 0) {
     const g = new THREE.Group(); g.position.set(...pos); g.rotation.y = ry; parent.add(g);
@@ -199,28 +228,38 @@ async function start3D() {
     const shelfTex = tex(512, 256, (g, w, h) => { g.fillStyle = '#ffffff'; g.fillRect(0, 0, w, h); const cols = ['#3a5be0', '#7655d6', '#c18a0b', '#0f9b8e', '#d6336c', '#334155', '#9aa2b8'];
       for (let row = 0; row < 3; row++) for (let x = 10, i = 0; x < w - 20; i++) { const bw = 14 + ((i * 37 + row * 11) % 18); g.fillStyle = cols[(i + row * 3) % cols.length]; g.fillRect(x, 12 + row * 82, bw, 66 - ((i * 13) % 20)); x += bw + 4; } });
     const sm = texMat(shelfTex);
-    for (const x of [5.6, 8.0, 10.4]) box(2.2, 2.0, 0.5, [M.wall, M.wall, M.cap, M.wall, sm, M.wall], x, 0, 4.45);
+    for (const x of [5.6, 8.0, 10.4]) { // two bookshelves (0.80 × 1.23 × 0.32 m, scaled to the robots) per bay
+      const g = group(x, 0, 4.45); box(2.2, 2.0, 0.5, [M.wall, M.wall, M.cap, M.wall, sm, M.wall], 0, 0, 0, g);
+      dress(g, 'bookshelf_with_books', [[-0.55, 0, -0.03, 0, 1.36], [0.55, 0, -0.03, 0, 1.36]]);
+    }
     rug(8, 8.0, 3.8, 2.8, 0xc9d3fb);
     const d = desk(8, 8.2, 2.6, 1.2); paperLit(plane(0.9, 1.16, pageTex, d, [-0.25, DESK_TOP + 0.005, 0.0], [-Math.PI / 2, 0, 0.18]));
     paperLit(plane(0.62, 0.8, pageTex, d, [0.75, DESK_TOP + 0.006, 0.05], [-Math.PI / 2, 0, -0.25]));
+    mug(d, 1.1, -0.35);
     chair(6.3, 9.45, Math.PI - 0.4, 0x8fa0e8);
-    box(0.06, 0.5, 0.06, M.dark, 9.0, DESK_TOP, 7.8); mesh(new THREE.ConeGeometry(0.2, 0.22, 16, 1, true), std(0xf2c14e, { extra: { side: THREE.DoubleSide } }), scene, [9.0, DESK_TOP + 0.58, 7.8]);
+    const lamp = group(9.0, DESK_TOP, 7.8);   // the lamp's head reaches west, over the desk
+    box(0.06, 0.5, 0.06, M.dark, 0, 0, 0, lamp); mesh(new THREE.ConeGeometry(0.2, 0.22, 16, 1, true), std(0xf2c14e, { extra: { side: THREE.DoubleSide } }), lamp, [0, 0.58, 0]);
+    dress(lamp, 'desk_lamp', [[0, 0, 0, 0, 1.15]]);
     plant(4.8, 10.2, 1.1); plant(11.2, 5.4, 0.9);
   }
   // Repo Room: two server racks, a desk whose screen shows the file tree
   {
     const rack = tex(256, 512, (g, w, h) => { g.fillStyle = '#262b3d'; g.fillRect(0, 0, w, h); for (let i = 0; i < 10; i++) { g.fillStyle = '#353b52'; g.fillRect(16, 20 + i * 48, w - 32, 36); g.fillStyle = i % 3 ? '#4cc38a' : '#8fa2ff'; g.fillRect(28, 34 + i * 48, 10, 8); g.fillRect(46, 34 + i * 48, 10, 8); } });
     const rm = texMat(rack);
-    for (const x of [10.0, 11.15]) box(1.0, 2.2, 0.85, [M.dark, M.dark, M.dark, M.dark, rm, M.dark], x, 0, 18.0);
+    for (const x of [10.0, 11.15]) { // Vertiv ORV3 server racks (1.08 × 2.29 × 0.60 m)
+      const g = group(x, 0, 18.0); box(1.0, 2.2, 0.85, [M.dark, M.dark, M.dark, M.dark, rm, M.dark], 0, 0, 0, g);
+      dress(g, '16OCP_ORV3_racks_Computer_racks', [[0, 0, 0, 0, 0.93, 0.96, 0.93]]);
+    }
     rug(7.6, 21.2, 3.8, 2.6, 0xd6c8f6);
     const d = desk(7.3, 21.7, 2.6, 1.0, -0.45);
     screen(d, termTex(['code/', '  reproduce_experiments_ucr.py', '  rocket_functions.py', 'README.md', '! versions not pinned'], 'angus924/rocket @ 36bd908'), 1.2, 0.74, [-0.25, DESK_TOP, 0.05], 0);
+    desktopKit(d, -0.25, 0.33); mug(d, 0.85, 0.15);
     plant(4.8, 23.2, 1.0);
   }
   // Planning Room: long table, the plan on a board
   {
     rug(21, 7.4, 4.2, 2.6, 0xf6d9a3);
-    desk(21, 7.4, 3.2, 1.3);
+    const pd = desk(21, 7.4, 3.2, 1.3); mug(pd, 1.25, 0.3);
     for (const [x, z, ry] of [[19.9, 8.45, Math.PI], [22.1, 8.45, Math.PI], [19.9, 6.35, 0], [22.1, 6.35, 0]]) chair(x, z, ry, 0xe0b45a);
     const board = tex(1024, 640, (g, w, h) => { g.fillStyle = '#ffffff'; g.fillRect(0, 0, w, h); g.strokeStyle = '#d6dbe7'; g.lineWidth = 6; g.strokeRect(6, 6, w - 12, h - 12);
       g.fillStyle = '#c18a0b'; g.font = `600 34px ${FM}`; g.fillText('EXPERIMENT PLAN', 40, 70);
@@ -245,7 +284,7 @@ async function start3D() {
       box(2.4, 0.03, 2.5, std(0xb5e2d8), 0, 0.07, 0, g, 0, false);
       const d = desk(-0.25, 0.6, 1.6, 0.66, 0, g);
       const t = termTex(['$ python rocket_ecg200_runner.py', '  --runs 10 --kernels 10000'], `lab ${i + 1} · network: none`);
-      screen(d, t, 0.9, 0.56, [-0.2, DESK_TOP, -0.02], 0.22);
+      screen(d, t, 0.9, 0.56, [-0.2, DESK_TOP, -0.02], 0.22); desktopKit(d, -0.12, 0.2, 0.22);
       pods.push(g); podScreens.push(t);
     }
     const cable = new THREE.CatmullRomCurve3([V(16.75, 1.5, 19.2), V(16.1, 1.35, 19.4), V(15.6, 0.55, 19.9), V(15.3, 0.08, 20.6), V(14.95, 0.08, 21.25)]);
@@ -255,6 +294,13 @@ async function start3D() {
       g.fillStyle = '#d9480f'; g.font = `700 44px ${FM}`; g.textAlign = 'center'; g.fillText('--network none', w / 2, 98); });
     const sg = new THREE.Group(); sg.position.set(16.4, 0, 18.3); sg.rotation.y = -0.6; scene.add(sg);
     box(0.05, 0.9, 0.05, M.dark, 0, 0, 0, sg); plane(1.2, 0.38, sign, sg, [0, 1.05, 0.03], [0, 0, 0]);
+  }
+  // the lab's robot cell (north-west corner): a Franka FR3 arm on an optical table, idling through a slow sweep
+  const armG = group(18.35, 0, 18.35, 0.5);
+  {
+    box(0.68, 0.6, 0.57, M.leg, 0, 0, 0, armG);
+    dress(armG, 'labware_table_thorlabs_a01', [[0, 0, 0, 0, 0.75]]);
+    armG.userData.arm = dress(group(0.05, 0.6, 0, 0, armG), 'fr3v2_1', [[0.12, 0, 0, Math.PI, 0.8]]);
   }
   // Verification Desk: a balance with the observation and, later, the sealed envelope
   const scale = new THREE.Group(); scale.position.set(33.5, DESK_TOP, 12.6); scene.add(scale);
@@ -274,7 +320,9 @@ async function start3D() {
       pans.push({ hang, pan });
     }
     plant(36.3, 9.9, 0.9); plant(30.7, 16.1, 0.85);
-    box(0.06, 0.5, 0.06, M.dark, 34.75, DESK_TOP, 12.1); mesh(new THREE.ConeGeometry(0.2, 0.22, 16, 1, true), std(0xf2c14e, { extra: { side: THREE.DoubleSide } }), scene, [34.75, DESK_TOP + 0.58, 12.1]);
+    const lamp = group(34.75, DESK_TOP, 12.1, Math.PI);   // its head reaches east, clear of the scale's right-hand pan
+    box(0.06, 0.5, 0.06, M.dark, 0, 0, 0, lamp); mesh(new THREE.ConeGeometry(0.2, 0.22, 16, 1, true), std(0xf2c14e, { extra: { side: THREE.DoubleSide } }), lamp, [0, 0.58, 0]);
+    dress(lamp, 'desk_lamp', [[0, 0, 0, 0, 1.15]]);
   }
   const numTex = (txt, color) => tex(512, 200, (g, w, h) => { g.clearRect(0, 0, w, h); g.fillStyle = color; g.font = `500 150px ${FD}`; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(txt, w / 2, h / 2 + 8); });
   const obsBox = box(0.52, 0.38, 0.52, M.indigo, 0, -0.52, 0, pans[0].hang);
@@ -287,7 +335,7 @@ async function start3D() {
       box(1.4, 1.95, 0.6, M.wall, 0, 0, 0, s); box(1.45, 0.05, 0.65, M.cap, 0, 1.95, 0, s, 0, false);
       for (let k = 0; k < 4; k++) for (let j = 0; j < 3; j++) box(0.36, 0.3, 0.42, std([0xd9e0ff, 0xe6dcfb, 0xfbe7c6, 0xcdeee6][(i + k + j) % 4]), -0.42 + j * 0.42, 0.12 + k * 0.45, 0.12, s);
     }
-    desk(33, 25.2, 2.4, 1.0);
+    const sd = desk(33, 25.2, 2.4, 1.0); mug(sd, -0.95, 0.3);
     for (let i = 0; i < 8; i++) reports.push(box(0.8, 0.05, 1.0, M.white, 32.45 + (i % 2) * 0.05, DESK_TOP + i * 0.055, 25.2, scene, (i % 3 - 1) * 0.05));
     plant(35.3, 26.2, 0.85);
   }
@@ -368,7 +416,14 @@ async function start3D() {
       g.fillStyle = '#586078'; g.font = `500 36px ${FM}`; g.fillText('approved sites only · short-lived', 40, 190); g.fillText('hash-verified inputs only', 40, 250); });
     const pm = std(0xd7dcea);
     box(3.4, 2.0, 2.2, [pm, pm, M.cap, pm, texMat(lab), pm], PREP.x, 0, PREP.z + 1.4);
-    box(2.8, 0.12, 1.4, M.slate, PREP.x + 3.1, 0, PREP.z + 1.2); // a loading pallet, on the side the cameras see
+    { // the loading pallets, on the side the cameras see (two EUR pallets, 1.20 × 0.21 × 0.80 m, flattened to the crates' 0.12)
+      const g = group(PREP.x + 3.1, 0, PREP.z + 1.2); box(2.8, 0.12, 1.4, M.slate, 0, 0, 0, g);
+      dress(g, 'pallet_a01', [[-0.7, 0, 0, Math.PI / 2, 1.16, 0.574, 1.75], [0.7, 0, 0, Math.PI / 2, 1.16, 0.574, 1.75]]);
+    }
+    // stock waiting by the container: cardboard boxes, a blue crate and a tote (props only)
+    { const g = group(PREP.x - 2.9, 0, PREP.z + 1.6, 0.3);
+      dress(g, 'box_cardboard_a01', [[0, 0, 0, 0, 0.7], [0.02, 0.357, 0.03, 0.4, 0.62], [0.62, 0, -0.25, -0.2, 0.7]]);
+      dress(g, 'crate_blue_a01', [[0.1, 0, 0.75, 0.1, 0.85]]); dress(g, 'small_load_carrier', [[0.12, 0.215, 0.75, 0.15, 0.85]]); }
     const names = ['numpy', 'scipy', 'sklearn', 'joblib', 'threadpool', 'numba', 'llvmlite', 'ECG200'];
     names.forEach((n, i) => {
       const data = n === 'ECG200';
@@ -554,12 +609,10 @@ async function start3D() {
   const CLIPS = ['Idle', 'Walking', 'Wave', 'Yes', 'No', 'ThumbsUp'];
   const PEAK = { Wave: 0.62, Yes: 0.5, No: 0.6, ThumbsUp: 0.5 };   // the frame held for a gesture with reduced motion
   function loadRobots() {
-    if (typeof ROBOT_GLB_B64 === 'undefined') return;
-    let buf;
-    try { const s = atob(ROBOT_GLB_B64), u = new Uint8Array(s.length); for (let i = 0; i < s.length; i++) u[i] = s.charCodeAt(i); buf = u.buffer; } catch (err) { console.warn('robot model unreadable, keeping simple figures:', err); return; }
-    new GLTFLoader().parse(buf, '', (gltf) => {
+    if (typeof ROBOT_GLB_URL === 'undefined') return;
+    new GLTFLoader().loadAsync(ROBOT_GLB_URL).then((gltf) => {
       try { makeRobots(gltf); } catch (err) { console.warn('robots unavailable, keeping simple figures:', err); }
-    }, (err) => console.warn('robot model failed to parse, keeping simple figures:', err));
+    }, (err) => console.warn('robot model failed to load, keeping simple figures:', err));
   }
   function makeRobots(gltf) {
     const clips = {}; gltf.animations.forEach((cl) => { clips[cl.name] = cl; });
@@ -780,6 +833,7 @@ async function start3D() {
     for (let i = 0; i < crates.length; i++) { const m = crates[i], k = sstep(i * 0.05, 0.65 + i * 0.05, kCr); arc(m.userData.home, m.userData.dest, k, 2.4, m.position); m.visible = c < 9.8; }
     // lab logs print during execution; pods are destroyed at cleanup, after their engineers step out
     drawLogs(c, t);
+    armG.userData.arm.rotation.y = still ? 0 : Math.sin(t * 0.45) * 0.8;   // the robot cell keeps working in the background
     const kDie = sstep(9.8, 10.3, c);
     for (let i = 0; i < pods.length; i++) { const p = pods[i], s = Math.max(0.001, 1 - sstep(i * 0.15, 0.7 + i * 0.15, kDie)); p.scale.set(s, s, s); p.visible = s > 0.002; }
     // the report stack grows in the Run Store once the Reviewer has filed it
@@ -886,6 +940,12 @@ async function start3D() {
   let last = performance.now(), T = 0;
   const drift = V(0, 0, 0);
   loadRobots();
+  fontsReady.then(() => { // repaint every canvas texture in the real fonts; the envelope hash and the lab logs redraw themselves
+    for (const [t, draw] of TEXS) { const { c, g } = t.userData; g.clearRect(0, 0, c.width, c.height); draw(g, c.width, c.height); t.needsUpdate = true; }
+    envHashDrawn = false; logKey = -1;
+  });
+  let srTimer = 0;
+  const startProps = () => { if (srGo) return; srGo = true; srQueue.splice(0).forEach((run) => run()); };
   if (/[?&]debug\b/.test(location.search)) window.__campus = { renderer, scene, agents: AGENTS };   // for QA: draw calls, robot state
   function frame(now) {
     const dt = Math.min(0.05, (now - last) / 1000); last = now; T += dt;
@@ -907,6 +967,7 @@ async function start3D() {
       showTip(hit ? hit.object.userData.agent : null); ptr.moved = false;
     } else if (!ptr.over && hovered) showTip(null);
     renderer.render(scene, camera);
+    if (!srGo && !srTimer) srTimer = setTimeout(startProps, 250);   // stream the SimReady props once the campus is on screen
     updateLabels();
     adapt(dt);
     requestAnimationFrame(frame);

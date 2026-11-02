@@ -35,8 +35,10 @@ Every number on the page comes from the root README,
 | `index.src.html` | Markup and CSS. The head material comes first, then the page from the skip link on. |
 | `js/10_page.js` | Page logic: the live seal, policy gate, Supervisor ladder, study strip and no-WebGL fallback. |
 | `js/20_campus.js` | The 3D Research Campus: scene, agents, labels, camera stations and the scroll-driven story. |
-| `models/RobotExpressive.glb` | The agents' robot (CC0, see `models/RobotExpressive-README.md`), embedded into the page at build time. |
-| `build.mjs` | Concatenates `js/NN_*.js` into one module and writes `dist/index.html`. |
+| `models/RobotExpressive.glb` | The agents' robot (CC0, see `models/RobotExpressive-README.md`), copied to `dist/models/` and fetched by both pages. |
+| `models/simready/` | NVIDIA SimReady and partner models (CC BY 4.0, see `models/simready/CREDITS.md` and `manifest.json`). The full-quality `.glb` files are the library; `web/` holds the light copies the campus uses for its desks, chairs, plants, bookshelves, server racks, lamps, pallets and lab robot. |
+| `build.mjs` | Concatenates `js/NN_*.js` into one module, writes `dist/index.html` and copies the models into `dist/models/`. |
+| `preload.mjs` | The module and robot preload tags both pages share. |
 
 ## The Research Road
 
@@ -83,7 +85,12 @@ npx serve site/dist        # open http://localhost:3000
 
 The page needs no install. three.js r169 loads from jsDelivr and the fonts
 (Newsreader, Schibsted Grotesk, JetBrains Mono) from Google Fonts, so previews
-need a network connection. The explainer's "Research paper" links point at
+need a network connection.
+
+To load fast, the campus draws at once from simple shapes: it does not wait for
+the fonts (canvas text is repainted when they arrive), the three.js modules and
+the robot are preloaded together, and the SimReady props (about 2 MB) stream in
+after the first frame and replace the simple shapes as they land. The explainer's "Research paper" links point at
 `research-paper/`; `--paper=URL` points them elsewhere and `--paper=none` hides
 them.
 

@@ -106,3 +106,7 @@ Assets used:
 ## Style previews
 
 `style-previews/*.jpg` are our own renders of a sample lab corner built from the assets above, in six candidate looks (studio, isometric, clay, after-hours, golden hour, ink). They are covered by the same attributions.
+
+## Web copies
+
+`web/*.glb` are lighter copies of 15 of the models above, used by the campus page: further decimated (about 0.5k to 43k triangles each) with textures at 256 to 512 px. Same sources, same CC BY 4.0 attributions.

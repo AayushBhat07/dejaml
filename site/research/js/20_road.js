@@ -1,15 +1,16 @@
 // The Research Road: one raised walkway across the model table, a stop for each chapter, an indigo line drawn up to "now" as you scroll,
 // and a robot walking it. Past "now" the road is a dashed plan and the props are drawn as see-through models.
 // Shares one module scope with 10_page.js (uses: $, $$, RM, sstep, root, secs, STOPS, NOW_I, stopIndexOf, setHere)
-// and with build.mjs's ROBOT_GLB_B64 (RobotExpressive by Tomás Laulhé / Quaternius, CC0, from the three.js r169 examples).
+// and with build.mjs's ROBOT_GLB_URL (RobotExpressive by Tomás Laulhé / Quaternius, CC0, from the three.js r169 examples).
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
 
+// the road draws at once; canvas textures are redrawn when the web fonts arrive (no waiting on them)
 const fontsReady = Promise.race([
   Promise.all(['500 40px "Newsreader"', '600 20px "JetBrains Mono"', '600 20px "Schibsted Grotesk"'].map((f) => document.fonts.load(f))),
-  new Promise((r) => setTimeout(r, 2500)),
+  new Promise((r) => setTimeout(r, 6000)),
 ]).catch(() => {});
-fontsReady.then(start3D).catch((err) => { console.warn('3D road unavailable:', err); root.classList.add('no-gl'); fallbackScroll(); });
+start3D().catch((err) => { console.warn('3D road unavailable:', err); root.classList.add('no-gl'); fallbackScroll(); });
 
 function currentStop() { // which stop the middle of the screen is in (-1 = hero, STOPS.length = the end)
   const mid = innerHeight * 0.5; let id = 'top';
@@ -56,8 +57,9 @@ async function start3D() {
   };
   const box = (w, h, d, mat, x, y, z, parent = scene, ry = 0, shadow = true) => { const o = mesh(UNIT, mat, parent, [x, y + h / 2, z], [0, ry, 0], shadow); o.scale.set(w, h, d); return o; };
   const cyl = (r, h, mat, x, y, z, parent = scene, seg = 28) => mesh(new THREE.CylinderGeometry(r, r, h, seg), mat, parent, [x, y + h / 2, z]);
+  const TEXS = [];   // every canvas texture with its painter, repainted once the fonts have loaded
   function tex(w, h, draw) { const c = document.createElement('canvas'); c.width = w; c.height = h; const g = c.getContext('2d'); draw(g, w, h);
-    const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 8; return t; }
+    const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 8; TEXS.push([t, c, g, draw]); return t; }
   const FD = '"Newsreader", Georgia, serif', FM = '"JetBrains Mono", Menlo, monospace', FB = '"Schibsted Grotesk", system-ui, sans-serif';
   const texMat = (t, o = {}) => new THREE.MeshStandardMaterial({ map: t, roughness: 0.9, transparent: !!o.transparent, side: o.side ?? THREE.FrontSide });
   const plane = (w, h, t, parent, pos, rot = [0, 0, 0], o = {}) => mesh(new THREE.PlaneGeometry(w, h), texMat(t, o), parent, pos, rot, !!o.shadow);
@@ -413,10 +415,8 @@ async function start3D() {
   }
   const extras = [[C.p, -1.5, 0.5, 2.6], [C.l, 1.6, 0.4, -2.6], [C.v, 0.1, 1.5, 3.14]].map(([c, x, z, ry]) => ({ c, x, z, ry, mixer: null }));
   function loadRobots() {
-    if (typeof ROBOT_GLB_B64 === 'undefined') return;
-    let buf;
-    try { const s = atob(ROBOT_GLB_B64), u = new Uint8Array(s.length); for (let i = 0; i < s.length; i++) u[i] = s.charCodeAt(i); buf = u.buffer; } catch (err) { console.warn('robot model unreadable:', err); return; }
-    new GLTFLoader().parse(buf, '', (gltf) => {
+    if (typeof ROBOT_GLB_URL === 'undefined') return;
+    new GLTFLoader().loadAsync(ROBOT_GLB_URL).then((gltf) => {
       try {
         const clips = {}; gltf.animations.forEach((cl) => { clips[cl.name] = cl; });
         if (CLIPS.some((n) => !clips[n])) throw new Error('robot clips missing');
@@ -432,7 +432,7 @@ async function start3D() {
         for (const e of extras) { const r = make(e.c, 0.3); r.bot.position.set(e.x, 0, e.z); r.bot.rotation.y = e.ry; PAD.blind.props.add(r.bot);
           const a = r.acts.Idle; a.play(); a.time = (e.x + 3) % 2; e.mixer = r.mixer; e.acts = r.acts; }
       } catch (err) { console.warn('robots unavailable, keeping simple figures:', err); }
-    }, (err) => console.warn('robot model failed to parse:', err));
+    }, (err) => console.warn('robot model failed to load:', err));
   }
   function play(name, fade = 0.3, once = false) {
     if (!walker.acts || walker.cur === name) return;
@@ -527,6 +527,7 @@ async function start3D() {
   let last = performance.now(), T = 0;
   const drift = V(0, 0, 0), RPOS = V(0, 0, 0), RTAN = V(0, 0, 0);
   loadRobots();
+  fontsReady.then(() => { for (const [t, c, g, draw] of TEXS) { g.clearRect(0, 0, c.width, c.height); draw(g, c.width, c.height); t.needsUpdate = true; } });
   if (/[?&]debug\b/.test(location.search)) window.__road = { renderer, scene, walker, LEN, S_NOW };
   function frame(now) {
     const dt = Math.min(0.05, (now - last) / 1000); last = now; T += dt;

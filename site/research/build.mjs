@@ -2,8 +2,9 @@
 //   node site/research/build.mjs   → site/dist/research-paper/index.html
 // Sources: index.src.html (head material, <!--BODY-->, page) and js/NN_*.js (concatenated, in order, into one module scope).
 // progress.json holds the parts that change as the study moves: where "now" is, the smoke test, the paper's steps.
-// three.js r169 loads from jsDelivr and the fonts from Google Fonts; the robot model is embedded, so the page needs no other files.
+// three.js r169 loads from jsDelivr and the fonts from Google Fonts; the robot is fetched from the explainer's dist/models/ (../models/), preloaded with the modules.
 import { readFileSync, writeFileSync, readdirSync, mkdirSync } from "node:fs";
+import { preloads } from "../preload.mjs";
 
 const here = new URL("./", import.meta.url);
 const main = process.argv.find((x) => x.startsWith("--main="))?.slice(7) ?? "../";
@@ -15,17 +16,17 @@ const parts = readdirSync(dir)
   .filter((f) => /^\d\d_.*\.js$/.test(f))
   .sort();
 const js = parts.map((f) => `// ==== ${f} ====\n` + readFileSync(new URL(f, dir), "utf8")).join("\n");
-// the robot (RobotExpressive by Tomás Laulhé, CC0, via three.js examples), shared with the explainer
-const robot = readFileSync(new URL("../models/RobotExpressive.glb", here)).toString("base64");
+// the robot (RobotExpressive by Tomás Laulhé, CC0, via three.js examples), shared with the explainer: site/build.mjs copies it to dist/models/
+const robot = "../models/RobotExpressive.glb";
 const code =
-  `import * as THREE from 'three';\nconst ROBOT_GLB_B64 = "${robot}";\n` +
+  `import * as THREE from 'three';\nconst ROBOT_GLB_URL = "${robot}";\n` +
   `const PROGRESS = ${JSON.stringify(progress).replace(/</g, "\\u003c")};\n` +
   js;
 const base = "https://cdn.jsdelivr.net/npm/three@0.169.0/";
 const importMap = `<script type="importmap">${JSON.stringify({ imports: { three: base + "build/three.module.js", "three/addons/": base + "examples/jsm/" } })}</script>`;
 const page = readFileSync(new URL("./index.src.html", here), "utf8")
   .replace("<!--LOCALFONTS-->", "")
-  .replace("<!--IMPORTMAP-->", () => importMap)
+  .replace("<!--IMPORTMAP-->", () => importMap + "\n" + preloads(robot))   // preloads only after the import map, or the browser ignores the map
   .replace("//JS", () => code)
   .replaceAll("__MAIN_URL__", main);
 
