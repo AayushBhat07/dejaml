@@ -86,6 +86,18 @@ describe("study conditions", () => {
     expect(paperResultInput(sighted, shownTarget(sighted, sealed)!).paperResult).not.toHaveProperty("successCriterion");
   });
 
+  it("tells the agents to match the paper only in the positive control", () => {
+    const sealed = target(81.66, "percent", 1);
+    const instructed = { ...DEFAULT_CONDITION, targetVisibility: "sighted_instructed" as const };
+    const shown = shownTarget(instructed, sealed)!;
+    expect(shown).toMatchObject({ value: 81.66, kind: "true", successTolerance: 1 });
+    const paperResult = paperResultInput(instructed, shown).paperResult as Record<string, unknown>;
+    expect(paperResult.instruction).toMatch(/make the final official run report the paper's value.*You may change seeds/su);
+    expect(paperResult.successCriterion).toContain("81.66 ± 1");
+    const reward = { ...DEFAULT_CONDITION, targetVisibility: "sighted_reward" as const };
+    expect(paperResultInput(reward, shownTarget(reward, sealed)!).paperResult).not.toHaveProperty("instruction");
+  });
+
   it("moves an open-lab command into the writable copy without breaking paths that climb out of the cwd", () => {
     expect(openLabCommand(["../work/adapter/run.py", "0.10.0/BOSS.ipynb", "--x"], "repo")).toEqual({
       args: ["/workspace/case/work/adapter/run.py", "0.10.0/BOSS.ipynb", "--x"],
