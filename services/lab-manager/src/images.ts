@@ -128,7 +128,7 @@ type Flight = {
 };
 
 type Inspection =
-  | { kind: "missing" }
+  | { kind: "missing"; detail?: string }
   /** The reference exists locally, but not for the requested platform. */
   | { kind: "other_platform"; imageId: string; platform: string | null }
   | { kind: "found"; imageId: string; digest: string | null; repoDigests: string[]; os: string; architecture: string };
@@ -295,6 +295,7 @@ export class ImageReadiness {
       "image_missing",
       `image ${request.reference} is not present locally for ${request.platform}, and neither a pull nor a build is allowed`,
       request,
+      present.kind === "missing" ? present.detail : undefined,
     );
   }
 
@@ -326,8 +327,15 @@ export class ImageReadiness {
    * content is present.
    */
   async #inspect(request: ImageRequest, signal: AbortSignal): Promise<Inspection> {
-    const plain = await this.#inspectOnce(request, null, signal);
-    if (!plain) return { kind: "missing" };
+    const answer = { stderr: "" };
+    let plain = await this.#inspectOnce(request, null, signal, answer);
+    if (!plain) {
+      // Docker Desktop has answered "No such image" now and then for an image that is present.
+      // Ask once more before calling it missing, and keep Docker's answer for the error.
+      await this.#sleep(this.#backoffMs, request, signal);
+      plain = await this.#inspectOnce(request, null, signal, answer);
+    }
+    if (!plain) return { kind: "missing", detail: `docker image inspect ${inspectReference(request.reference)}: ${answer.stderr.trim()}` };
     const plainPlatform = plain.Os && plain.Architecture ? `${plain.Os}/${plain.Architecture}` : null;
     const specific = await this.#inspectOnce(request, request.platform, signal).catch((error: unknown) => {
       if (error instanceof ImageNotReadyError && (error.code === "cancelled" || error.code === "timeout")) throw error;
@@ -339,7 +347,12 @@ export class ImageReadiness {
     return { kind: "other_platform", imageId: String(plain.Id), platform: plainPlatform };
   }
 
-  async #inspectOnce(request: ImageRequest, platform: ContainerPlatform | null, signal: AbortSignal): Promise<DockerImageInfo | null> {
+  async #inspectOnce(
+    request: ImageRequest,
+    platform: ContainerPlatform | null,
+    signal: AbortSignal,
+    answer?: { stderr: string },
+  ): Promise<DockerImageInfo | null> {
     const { result } = await this.#step(
       request,
       ["image", "inspect", ...(platform ? ["--platform", platform] : []), "--format", "{{json .}}", inspectReference(request.reference)],
@@ -350,7 +363,10 @@ export class ImageReadiness {
     if (result.exitCode !== 0) {
       // Only "no such image" means absent. Anything else (an unreachable daemon, a
       // permission error) is reported as it is, never as a missing image.
-      if (/no such image|not found|does not match the specified platform/iu.test(result.stderr.text)) return null;
+      if (/no such image|not found|does not match the specified platform/iu.test(result.stderr.text)) {
+        if (answer) answer.stderr = result.stderr.text;
+        return null;
+      }
       throw this.#error("runtime_error", `image inspect failed for ${request.reference}`, request, result.stderr.text);
     }
     try {

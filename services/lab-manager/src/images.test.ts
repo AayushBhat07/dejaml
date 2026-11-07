@@ -170,6 +170,24 @@ describe("ImageReadiness", () => {
     expect(docker.calls.filter((call) => call[0] === "image").map((call) => call.at(-1))).toEqual([`python@${DIGEST}`, `python@${DIGEST}`]);
   });
 
+  it("asks Docker once more before calling an image missing, and keeps Docker's answer", async () => {
+    let misses = 1;
+    const real = docker.docker.bind(docker);
+    docker.docker = async (args, options) => {
+      if (args[0] === "image" && misses > 0) {
+        misses -= 1;
+        return result(1, "", "Error response from daemon: No such image: flaky");
+      }
+      return real(args, options);
+    };
+    docker.images.set(PINNED, { id: DIGEST, platforms: new Set(["linux/amd64"]), defaultPlatform: "linux/amd64" });
+    await expect(readiness.ensure(request())).resolves.toMatchObject({ source: "present" });
+    await expect(readiness.ensure(request({ key: "other", reference: `busybox@${OTHER}` }))).rejects.toMatchObject({
+      code: "image_missing",
+      detail: expect.stringContaining(`No such image: busybox@${OTHER}`),
+    });
+  });
+
   it("inspects a pinned reference by name and digest, keeping registry ports and local tags", () => {
     expect(inspectReference(`python:3.12-slim-trixie@${DIGEST}`)).toBe(`python@${DIGEST}`);
     expect(inspectReference(`localhost:5000/lib/python:3.12@${DIGEST}`)).toBe(`localhost:5000/lib/python@${DIGEST}`);
@@ -199,7 +217,7 @@ describe("ImageReadiness", () => {
     expect(docker.pulledPlatforms).toEqual(["linux/arm64"]);
     expect(docker.calls.find((call) => call[0] === "pull")).toEqual(["pull", "--quiet", "--platform", "linux/arm64", PINNED]);
     expect(image.digest).toBe(PLATFORM_DIGEST["linux/arm64"]);
-    expect(docker.calls.map((call) => call[0])).toEqual(["image", "pull", "image", "image"]);
+    expect(docker.calls.map((call) => call[0])).toEqual(["image", "image", "pull", "image", "image"]);
     expect(docker.calls.at(-1)).toContain("--platform");
   });
 
