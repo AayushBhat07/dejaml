@@ -1,6 +1,6 @@
 # Sub-phase 6.8 — Open-weight models in the study
 
-**Status:** `IN PROGRESS` (built and verified with deterministic tests and a replay of the recorded runs; no real open-model run yet)
+**Status:** `IN PROGRESS` (first complete open-weight run on 2026-11-08: Devstral Small 2 on llama.cpp; record and replay still to do)
 **Completed:** `—`
 **Commit:** `fill after the first open-model run`
 **Owner:** `aayush`
@@ -143,17 +143,41 @@ same arm. Runs 1 and 2 ended before a verdict, for two reasons, both fixed:
   image readiness inspected the tagged form. It now inspects by name and
   digest, as the preparation service already did.
 
+## Devstral Small 2 (2026-11-07 and 08)
+
+Devstral Small 2 24B (Q4_K_M), on the owner's Mac, temperature 0, seed 0, $0.
+
+- On Ollama, 4 runs, all stopped at the Paper Analyst. A raw replay showed
+  Devstral wrote a correct `finish` (page 4, Table 2, 81.66, seed not stated),
+  but Ollama's tool parser dropped it and answered HTTP 200 with no call and
+  no text. `3ad3632` now tells the model when this happens, but the server
+  loses the call every time, so that cannot fix it.
+- On llama.cpp (`llama-server --jinja`, same model, lmstudio-community GGUF),
+  tool calls came through. In run 1 the Planner spent 20 turns waiting for a
+  dataset receipt that only appears after approval. `a8c7475` tells it the
+  order and adds an image-ID fallback for Docker Desktop's intermittent "No
+  such image". Run 2 had its plan approved first try but stopped on a UCI
+  outage (dataset download timed out).
+- **Run 3 (`run_13ad882c`, 1216 s): the first complete open-weight run.**
+  All six agents finished, every `finish` was accepted first time, the plan
+  was approved without a re-plan, and the Engineer ran the official command
+  once with no edits. Engineer, final-setup replay and control all measured
+  79.88 against the paper's 81.66 (not reproduced, tolerance 1). The blind
+  Reviewer said `partially_equivalent` (adapter deviations documented). This
+  is the same value as Sonnet and Qwen.
+
 ## Known limitations
 
-- No real open-model run yet; it needs the owner's Mac (Docker, datasets) and a
-  model server.
+- Ollama drops some tool calls without an error; use llama.cpp
+  (`llama-server --jinja`) for Mistral-family models.
+- The study needs the UCI server to be up; there is no local dataset cache.
 - Record and replay of an agent session is not built yet.
 - Deterministic inference depends on the server (temperature 0 and a seed are
   not enough on most GPU stacks); the setup is undecided.
 
 ## Remaining work
 
-- One open model through the Urban Land Cover blind arm with plan revision on.
+- Replicates of the Devstral run, and the sighted, decoy and reward arms.
 - Record and replay in the runtime, then the blind/sighted/decoy/reward replays.
 
 ## Next sub-phase
