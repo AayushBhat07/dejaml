@@ -166,6 +166,12 @@ const MAX_IDLE_TURNS = 3;
 /** Consecutive unparseable tool calls the model may make before the agent fails. */
 const MAX_INVALID_TOOL_CALLS = 3;
 
+/** A turn that produced output tokens but no tool call and next to no text: a call the server dropped. */
+export function droppedToolCall(text: string | null, outputTokens: number): boolean {
+  const visible = (text ?? "").trim().length;
+  return outputTokens >= 16 && visible < outputTokens;
+}
+
 function invalidToolCallMessage(serverMessage: string): string {
   return (
     "[Your last reply could not be read as a tool call: the model server rejected it " +
@@ -486,9 +492,24 @@ export class BoundedAgentRuntime implements AgentRuntime {
         if (response.toolCalls.length === 0) {
           idleTurns += 1;
           if (idleTurns >= MAX_IDLE_TURNS) return end("failed", null, "the agent stopped calling tools without finishing");
+          // Output tokens but (almost) no text: the server most likely dropped a tool call it could not
+          // parse (Ollama does this with HTTP 200). Say so, so the model does not just repeat it.
+          const dropped = droppedToolCall(response.text, response.usage.outputTokens);
+          if (dropped) {
+            this.#runEvent(
+              record,
+              "agent_turn",
+              "warning",
+              `${ROLE_LABELS[role]}: ${response.usage.outputTokens} output tokens but no readable tool call; asked again`,
+              { droppedToolCall: true, outputTokens: response.usage.outputTokens },
+            );
+          }
           ledger.appendTurn(agentId, usage.segments, {
             role: "user",
-            content: `Continue by calling a tool. When you are done, call ${FINISH}; if the task cannot be done, call ${GIVE_UP} with the reason.`,
+            content: dropped
+              ? `[Your last reply had no readable tool call: the model server could not parse it and dropped it (${response.usage.outputTokens} output tokens, no text). ` +
+                `Call exactly one tool, with its arguments as a single valid JSON object that matches its schema. To finish, call ${FINISH}; if the task cannot be done, call ${GIVE_UP} with the reason.]`
+              : `Continue by calling a tool. When you are done, call ${FINISH}; if the task cannot be done, call ${GIVE_UP} with the reason.`,
           });
           continue;
         }

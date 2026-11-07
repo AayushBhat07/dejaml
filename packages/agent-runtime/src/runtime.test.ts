@@ -6,7 +6,7 @@ import { RunStore } from "@dejaml/run-store";
 import { afterEach, describe, expect, it } from "vitest";
 import { z } from "zod";
 
-import { BoundedAgentRuntime, type AgentTask } from "./runtime.js";
+import { BoundedAgentRuntime, droppedToolCall, type AgentTask } from "./runtime.js";
 import { ProviderError } from "./providers/types.js";
 import { ScriptedChatProvider, type ScriptedTurn } from "./testing.js";
 import { defineTool, type ToolDefinition } from "./tools.js";
@@ -196,6 +196,19 @@ describe("BoundedAgentRuntime", () => {
     expect(failed.status).toBe("failed");
     expect(failed.reason).toMatch(/invalid_tool_call/u);
     expect(providers.get("b")!.requests).toHaveLength(4);
+  });
+
+  it("tells the model when a turn used output tokens but brought back no tool call", async () => {
+    const { runtime, runId, providers } = setup({
+      a: [{ text: "" }, { calls: [{ name: "finish", input: { answer: "done" } }] }],
+    });
+    const outcome = await (await runtime.startAgent(task(runId, "a"))).done;
+    expect(outcome.status).toBe("completed");
+    const nudge = providers.get("a")!.requests.at(-1)!.messages.at(-1)!;
+    expect(nudge.role === "user" ? nudge.content : "").toMatch(/no readable tool call.*20 output tokens/su);
+    expect(droppedToolCall("Here is my plan in prose, long enough to be text.", 10)).toBe(false);
+    expect(droppedToolCall("Let me now finish.", 320)).toBe(true);
+    expect(droppedToolCall(null, 8)).toBe(false);
   });
 
   it("enforces iteration and tool-call limits", async () => {
