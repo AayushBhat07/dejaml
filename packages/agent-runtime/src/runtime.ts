@@ -163,6 +163,17 @@ const FINISH = "finish";
 const GIVE_UP = "give_up";
 const MAX_IDLE_TURNS = 3;
 
+/** Consecutive unparseable tool calls the model may make before the agent fails. */
+const MAX_INVALID_TOOL_CALLS = 3;
+
+function invalidToolCallMessage(serverMessage: string): string {
+  return (
+    "[Your last reply could not be read as a tool call: the model server rejected it " +
+    `(${serverMessage.slice(0, 300)}). Reply again with one tool call whose arguments are a single valid JSON object. ` +
+    "Put any reasoning outside the arguments.]"
+  );
+}
+
 export class BoundedAgentRuntime implements AgentRuntime {
   readonly #store: RunStore;
   readonly #options: BoundedRuntimeOptions;
@@ -344,6 +355,7 @@ export class BoundedAgentRuntime implements AgentRuntime {
     const started = Date.now();
     let usage = record.usage;
     let idleTurns = 0;
+    let invalidToolCalls = 0;
 
     const end = (status: AgentOutcomeStatus, result: unknown, reason: string | null): AgentOutcome => {
       record = ledger.updateAgent(agentId, {
@@ -400,15 +412,37 @@ export class BoundedAgentRuntime implements AgentRuntime {
         }
 
         const remainingOutput = limits.maxOutputTokens - usage.outputTokens;
-        const response = await provider.chat({
-          model: record.model,
-          system,
-          messages,
-          tools: specs,
-          maxOutputTokens: Math.max(256, Math.min(limits.maxTurnOutputTokens, remainingOutput)),
-          signal,
-          ...(this.#options.stream ? { stream: true } : {}),
-        });
+        let response: Awaited<ReturnType<typeof provider.chat>>;
+        try {
+          response = await provider.chat({
+            model: record.model,
+            system,
+            messages,
+            tools: specs,
+            maxOutputTokens: Math.max(256, Math.min(limits.maxTurnOutputTokens, remainingOutput)),
+            signal,
+            ...(this.#options.stream ? { stream: true } : {}),
+          });
+        } catch (error) {
+          // The server could not parse the model's tool call. The same request would repeat the same
+          // output under fixed sampling, so the model is told what went wrong and asked again, a few
+          // times at most. Each attempt counts as a model turn.
+          if (!(error instanceof ProviderError) || error.code !== "invalid_tool_call") throw error;
+          if (invalidToolCalls >= MAX_INVALID_TOOL_CALLS) throw error;
+          invalidToolCalls += 1;
+          usage = { ...usage, iterations: usage.iterations + 1, providerAttempts: usage.providerAttempts + 1 };
+          ledger.appendTurn(agentId, usage.segments, { role: "user", content: invalidToolCallMessage(error.message) });
+          ledger.updateAgent(agentId, { usage });
+          this.#runEvent(
+            record,
+            "agent_turn",
+            "warning",
+            `${ROLE_LABELS[role]}: the model's tool call could not be parsed (${invalidToolCalls} of ${MAX_INVALID_TOOL_CALLS}); asked again`,
+            { invalidToolCall: invalidToolCalls, error: error.message.slice(0, 500) },
+          );
+          continue;
+        }
+        invalidToolCalls = 0;
         usage = {
           ...usage,
           iterations: usage.iterations + 1,

@@ -342,7 +342,7 @@ export class ImageReadiness {
   async #inspectOnce(request: ImageRequest, platform: ContainerPlatform | null, signal: AbortSignal): Promise<DockerImageInfo | null> {
     const { result } = await this.#step(
       request,
-      ["image", "inspect", ...(platform ? ["--platform", platform] : []), "--format", "{{json .}}", request.reference],
+      ["image", "inspect", ...(platform ? ["--platform", platform] : []), "--format", "{{json .}}", inspectReference(request.reference)],
       this.#inspectTimeoutMs,
       signal,
       1024 * 1024,
@@ -553,6 +553,21 @@ function canonical(request: ImageRequest): unknown {
         }
       : null,
   };
+}
+
+/**
+ * The reference Docker can find a pinned image by. A pull of `name:tag@sha256:…`
+ * stores the image as `name@sha256:…` only, so inspecting the tagged form says
+ * "No such image" for an image that is present; the digest names it exactly.
+ * Local build tags and untagged references are returned unchanged.
+ */
+export function inspectReference(reference: string): string {
+  const at = reference.indexOf("@sha256:");
+  if (at < 0) return reference;
+  const name = reference.slice(0, at);
+  const lastSlash = name.lastIndexOf("/");
+  const colon = name.indexOf(":", lastSlash + 1);
+  return colon < 0 ? reference : `${name.slice(0, colon)}${reference.slice(at)}`;
 }
 
 function parseRequest(input: ImageRequest): ImageRequest {

@@ -8,6 +8,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   ImageNotReadyError,
   ImageReadiness,
+  inspectReference,
   loadBaseImageLock,
   pythonBaseImageRequest,
   pythonBaseImageTag,
@@ -158,6 +159,22 @@ describe("ImageReadiness", () => {
     });
     expect(docker.count("pull")).toBe(0);
     expect(readiness.status()).toEqual([expect.objectContaining({ key: "probe:busybox", platform: "linux/amd64", state: "ready", image })]);
+  });
+
+  it("finds a pinned image by its digest when the reference also names a tag", async () => {
+    // Docker stores `docker pull python:3.12-slim-trixie@sha256:…` as `python@sha256:…` only.
+    const tagged = `python:3.12-slim-trixie@${DIGEST}`;
+    docker.images.set(`python@${DIGEST}`, { id: DIGEST, platforms: new Set(["linux/arm64"]), defaultPlatform: "linux/arm64" });
+    const image = await readiness.ensure(request({ key: "prep-python-3.12", reference: tagged, platform: "linux/arm64" }));
+    expect(image).toMatchObject({ source: "present", reference: tagged, architecture: "arm64" });
+    expect(docker.calls.filter((call) => call[0] === "image").map((call) => call.at(-1))).toEqual([`python@${DIGEST}`, `python@${DIGEST}`]);
+  });
+
+  it("inspects a pinned reference by name and digest, keeping registry ports and local tags", () => {
+    expect(inspectReference(`python:3.12-slim-trixie@${DIGEST}`)).toBe(`python@${DIGEST}`);
+    expect(inspectReference(`localhost:5000/lib/python:3.12@${DIGEST}`)).toBe(`localhost:5000/lib/python@${DIGEST}`);
+    expect(inspectReference(`localhost:5000/lib/python@${DIGEST}`)).toBe(`localhost:5000/lib/python@${DIGEST}`);
+    expect(inspectReference("dejaml/python-base:3.12-abc")).toBe("dejaml/python-base:3.12-abc");
   });
 
   it("fails with image_missing when the image is absent and nothing may create it", async () => {

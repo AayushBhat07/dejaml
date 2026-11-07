@@ -126,6 +126,23 @@ After batch b, three more fixes:
 - `blinding-lib.mjs` counts official runs from the events when a failed study
   wrote no edit records.
 
+## gpt-oss-20b on Ollama (2026-11-07)
+
+Local run on the owner's Mac (Ollama, temperature 0, seed 0, 32k context),
+same arm. Runs 1 and 2 ended before a verdict, for two reasons, both fixed:
+
+- Ollama answers HTTP 500 "error parsing tool call" when gpt-oss writes
+  reasoning where the tool arguments go. The runtime retried that identical
+  request, which under fixed sampling repeats the same output, then failed
+  the agent. Now it is classified `invalid_tool_call`, not retried as is, and
+  the model is told its call could not be read and asked again (at most 3
+  times in a row, each counted as a model turn).
+- `dependency_check` reported the pinned `python:3.12-slim-trixie@sha256:…`
+  preparation image as missing although it was present. Docker stores an image
+  pulled by `name:tag@digest` as `name@digest` only, and the Lab Manager's
+  image readiness inspected the tagged form. It now inspects by name and
+  digest, as the preparation service already did.
+
 ## Known limitations
 
 - No real open-model run yet; it needs the owner's Mac (Docker, datasets) and a

@@ -89,6 +89,12 @@ export type ProviderErrorCode =
   | "network"
   | "cancelled"
   | "malformed_response"
+  /**
+   * The server could not turn the model's output into a tool call (Ollama answers HTTP 500
+   * "error parsing tool call"). The model's own output was bad, so the same request is not
+   * retried; the runtime tells the model and lets it try again.
+   */
+  | "invalid_tool_call"
   | "refusal"
   /** The response body exceeded the configured byte cap. */
   | "response_too_large"
