@@ -102,6 +102,27 @@ study in which the first plan writes the metric relative to cwd: without the
 mode it is approved with a warning; with it the plan is refused, re-planned
 once, measured, and the blinding proof passes.
 
+## First real runs (2026-11-07)
+
+Qwen3-Coder-30B-A3B through Cheaper Inference, Urban Land Cover, blind,
+unguarded lab, plan revision on, 3 runs per batch:
+
+| Batch | Commit | Cost | Outcome |
+| --- | --- | --- | --- |
+| a | `5b8d9a1` | $0.083 | 1 of 3 measured 79.88 (control and replay 79.88, no edits, not reproduced against 81.66); 2 named the adapter as the entry point and repeated it after the refusal. The JSON-string decoding fired on `metricParser` in every run. |
+| b | `2bea2e9` (entry point stays the official file) | $0.098 | 2 of 3 plans approved first try. One Engineer destroyed its own lab after the official run, which broke the open lab's replay; one Reviewer ran out of turns reading the repository; one repeated the adapter entry point. |
+
+After batch b, three more fixes:
+
+- `lab_destroy` closes the Engineer's lab tools at once, but the orchestrator
+  destroys the lab only when its own work there is done, so the final-setup
+  replay can still run (always on; the agent sees the same result).
+- In plan revision mode, the Reviewer is told to work from the receipts and
+  logs first, and every agent is reminded to finish when 4 turns remain
+  (`finishReminderTurns`).
+- `blinding-lib.mjs` counts official runs from the events when a failed study
+  wrote no edit records.
+
 ## Known limitations
 
 - No real open-model run yet; it needs the owner's Mac (Docker, datasets) and a

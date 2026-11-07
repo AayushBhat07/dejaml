@@ -188,6 +188,11 @@ export type EngineerLab = {
   adapter: { path: string; content: string } | null;
   dependencyRequest: { requirements: string[]; reason: string } | null;
   destroyed: boolean;
+  /**
+   * The Engineer called lab_destroy. Its lab tools stop, but the orchestrator destroys the lab only
+   * once its own work there is done (an open lab's final-setup replay runs in this lab).
+   */
+  closedByEngineer?: boolean;
 };
 
 export type OfficialEdits = {

@@ -39,7 +39,7 @@ function leaks(value: unknown): string[] {
   return FORMS.filter((form) => new RegExp(`(?<![0-9.])${form.replace(/\./gu, "\\.")}(?![0-9]|\\.[0-9])`, "u").test(text));
 }
 
-type Mode = "honest" | "planner_states_value" | "cancel_at_review" | "open_tuner" | "planner_wrong_output";
+type Mode = "honest" | "planner_states_value" | "cancel_at_review" | "open_tuner" | "planner_wrong_output" | "engineer_destroys_lab";
 type Recorded = { role: string; request: ChatRequest };
 
 /** Plays every role, including blind agents that try to reach the target. Never a model. */
@@ -50,6 +50,7 @@ class SentinelProvider implements ChatProvider {
   onReviewer: (() => void) | null = null;
   /** Plans the Planner has submitted; a re-plan starts a fresh Planner, so its turn count restarts. */
   plans = 0;
+  #officialReceipt: string | null = null;
   #counter = 0;
 
   constructor(private readonly mode: Mode) {}
@@ -176,6 +177,21 @@ class SentinelProvider implements ChatProvider {
         if (this.mode === "open_tuner" && turn === 3)
           return [{ name: "lab_run", input: { argv: ["sed", "-i", "s/seed=0/seed=7/", "work/repo/train.py"] } }];
         if (this.mode === "open_tuner" && turn === 4) return [{ name: "lab_run_official", input: {} }];
+        // A weaker Engineer closes its own lab right after the official run, then keeps using it.
+        if (this.mode === "engineer_destroys_lab" && turn === 3) {
+          const official = last();
+          this.#officialReceipt = typeof official.receiptId === "string" ? official.receiptId : null;
+          return [{ name: "lab_destroy", input: { reason: "done" } }];
+        }
+        if (this.mode === "engineer_destroys_lab" && turn === 4) return [{ name: "lab_run", input: { argv: ["ls"] } }];
+        if (this.mode === "engineer_destroys_lab")
+          return finish({
+            status: "measured",
+            summary: "ran it",
+            officialReceiptId: this.#officialReceipt,
+            deviations: [],
+            failureReason: null,
+          });
         const result = last();
         return finish({
           status: "measured",
@@ -654,6 +670,18 @@ describe("blinded study: the sentinel value never reaches a blind agent, the bro
     expect(result.report.condition.controlRerun).toMatchObject({ status: "measured", value: 0.7988 });
     const instructions = store.ledger.listAgents(runId).find((agent) => agent.role === "lab_engineer")!;
     expect(JSON.stringify(instructions.task)).toContain("This lab is open");
+  });
+
+  it("an Engineer that closes its own lab early cannot break the final-setup replay", async () => {
+    const { store, runId, result } = await study("engineer_destroys_lab", { target: true, condition: { labMode: "unguarded" } });
+    expect(result.report.result.status).not.toBe("failed");
+    const engineer = result.report.engineers[0]!;
+    expect(engineer.value).not.toBeNull();
+    expect(engineer.replay).toMatchObject({ status: "measured" });
+    // Its lab tools stopped when it closed the lab, exactly as before.
+    const denied = store.ledger.listReceipts({ runId }).filter((item) => item.tool === "lab_run" && item.status === "denied");
+    expect(denied).toHaveLength(1);
+    expect(store.listEvents(runId).some((event) => event.type === "lab_closed")).toBe(true);
   });
 
   it("unguarded lab: the Engineer is not told never to change the code, may edit the adapter, and still gets the control rerun", async () => {

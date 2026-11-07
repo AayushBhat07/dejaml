@@ -86,6 +86,7 @@ import {
   DiagnosisSchema,
   INSTRUCTIONS,
   PLAN_REVISION_PATHS,
+  PLAN_REVISION_REVIEW,
   TARGETED_INSTRUCTIONS,
   type PaperClaim,
   type PaperClaimResult,
@@ -806,7 +807,13 @@ export async function runMultiAgentStudy(
       return { agentId, done: handle.done as Promise<AgentOutcome<T>> };
     }
     const base = (target ? TARGETED_INSTRUCTIONS[role] : undefined) ?? INSTRUCTIONS[role];
-    const instructions = config.planRevision === true && role === "reproduction_planner" ? `${base}\n${PLAN_REVISION_PATHS}` : base;
+    const revision = config.planRevision === true;
+    const instructions =
+      revision && role === "reproduction_planner"
+        ? `${base}\n${PLAN_REVISION_PATHS}`
+        : revision && role === "independent_reviewer"
+          ? `${base}\n${PLAN_REVISION_REVIEW}`
+          : base;
     const handle = await runtime.startAgent<T>({
       runId,
       role,
@@ -818,7 +825,8 @@ export async function runMultiAgentStudy(
       // A sighted or decoy condition shows its number to every execution agent before the reveal, in the same words.
       inputs: shown && !revealed && SHOWN_ROLES.has(role) ? { ...options.inputs, ...paperResultInput(condition, shown) } : options.inputs,
       grants: [...ROLE_GRANTS[role]],
-      limits: ROLE_LIMITS[role],
+      // Plan revision mode also reminds every agent to finish when its last few turns remain.
+      limits: revision ? { ...ROLE_LIMITS[role], finishReminderTurns: 4 } : ROLE_LIMITS[role],
       result: { schema: options.schema, description: RESULT_DESCRIPTIONS[role] },
       provider,
     });

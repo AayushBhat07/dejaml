@@ -246,6 +246,10 @@ const BLIND_EXECUTION =
 export const PLAN_REVISION_PATHS =
   "Paths: `lab.layout` gives the absolute path of every lab folder, and relative arguments resolve from the command's cwd (`repo` is /workspace/case/repo, `work/repo` is /workspace/case/work/repo). Write the adapter script, every data file outside the checkout, and every output file as absolute paths under /workspace/case, exactly as `lab.layout` and `reviewedTarget.reviewedAdapter.runAs` give them: the lab reads a JSON metric from /workspace/case/<metricParser.path>, so an output written relative to cwd is not found. `entrypoint` is always the repository's official file named in `reviewedTarget` (for example a notebook), never the adapter, even when the command runs the adapter: the adapter goes only in `adapter` and in the command.";
 
+/** Plan revision mode only: a weaker Reviewer spent its turns reading the repository and never gave a verdict. */
+export const PLAN_REVISION_REVIEW =
+  "Work from the evidence first: read the board (the approved contract, the command receipts, the parsed metric) and the official run's logs and artifacts, then read only the repository files needed to check a specific point, such as the adapter or the code that computes the metric. Your turns are limited: give your verdict with finish once these checks are done, and say in concerns what you could not check.";
+
 export const INSTRUCTIONS: Record<AgentRole, string> = {
   paper_analyst: [
     "Read the uploaded paper with your tools and select exactly one numeric experimental claim that a CPU-only run of the paper's own code could check.",

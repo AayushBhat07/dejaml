@@ -154,6 +154,26 @@ describe("BoundedAgentRuntime", () => {
     expect(toolTurn.role === "tool" && toolTurn.content).toMatch(/send objects and arrays as JSON values/u);
   });
 
+  it("reminds an agent to finish when only a few turns remain, when asked to", async () => {
+    const { runtime, runId, providers } = setup({
+      a: [
+        { calls: [{ name: "board_read", input: {} }] },
+        { calls: [{ name: "board_read", input: {} }] },
+        { calls: [{ name: "board_read", input: {} }] },
+        { calls: [{ name: "finish", input: { answer: "done" } }] },
+      ],
+    });
+    const outcome = await (await runtime.startAgent(task(runId, "a", { limits: { maxIterations: 5, finishReminderTurns: 2 } }))).done;
+    expect(outcome.result).toEqual({ answer: "done" });
+    const toolTurns = providers
+      .get("a")!
+      .requests.at(-1)!
+      .messages.filter((message) => message.role === "tool")
+      .map((message) => (message.role === "tool" ? message.content : ""));
+    expect(toolTurns.map((content) => /model turns? left/u.test(content))).toEqual([false, false, true]);
+    expect(toolTurns[2]).toMatch(/2 model turns left\. Call finish now/u);
+  });
+
   it("enforces iteration and tool-call limits", async () => {
     const loop = Array.from({ length: 10 }, () => ({ calls: [{ name: "board_read", input: {} }] }));
     const { runtime, runId } = setup({ a: loop, b: loop });
