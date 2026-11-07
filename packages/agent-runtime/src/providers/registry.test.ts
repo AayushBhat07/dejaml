@@ -5,6 +5,7 @@ import { inspect } from "node:util";
 import type { EndpointTransport, Resolver } from "@dejaml/net-guard";
 import { afterEach, describe, expect, it } from "vitest";
 
+import { buildOpenAIRequestBody } from "./openai.js";
 import { ProviderConfigError, ProviderSelectionError, createChatProvider, loadProviderConfig, publicProviders } from "./registry.js";
 import { fakeFetch, fixture, jsonResponse, recordingSleep, startLocalServer } from "./test-helpers.js";
 import { ProviderError, type ChatRequest } from "./types.js";
@@ -421,5 +422,29 @@ describe("custom endpoint requests go through the guarded fetch", () => {
     expect(pinnedAnswers).toEqual(["93.184.216.34"]); // ...the first socket was pinned to the validated answer...
     expect(err.code).toBe("blocked_endpoint"); // ...and the rebound private answer was refused.
     expect(err.details.attempts).toBe(2);
+  });
+});
+
+describe("custom endpoint sampling", () => {
+  const base = { DEJAML_CUSTOM_BASE_URL: "https://llm.lab.example.test/v1", DEJAML_CUSTOM_MODELS: "local/coder" };
+
+  it("fixes temperature and seed for the custom endpoint and sends them with every request", () => {
+    const config = loadProviderConfig({ ...base, DEJAML_CUSTOM_TEMPERATURE: "0", DEJAML_CUSTOM_SEED: "1234" });
+    expect(config.providers.find((item) => item.id === "custom")?.sampling).toEqual({ temperature: 0, seed: 1234 });
+    const body = buildOpenAIRequestBody(
+      { model: "local/coder", system: "s", messages: [{ role: "user", content: "u" }], tools: [], maxOutputTokens: 10 },
+      { temperature: 0, seed: 1234 },
+    );
+    expect(body).toMatchObject({ temperature: 0, seed: 1234 });
+    expect(publicProviders(config)).toEqual([{ id: "custom", label: "Custom endpoint", models: ["local/coder"] }]);
+  });
+
+  it("leaves sampling to the server when unset and refuses malformed values", () => {
+    expect(loadProviderConfig(base).providers[0]?.sampling).toBeUndefined();
+    expect("temperature" in buildOpenAIRequestBody({ model: "m", system: "", messages: [], tools: [], maxOutputTokens: 1 })).toBe(false);
+    expect(() => loadProviderConfig({ ...base, DEJAML_CUSTOM_TEMPERATURE: "hot", DEJAML_CUSTOM_SEED: "-1" })).toThrow(
+      /DEJAML_CUSTOM_TEMPERATURE must be a number from 0 to 2[\s\S]*DEJAML_CUSTOM_SEED must be a non-negative integer/u,
+    );
+    expect(() => loadProviderConfig({ DEJAML_CUSTOM_SEED: "1" })).toThrow(/DEJAML_CUSTOM_SEED is set but DEJAML_CUSTOM_BASE_URL is not/u);
   });
 });

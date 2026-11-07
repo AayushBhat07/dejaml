@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import type { AgentRecord, AgentUsage, RunStore } from "@dejaml/run-store";
 import { z } from "zod";
 
+import { parseToolInput } from "./argument-repair.js";
 import { EvidenceBoard } from "./board.js";
 import type { ChatMessage, ChatProvider, ToolCall } from "./providers/types.js";
 import { ProviderError } from "./providers/types.js";
@@ -39,6 +40,11 @@ export type AgentLimits = {
   maxTurnOutputTokens: number;
   /** Characters of one tool result returned to the model. */
   maxToolResultChars: number;
+  /**
+   * When this many model turns or fewer remain, the last tool result of each turn says so and asks the
+   * agent to finish. 0 (the default) never reminds.
+   */
+  finishReminderTurns?: number;
 };
 
 export const DEFAULT_AGENT_LIMITS: AgentLimits = {
@@ -455,33 +461,43 @@ export class BoundedAgentRuntime implements AgentRuntime {
         idleTurns = 0;
 
         let finished: AgentOutcome | null = null;
+        const turnsLeft = limits.maxIterations - usage.iterations;
+        const reminder =
+          (limits.finishReminderTurns ?? 0) > 0 && turnsLeft <= (limits.finishReminderTurns ?? 0)
+            ? `\n[${turnsLeft} model turn${turnsLeft === 1 ? "" : "s"} left. Call ${FINISH} now with what you have; if the task cannot be done, call ${GIVE_UP}.]`
+            : "";
+        const lastCall = response.toolCalls.at(-1);
+        const turn = (call: ToolCall, content: string, isError: boolean) =>
+          this.#toolTurn(agentId, usage.segments, call, call === lastCall && !finished ? `${content}${reminder}` : content, isError);
         for (const call of response.toolCalls) {
           if (finished) {
-            this.#toolTurn(agentId, usage.segments, call, "Not run: the task already finished.", true);
+            turn(call, "Not run: the task already finished.", true);
             continue;
           }
           if (signal.aborted) {
-            this.#toolTurn(agentId, usage.segments, call, "Not run: the agent was cancelled.", true);
+            turn(call, "Not run: the agent was cancelled.", true);
             continue;
           }
           usage = { ...usage, toolCalls: usage.toolCalls + 1 };
           if (usage.toolCalls > limits.maxToolCalls) {
-            this.#toolTurn(agentId, usage.segments, call, "Not run: the tool-call limit is reached.", true);
+            turn(call, "Not run: the tool-call limit is reached.", true);
             continue;
           }
           if (call.name === FINISH || call.name === GIVE_UP) {
-            const parsed = call.name === FINISH ? schema.safeParse(call.input) : giveUpTool.input.safeParse(call.input);
+            const parsed = parseToolInput<unknown>(call.name === FINISH ? schema : giveUpTool.input, call.input);
             const receipt = this.#startReceipt(record, call);
             if (!parsed.success) {
               const detail = `Invalid ${call.name} input: ${formatIssues(parsed.error)}`;
               this.#finishReceipt(receipt, "error", detail, { error: detail });
-              this.#toolTurn(agentId, usage.segments, call, detail, true);
+              turn(call, detail, true);
               continue;
             }
-            this.#finishReceipt(receipt, "ok", call.name === FINISH ? "result submitted" : "gave up", {
+            const note = decodedNote(parsed.decoded);
+            this.#finishReceipt(receipt, "ok", `${call.name === FINISH ? "result submitted" : "gave up"}${note}`, {
               input: parsed.data as Record<string, unknown>,
+              ...(parsed.decoded.length ? { decodedJsonStrings: parsed.decoded } : {}),
             });
-            this.#toolTurn(agentId, usage.segments, call, call.name === FINISH ? "Result accepted." : "Acknowledged.", false);
+            turn(call, `${call.name === FINISH ? "Result accepted." : "Acknowledged."}${note}`, false);
             finished =
               call.name === FINISH ? end("completed", parsed.data, null) : end("failed", null, (parsed.data as { reason: string }).reason);
             continue;
@@ -491,17 +507,17 @@ export class BoundedAgentRuntime implements AgentRuntime {
           if (!tool) {
             const detail = `Tool ${call.name} is not granted to the ${ROLE_LABELS[role]}.`;
             this.#finishReceipt(receipt, "denied", detail, { error: detail });
-            this.#toolTurn(agentId, usage.segments, call, detail, true);
+            turn(call, detail, true);
             continue;
           }
-          const parsed = tool.input.safeParse(call.input);
+          const parsed = parseToolInput<unknown>(tool.input, call.input);
           if (!parsed.success) {
             const detail =
               call.input === null
                 ? `The arguments for ${call.name} were not valid JSON.`
                 : `Invalid input for ${call.name}: ${formatIssues(parsed.error)}`;
             this.#finishReceipt(receipt, "error", detail, { error: detail });
-            this.#toolTurn(agentId, usage.segments, call, detail, true);
+            turn(call, detail, true);
             continue;
           }
           this.#emit({ agentId, type: "tool_call", receiptId: receipt.id, tool: call.name, input: call.input });
@@ -519,7 +535,7 @@ export class BoundedAgentRuntime implements AgentRuntime {
           } catch (error) {
             if (signal.aborted) {
               this.#finishReceipt(receipt, "error", "cancelled", { error: "cancelled" });
-              this.#toolTurn(agentId, usage.segments, call, "Cancelled.", true);
+              turn(call, "Cancelled.", true);
               continue;
             }
             const denied = error instanceof ToolDenied;
@@ -532,13 +548,18 @@ export class BoundedAgentRuntime implements AgentRuntime {
             };
           }
           const status = result.status ?? (result.isError ? "error" : "ok");
-          this.#finishReceipt(receipt, status, result.summary, result.output ?? {});
+          const note = decodedNote(parsed.decoded);
+          this.#finishReceipt(receipt, status, `${result.summary}${note}`.slice(0, 2_000), {
+            ...(result.output ?? {}),
+            ...(parsed.decoded.length ? { decodedJsonStrings: parsed.decoded } : {}),
+          });
           this.#emit({ agentId, type: "tool_result", receiptId: receipt.id, tool: call.name, status, summary: result.summary });
-          const content =
+          const body =
             result.content.length > limits.maxToolResultChars
               ? `${result.content.slice(0, limits.maxToolResultChars)}\n[truncated ${result.content.length - limits.maxToolResultChars} characters]`
               : result.content;
-          this.#toolTurn(agentId, usage.segments, call, content, Boolean(result.isError));
+          const content = note ? `${body}\n[note${note}]` : body;
+          turn(call, content, Boolean(result.isError));
         }
         ledger.updateAgent(agentId, { usage });
         if (finished) return finished;
@@ -694,6 +715,11 @@ function systemPrompt(role: AgentRole, instructions: string): string {
     "Never invent values, files, commands, or results. If the evidence does not support a conclusion, say so.",
     `Call ${FINISH} with the required result when done, or ${GIVE_UP} with a concrete reason.`,
   ].join("\n\n");
+}
+
+/** Told to the model and kept on the receipt, so a decoded argument is never silent. */
+function decodedNote(paths: string[]): string {
+  return paths.length ? ` (decoded JSON-string arguments: ${paths.join(", ")}; send objects and arrays as JSON values, not strings)` : "";
 }
 
 function formatIssues(error: z.ZodError): string {

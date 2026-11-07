@@ -30,13 +30,13 @@ export function orchestratorActor(): CommandActor {
 export function requireLab(ctx: StudyContext, agentId: string): EngineerLab {
   const own = ctx.labsByAgent.get(agentId);
   if (own) {
-    if (own.destroyed) throw new ToolDenied("your lab has been destroyed");
+    if (own.destroyed || own.closedByEngineer) throw new ToolDenied("your lab has been destroyed");
     return own;
   }
   // A Debugger reads the lab of the Engineer that asked for help.
   const parent = ctx.store.ledger.getAgent(agentId).parentId;
   const lab = parent ? ctx.labsByAgent.get(parent) : undefined;
-  if (!lab || lab.destroyed) throw new ToolDenied("you have no lab");
+  if (!lab || lab.destroyed || lab.closedByEngineer) throw new ToolDenied("you have no lab");
   return lab;
 }
 
@@ -502,7 +502,10 @@ export function labTools(ctx: StudyContext): ToolDefinition[] {
       input: z.object({ reason: z.string().min(1).max(300) }),
       async run(input, context) {
         const lab = ownLab(context);
-        await ctx.finishLab(lab.agentId, input.reason);
+        // The agent's view is unchanged: its lab tools stop now. The orchestrator exports the artifacts and
+        // destroys the lab when its own work there is finished, so an early call cannot break the replay.
+        lab.closedByEngineer = true;
+        ctx.event("lab_closed", "completed", `${lab.label} closed its lab: ${input.reason.slice(0, 200)}`, { engineer: lab.label });
         return ok("Lab destroyed", `${lab.label}'s artifacts were exported and its lab destroyed.`);
       },
     }),
@@ -590,9 +593,24 @@ export function labTools(ctx: StudyContext): ToolDefinition[] {
             requirements: input.requirements,
             signal: context.signal,
           });
+          if (ctx.config.planRevision !== true)
+            return result.ok
+              ? ok("Binary wheels exist for every requirement", result.detail)
+              : failed("Some requirements have no compatible wheel", result.detail);
+          // Plan revision mode states the verdict in words: a bare package list read as "unconfirmed" to a weaker model.
+          const checked = { python: input.python, platform: platform.containerPlatform, requirements: input.requirements };
           return result.ok
-            ? ok("Binary wheels exist for every requirement", result.detail)
-            : failed("Some requirements have no compatible wheel", result.detail);
+            ? ok("Binary wheels exist for every requirement", {
+                verdict:
+                  "available: every requirement has a compatible binary wheel for this platform and Python; nothing is built from source",
+                ...checked,
+                detail: result.detail,
+              })
+            : failed("Some requirements have no compatible wheel", {
+                verdict: "unavailable: at least one requirement has no compatible binary wheel; see detail",
+                ...checked,
+                detail: result.detail,
+              });
         } catch (error) {
           if (error instanceof PreparationFailure)
             return failed(`Check failed: ${error.code}`, { code: error.code, message: error.message, requirement: error.requirement });

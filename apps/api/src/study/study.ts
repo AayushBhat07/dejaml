@@ -85,6 +85,8 @@ import { convertUnit, parseMetric } from "./metric.js";
 import {
   DiagnosisSchema,
   INSTRUCTIONS,
+  PLAN_REVISION_PATHS,
+  PLAN_REVISION_REVIEW,
   TARGETED_INSTRUCTIONS,
   type PaperClaim,
   type PaperClaimResult,
@@ -155,6 +157,19 @@ const RUN_STATUS_FOR_STAGE: Record<WorkStage, RunStatus> = {
 };
 
 const STAGE_LEASE_MS = 15 * 60_000;
+
+/** The lab's folders as absolute paths, so a plan never has to do relative-path arithmetic. */
+function plannerLayout(): Record<string, string> {
+  const at = (path: string) => `${LAB_LAYOUT.workdir}/${path}`;
+  return {
+    caseRoot: LAB_LAYOUT.workdir,
+    readOnlyCheckout: `${at(LAB_LAYOUT.repoDir)} (cwd \`repo\`)`,
+    writableCheckout: `${at(LAB_LAYOUT.workRepo)} (cwd \`work/repo\`)`,
+    adapters: at(LAB_LAYOUT.adapterDir),
+    data: at(LAB_LAYOUT.dataDir),
+    artifacts: `${at(LAB_LAYOUT.artifactsDir)} (a json metricParser.path such as artifacts/result.json is read from ${at("artifacts/result.json")})`,
+  };
+}
 
 export type LeakCheck = (runId: string) => Promise<{ containers: string[]; networks: string[] }>;
 
@@ -267,6 +282,8 @@ export type MultiAgentReport = {
     labMode: StudyCondition["labMode"];
     shown: { value: number; kind: ShownTarget["kind"]; direction: ShownTarget["direction"] } | null;
     controlRerun: ControlRerun | null;
+    /** Plan revision mode (absolute lab paths, strict output paths, one re-plan after a refusal); false is the published protocol. */
+    planRevision: boolean;
   };
   result: {
     status: ResultStatus;
@@ -789,7 +806,14 @@ export async function runMultiAgentStudy(
       const handle = await runtime.resumeAgent(agentId);
       return { agentId, done: handle.done as Promise<AgentOutcome<T>> };
     }
-    const instructions = (target ? TARGETED_INSTRUCTIONS[role] : undefined) ?? INSTRUCTIONS[role];
+    const base = (target ? TARGETED_INSTRUCTIONS[role] : undefined) ?? INSTRUCTIONS[role];
+    const revision = config.planRevision === true;
+    const instructions =
+      revision && role === "reproduction_planner"
+        ? `${base}\n${PLAN_REVISION_PATHS}`
+        : revision && role === "independent_reviewer"
+          ? `${base}\n${PLAN_REVISION_REVIEW}`
+          : base;
     const handle = await runtime.startAgent<T>({
       runId,
       role,
@@ -801,7 +825,14 @@ export async function runMultiAgentStudy(
       // A sighted or decoy condition shows its number to every execution agent before the reveal, in the same words.
       inputs: shown && !revealed && SHOWN_ROLES.has(role) ? { ...options.inputs, ...paperResultInput(condition, shown) } : options.inputs,
       grants: [...ROLE_GRANTS[role]],
-      limits: ROLE_LIMITS[role],
+      // Plan revision mode also reminds every agent to finish when its last few turns remain.
+      limits: {
+        ...ROLE_LIMITS[role],
+        ...(revision ? { finishReminderTurns: 4 } : {}),
+        ...(config.agentWallClockScale && config.agentWallClockScale !== 1 && ROLE_LIMITS[role].maxWallMs
+          ? { maxWallMs: ROLE_LIMITS[role].maxWallMs * config.agentWallClockScale }
+          : {}),
+      },
       result: { schema: options.schema, description: RESULT_DESCRIPTIONS[role] },
       provider,
     });
@@ -1047,7 +1078,20 @@ export async function runMultiAgentStudy(
     if (ctx.sealedForScan) agentsStarted();
   }
 
-  async function plan(): Promise<boolean> {
+  /** A refusal the Planner may fix: the deterministic review's reasons, never a policy block. */
+  async function refusedPlan(reasons: string[]): Promise<"replan" | "stop"> {
+    if (config.planRevision === true && reasons.length && canReplan("plan_refused_replan")) {
+      await replan(
+        "plan_refused_replan",
+        `The plan review refused your plan; fix exactly these problems and keep everything else: ${reasons.join("; ")}`,
+        { refusal: reasons },
+      );
+      return "replan";
+    }
+    return "stop";
+  }
+
+  async function plan(): Promise<"approved" | "replan" | "stop"> {
     const claim = paperOut?.result?.claim ?? null;
     const repository = repoOut?.repository ?? null;
     if (target && claim && paperOut?.result?.status === "ready") {
@@ -1056,7 +1100,7 @@ export async function runMultiAgentStudy(
       if (mismatch) {
         stopReasons.push(mismatch);
         event("claim_mismatch", "warning", mismatch, { caseId: target.caseId });
-        return false;
+        return "stop";
       }
     }
     planOut = await runStage<PlanStageOutput>("reconciling", async () => {
@@ -1076,12 +1120,13 @@ export async function runMultiAgentStudy(
             cpus: config.resources.cpus,
             memoryMb: config.resources.memoryMb,
             commandTimeoutSeconds: config.commandTimeoutSeconds,
+            ...(config.planRevision === true ? { layout: plannerLayout() } : {}),
           },
           datasetHostsAllowed: config.datasetPolicy.allowedHosts,
           trustedCompatibilityConstraints: config.trustedConstraints,
           dependencyPreparation: deps.dependencies ? "available" : "disabled on this server",
           previousRounds: withhold(replanGuidance),
-          ...(target ? { reviewedTarget: plannerTarget(target) } : {}),
+          ...(target ? { reviewedTarget: plannerTarget(target, { runAs: config.planRevision === true }) } : {}),
         },
         schema: PlanSchema,
       });
@@ -1139,19 +1184,21 @@ export async function runMultiAgentStudy(
     const result = planOut;
     if (!result.plan) {
       stopReasons.push(`the Planner did not finish (${result.status}${result.reason ? `: ${result.reason}` : ""})`);
-      return false;
+      return "stop";
     }
     if (result.plan.status === "blocked") {
       policyViolations.push(withhold(result.plan.blockedReason ?? result.plan.summary));
-      return false;
+      return "stop";
     }
     if (result.plan.status === "inconclusive" || !result.contract) {
+      if (result.plan.status === "ready" && result.reconcileErrors.length && (await refusedPlan(result.reconcileErrors)) === "replan")
+        return "replan";
       stopReasons.push(
         result.reconcileErrors.length
           ? `the plan is incomplete: ${result.reconcileErrors.join("; ")}`
           : `the plan is inconclusive: ${withhold(result.plan.summary)}`,
       );
-      return false;
+      return "stop";
     }
     ctx.contract = result.contract;
 
@@ -1166,6 +1213,7 @@ export async function runMultiAgentStudy(
         commandTimeoutSeconds: config.commandTimeoutSeconds,
         trustedConstraints: config.trustedConstraints,
         target,
+        strictOutputPaths: config.planRevision === true,
       });
       if (review.outcome === "approved") {
         board.post({
@@ -1205,14 +1253,15 @@ export async function runMultiAgentStudy(
     });
     if (policyOut.outcome === "policy_blocked") {
       policyViolations.push(...policyOut.violations);
-      return false;
+      return "stop";
     }
     if (policyOut.outcome === "inconclusive") {
+      if ((await refusedPlan(policyOut.violations)) === "replan") return "replan";
       stopReasons.push(...policyOut.violations.map((item) => `plan refused: ${item}`));
-      return false;
+      return "stop";
     }
     ctx.planDigest = policyOut.planDigest;
-    return true;
+    return "approved";
   }
 
   async function prepare(): Promise<"ready" | "replan" | "stop"> {
@@ -2012,7 +2061,9 @@ export async function runMultiAgentStudy(
       );
     } else {
       for (let round = 0; round <= config.maxReplans; round += 1) {
-        if (!(await plan())) break;
+        const planned = await plan();
+        if (planned === "replan") continue;
+        if (planned === "stop") break;
         const prepared = await prepare();
         if (prepared === "replan") continue;
         if (prepared === "stop") break;
@@ -2454,6 +2505,7 @@ export async function runMultiAgentStudy(
         // The shown number would let a reader of a decoy study work out the sealed value, so it waits for the reveal too.
         shown: shown && open ? { value: shown.value, kind: shown.kind, direction: shown.direction } : null,
         controlRerun,
+        planRevision: config.planRevision === true,
       },
       agents: agents.map((agent) => ({
         agentId: agent.id,
