@@ -51,6 +51,13 @@ export type StudyConfig = {
   /** Re-plans allowed in one study; each typed reason is allowed once. */
   maxReplans: number;
   /**
+   * Plan revision mode, for models that slip on paths. The plan review also refuses an output
+   * argument that would miss the metric file (otherwise only a warning), and a plan the review finds
+   * unusable (never a policy block) goes back to the Planner once with the exact refusal. The refused
+   * plan and the refusal stay on the board and in the run record. Off by default: the published protocol.
+   */
+  planRevision?: boolean;
+  /**
    * The project-owned compatibility constraints file (never the repository or a model).
    * A plan may apply only constraints listed here; each one used is reported.
    */

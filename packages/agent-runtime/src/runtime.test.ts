@@ -136,6 +136,24 @@ describe("BoundedAgentRuntime", () => {
     expect(last.role === "tool" && last.isError && last.content).toMatch(/Invalid finish input/u);
   });
 
+  it("decodes an object argument sent as a JSON string and records the repair on the receipt", async () => {
+    const { runtime, runId, store, providers } = setup({
+      a: [
+        { calls: [{ name: "board_read", input: { kinds: JSON.stringify(["plan"]) } }] },
+        { calls: [{ name: "finish", input: JSON.stringify({ answer: "decoded" }) }] },
+      ],
+    });
+    const handle = await runtime.startAgent(task(runId, "a"));
+    const outcome = await handle.done;
+    expect(outcome.result).toEqual({ answer: "decoded" });
+    const receipts = store.ledger.listReceipts({ agentId: handle.agentId });
+    expect(receipts.map((item) => item.status)).toEqual(["ok", "ok"]);
+    expect(receipts[0]!.summary).toMatch(/decoded JSON-string arguments: kinds/u);
+    expect(receipts[1]!.summary).toMatch(/decoded JSON-string arguments: \(root\)/u);
+    const toolTurn = providers.get("a")!.requests.at(-1)!.messages.at(-1)!;
+    expect(toolTurn.role === "tool" && toolTurn.content).toMatch(/send objects and arrays as JSON values/u);
+  });
+
   it("enforces iteration and tool-call limits", async () => {
     const loop = Array.from({ length: 10 }, () => ({ calls: [{ name: "board_read", input: {} }] }));
     const { runtime, runId } = setup({ a: loop, b: loop });

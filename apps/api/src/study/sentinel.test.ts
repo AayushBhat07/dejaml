@@ -39,7 +39,7 @@ function leaks(value: unknown): string[] {
   return FORMS.filter((form) => new RegExp(`(?<![0-9.])${form.replace(/\./gu, "\\.")}(?![0-9]|\\.[0-9])`, "u").test(text));
 }
 
-type Mode = "honest" | "planner_states_value" | "cancel_at_review" | "open_tuner";
+type Mode = "honest" | "planner_states_value" | "cancel_at_review" | "open_tuner" | "planner_wrong_output";
 type Recorded = { role: string; request: ChatRequest };
 
 /** Plays every role, including blind agents that try to reach the target. Never a model. */
@@ -48,6 +48,8 @@ class SentinelProvider implements ChatProvider {
   readonly kind = "scripted" as const;
   readonly requests: Recorded[] = [];
   onReviewer: (() => void) | null = null;
+  /** Plans the Planner has submitted; a re-plan starts a fresh Planner, so its turn count restarts. */
+  plans = 0;
   #counter = 0;
 
   constructor(private readonly mode: Mode) {}
@@ -138,6 +140,7 @@ class SentinelProvider implements ChatProvider {
         if (turn === 0) return [{ name: "paper_read_page", input: { page: 1 } }];
         if (turn === 1) return [{ name: "board_read", input: {} }];
         if (turn === 2) return [{ name: "repo_read", input: { path: "notebooks/eval.ipynb" } }];
+        this.plans += 1;
         return finish({
           status: "ready",
           summary:
@@ -146,7 +149,14 @@ class SentinelProvider implements ChatProvider {
               : "Run train.py unchanged from a writable copy; it writes the test accuracy to artifacts/result.json.",
           blockedReason: null,
           entrypoint: "train.py",
-          command: { argv: ["python", "train.py"], cwd: "work/repo" },
+          command: {
+            argv:
+              this.mode === "planner_wrong_output"
+                ? // A weaker model's first plan writes the metric relative to cwd; after the refusal it writes the lab path.
+                  ["python", "train.py", "--output", this.plans === 1 ? "artifacts/result.json" : "/workspace/case/artifacts/result.json"]
+                : ["python", "train.py"],
+            cwd: "work/repo",
+          },
           python: "3.11",
           requirements: [],
           compatibilityConstraints: [],
@@ -304,6 +314,7 @@ async function study(
     condition?: Partial<StudyCondition>;
     resultSequence?: number[];
     openLabEdits?: ScriptedRuntime["openLabEdits"];
+    planRevision?: boolean;
   },
 ) {
   const store = new RunStore();
@@ -339,7 +350,8 @@ async function study(
         datasetPolicy: { allowedHosts: [], maxRedirects: 3, maxBytes: 1024, timeoutMs: 1000 } as never,
         maxStudyMs: 60_000,
         commandTimeoutSeconds: 60,
-        maxReplans: 0,
+        maxReplans: options.planRevision ? 1 : 0,
+        ...(options.planRevision ? { planRevision: true } : {}),
         trustedConstraints: [],
       },
       chatProvider: provider,
@@ -487,6 +499,40 @@ describe("blinded study: the sentinel value never reaches a blind agent, the bro
         .filter((item) => !item.pass)
         .map((item) => item.name),
     ).toEqual(expect.arrayContaining(["commitments recorded in the required order", "sealed commitment verified at the reveal"]));
+  });
+
+  it("plan revision mode refuses an output path that misses the metric file and re-plans once; the published protocol only warns", async () => {
+    const published = await study("planner_wrong_output", { target: true });
+    expect(published.provider.plans).toBe(1);
+    const approved = published.store.ledger.listBoard(published.runId).find((entry) => entry.kind === "claim_contract");
+    expect(JSON.stringify(approved?.payload)).toMatch(/the command writes artifacts\/result\.json, which from work\/repo resolves/u);
+
+    const { store, runId, result, provider } = await study("planner_wrong_output", { target: true, planRevision: true });
+    expect(provider.plans).toBe(2);
+    expect(JSON.stringify(result.report)).toContain('"planRevision":true');
+    expect(JSON.stringify(published.result.report)).toContain('"planRevision":false');
+    // Only plan revision mode gives the Planner absolute lab paths; the published protocol's prompt is unchanged.
+    const plannerSees = (requests: typeof provider.requests) =>
+      requests.filter((item) => item.role === "Reproduction Planner").map((item) => JSON.stringify(item.request));
+    expect(
+      plannerSees(provider.requests).every((text) => /lab\.layout/u.test(text) && /\/workspace\/case\/work\/repo \(cwd/u.test(text)),
+    ).toBe(true);
+    expect(plannerSees(published.provider.requests).some((text) => /lab\.layout|readOnlyCheckout/u.test(text))).toBe(false);
+    // The refused plan and its refusal stay in the record; the second Planner is told exactly what was refused.
+    const board = store.ledger.listBoard(runId);
+    expect(board.filter((entry) => entry.kind === "policy_block")).toHaveLength(1);
+    expect(JSON.stringify(board.filter((entry) => entry.kind === "note"))).toMatch(
+      /plan_refused_replan.*write \/workspace\/case\/artifacts\/result\.json/u,
+    );
+    expect(result.report.result.status).not.toBe("inconclusive");
+    expect(result.report.result.observedValue).not.toBeNull();
+    // The refusal handed back to the Planner carries no form of the sealed value.
+    expect(leaks(board.filter((entry) => entry.kind === "note" || entry.kind === "policy_block"))).toEqual([]);
+    expect(
+      proveBlinding({ store, runId, report: result.report })
+        .filter((item) => !item.pass)
+        .map((item) => item.name),
+    ).toEqual([]);
   });
 
   it("never reveals a cancelled study", async () => {

@@ -105,6 +105,7 @@ const api = createApiServer({
       maxStudyMs: number("DEJAML_STUDY_MAX_MINUTES", 180) * 60_000,
       commandTimeoutSeconds: number("DEJAML_COMMAND_TIMEOUT_SECONDS", 900),
       maxReplans: Math.min(4, Math.floor(number("DEJAML_MAX_REPLANS", 2))),
+      planRevision: process.env.DEJAML_PLAN_REVISION === "1",
       trustedConstraints,
     },
   },

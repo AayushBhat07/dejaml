@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import type { AgentRecord, AgentUsage, RunStore } from "@dejaml/run-store";
 import { z } from "zod";
 
+import { parseToolInput } from "./argument-repair.js";
 import { EvidenceBoard } from "./board.js";
 import type { ChatMessage, ChatProvider, ToolCall } from "./providers/types.js";
 import { ProviderError } from "./providers/types.js";
@@ -470,7 +471,7 @@ export class BoundedAgentRuntime implements AgentRuntime {
             continue;
           }
           if (call.name === FINISH || call.name === GIVE_UP) {
-            const parsed = call.name === FINISH ? schema.safeParse(call.input) : giveUpTool.input.safeParse(call.input);
+            const parsed = parseToolInput<unknown>(call.name === FINISH ? schema : giveUpTool.input, call.input);
             const receipt = this.#startReceipt(record, call);
             if (!parsed.success) {
               const detail = `Invalid ${call.name} input: ${formatIssues(parsed.error)}`;
@@ -478,10 +479,12 @@ export class BoundedAgentRuntime implements AgentRuntime {
               this.#toolTurn(agentId, usage.segments, call, detail, true);
               continue;
             }
-            this.#finishReceipt(receipt, "ok", call.name === FINISH ? "result submitted" : "gave up", {
+            const note = decodedNote(parsed.decoded);
+            this.#finishReceipt(receipt, "ok", `${call.name === FINISH ? "result submitted" : "gave up"}${note}`, {
               input: parsed.data as Record<string, unknown>,
+              ...(parsed.decoded.length ? { decodedJsonStrings: parsed.decoded } : {}),
             });
-            this.#toolTurn(agentId, usage.segments, call, call.name === FINISH ? "Result accepted." : "Acknowledged.", false);
+            this.#toolTurn(agentId, usage.segments, call, `${call.name === FINISH ? "Result accepted." : "Acknowledged."}${note}`, false);
             finished =
               call.name === FINISH ? end("completed", parsed.data, null) : end("failed", null, (parsed.data as { reason: string }).reason);
             continue;
@@ -494,7 +497,7 @@ export class BoundedAgentRuntime implements AgentRuntime {
             this.#toolTurn(agentId, usage.segments, call, detail, true);
             continue;
           }
-          const parsed = tool.input.safeParse(call.input);
+          const parsed = parseToolInput<unknown>(tool.input, call.input);
           if (!parsed.success) {
             const detail =
               call.input === null
@@ -532,12 +535,17 @@ export class BoundedAgentRuntime implements AgentRuntime {
             };
           }
           const status = result.status ?? (result.isError ? "error" : "ok");
-          this.#finishReceipt(receipt, status, result.summary, result.output ?? {});
+          const note = decodedNote(parsed.decoded);
+          this.#finishReceipt(receipt, status, `${result.summary}${note}`.slice(0, 2_000), {
+            ...(result.output ?? {}),
+            ...(parsed.decoded.length ? { decodedJsonStrings: parsed.decoded } : {}),
+          });
           this.#emit({ agentId, type: "tool_result", receiptId: receipt.id, tool: call.name, status, summary: result.summary });
-          const content =
+          const body =
             result.content.length > limits.maxToolResultChars
               ? `${result.content.slice(0, limits.maxToolResultChars)}\n[truncated ${result.content.length - limits.maxToolResultChars} characters]`
               : result.content;
+          const content = note ? `${body}\n[note${note}]` : body;
           this.#toolTurn(agentId, usage.segments, call, content, Boolean(result.isError));
         }
         ledger.updateAgent(agentId, { usage });
@@ -694,6 +702,11 @@ function systemPrompt(role: AgentRole, instructions: string): string {
     "Never invent values, files, commands, or results. If the evidence does not support a conclusion, say so.",
     `Call ${FINISH} with the required result when done, or ${GIVE_UP} with a concrete reason.`,
   ].join("\n\n");
+}
+
+/** Told to the model and kept on the receipt, so a decoded argument is never silent. */
+function decodedNote(paths: string[]): string {
+  return paths.length ? ` (decoded JSON-string arguments: ${paths.join(", ")}; send objects and arrays as JSON values, not strings)` : "";
 }
 
 function formatIssues(error: z.ZodError): string {

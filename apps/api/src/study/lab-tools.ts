@@ -590,9 +590,24 @@ export function labTools(ctx: StudyContext): ToolDefinition[] {
             requirements: input.requirements,
             signal: context.signal,
           });
+          if (ctx.config.planRevision !== true)
+            return result.ok
+              ? ok("Binary wheels exist for every requirement", result.detail)
+              : failed("Some requirements have no compatible wheel", result.detail);
+          // Plan revision mode states the verdict in words: a bare package list read as "unconfirmed" to a weaker model.
+          const checked = { python: input.python, platform: platform.containerPlatform, requirements: input.requirements };
           return result.ok
-            ? ok("Binary wheels exist for every requirement", result.detail)
-            : failed("Some requirements have no compatible wheel", result.detail);
+            ? ok("Binary wheels exist for every requirement", {
+                verdict:
+                  "available: every requirement has a compatible binary wheel for this platform and Python; nothing is built from source",
+                ...checked,
+                detail: result.detail,
+              })
+            : failed("Some requirements have no compatible wheel", {
+                verdict: "unavailable: at least one requirement has no compatible binary wheel; see detail",
+                ...checked,
+                detail: result.detail,
+              });
         } catch (error) {
           if (error instanceof PreparationFailure)
             return failed(`Check failed: ${error.code}`, { code: error.code, message: error.message, requirement: error.requirement });

@@ -239,6 +239,13 @@ const BLIND_PLANNING =
 const BLIND_EXECUTION =
   "The study is blinded: you are not told the value the paper reports or any tolerance, and must not look for them (saved notebook outputs were removed). Never compare your measurement with a paper value; the lab parses the metric and code compares it only after the result and its review are locked.";
 
+/**
+ * Plan revision mode only (the published protocol does not send it): relative paths resolve from
+ * the command's cwd, which weaker models get wrong; absolute paths do not.
+ */
+export const PLAN_REVISION_PATHS =
+  "Paths: `lab.layout` gives the absolute path of every lab folder, and relative arguments resolve from the command's cwd (`repo` is /workspace/case/repo, `work/repo` is /workspace/case/work/repo). Write the adapter script, every data file outside the checkout, and every output file as absolute paths under /workspace/case, exactly as `lab.layout` and `reviewedTarget.reviewedAdapter.runAs` give them: the lab reads a JSON metric from /workspace/case/<metricParser.path>, so an output written relative to cwd is not found.";
+
 export const INSTRUCTIONS: Record<AgentRole, string> = {
   paper_analyst: [
     "Read the uploaded paper with your tools and select exactly one numeric experimental claim that a CPU-only run of the paper's own code could check.",
