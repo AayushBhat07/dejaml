@@ -335,9 +335,18 @@ export class ImageReadiness {
       await this.#sleep(this.#backoffMs, request, signal);
       plain = await this.#inspectOnce(request, null, signal, answer);
     }
+    let lookup = request;
+    if (!plain) {
+      // Still "No such image": find the image by its repository digest in the image list and inspect it by ID.
+      const id = await this.#imageIdByDigest(request, signal);
+      if (id) {
+        lookup = { ...request, reference: id };
+        plain = await this.#inspectOnce(lookup, null, signal, answer);
+      }
+    }
     if (!plain) return { kind: "missing", detail: `docker image inspect ${inspectReference(request.reference)}: ${answer.stderr.trim()}` };
     const plainPlatform = plain.Os && plain.Architecture ? `${plain.Os}/${plain.Architecture}` : null;
-    const specific = await this.#inspectOnce(request, request.platform, signal).catch((error: unknown) => {
+    const specific = await this.#inspectOnce(lookup, request.platform, signal).catch((error: unknown) => {
       if (error instanceof ImageNotReadyError && (error.code === "cancelled" || error.code === "timeout")) throw error;
       return null;
     });
@@ -345,6 +354,27 @@ export class ImageReadiness {
     // An engine that cannot inspect by platform still answers for a single-platform image.
     if (plainPlatform === request.platform) return found(plain, plain);
     return { kind: "other_platform", imageId: String(plain.Id), platform: plainPlatform };
+  }
+
+  /** The local image ID whose repository digest is the pinned one, from `docker image ls --digests`; null when none. */
+  async #imageIdByDigest(request: ImageRequest, signal: AbortSignal): Promise<string | null> {
+    const pinned = /^(.+)@(sha256:[a-f0-9]{64})$/u.exec(inspectReference(request.reference));
+    if (!pinned?.[1] || !pinned[2]) return null;
+    const [name, digest] = [pinned[1], pinned[2]];
+    const { result } = await this.#step(
+      request,
+      ["image", "ls", "--digests", "--no-trunc", "--format", "{{.Repository}}|{{.Digest}}|{{.ID}}"],
+      this.#inspectTimeoutMs,
+      signal,
+      1024 * 1024,
+    );
+    if (result.exitCode !== 0) return null;
+    const short = (repository: string): string => repository.replace(/^(?:docker\.io\/)?(?:library\/)?/u, "");
+    for (const line of result.stdout.text.split("\n")) {
+      const [repository = "", found = "", id = ""] = line.trim().split("|");
+      if (found === digest && short(repository) === short(name) && IMAGE_ID_PATTERN.test(id)) return id;
+    }
+    return null;
   }
 
   async #inspectOnce(

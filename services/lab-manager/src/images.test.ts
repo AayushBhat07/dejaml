@@ -43,6 +43,8 @@ class FakeDocker implements ContainerRuntime {
   readonly images = new Map<string, LocalImage>();
   /** Classic-store behaviour: `image inspect --platform` reports the image's only platform whatever was asked. */
   classicStore = false;
+  /** Answers an inspect by image ID (used when Docker Desktop loses the digest lookup). */
+  byIdOnly = false;
   inspectError: string | null = null;
   pullFailures = 0;
   pullHang = false;
@@ -60,10 +62,16 @@ class FakeDocker implements ContainerRuntime {
       const index = args.indexOf(name);
       return index >= 0 ? args[index + 1] : undefined;
     };
+    if (command === "image" && args[1] === "ls") {
+      const lines = [...this.images.entries()]
+        .filter(([reference]) => reference.includes("@"))
+        .map(([reference, image]) => `${reference.split("@")[0]}|${reference.split("@")[1]}|${image.id}`);
+      return result(0, lines.join("\n") + "\n");
+    }
     if (command === "image") {
       if (this.inspectError) return result(1, "", this.inspectError);
       const reference = args.at(-1) ?? "";
-      const image = this.images.get(reference);
+      const image = this.images.get(reference) ?? [...this.images.values()].find((item) => item.id === reference && this.byIdOnly);
       if (!image) return result(1, "", `Error response from daemon: No such image: ${reference}`);
       const asked = flag("--platform");
       const platform = asked
@@ -188,6 +196,25 @@ describe("ImageReadiness", () => {
     });
   });
 
+  it("finds the image by its ID from the image list when Docker keeps saying No such image for its digest", async () => {
+    docker.byIdOnly = true;
+    const real = docker.docker.bind(docker);
+    docker.docker = async (args, options) => {
+      if (args[0] === "image" && args[1] === "inspect" && String(args.at(-1)).includes("@")) {
+        return result(1, "", `Error response from daemon: No such image: ${String(args.at(-1))}`);
+      }
+      return real(args, options);
+    };
+    docker.images.set(PINNED, { id: DIGEST, platforms: new Set(["linux/amd64"]), defaultPlatform: "linux/amd64" });
+    await expect(readiness.ensure(request())).resolves.toMatchObject({ source: "present", imageId: DIGEST });
+    // The two refused digest inspections never reach the fake; the image list and the ID inspections do.
+    expect(docker.calls.filter((call) => call[0] === "image").map((call) => (call[1] === "ls" ? "ls" : call.at(-1)))).toEqual([
+      "ls",
+      DIGEST,
+      DIGEST,
+    ]);
+  });
+
   it("inspects a pinned reference by name and digest, keeping registry ports and local tags", () => {
     expect(inspectReference(`python:3.12-slim-trixie@${DIGEST}`)).toBe(`python@${DIGEST}`);
     expect(inspectReference(`localhost:5000/lib/python:3.12@${DIGEST}`)).toBe(`localhost:5000/lib/python@${DIGEST}`);
@@ -217,7 +244,7 @@ describe("ImageReadiness", () => {
     expect(docker.pulledPlatforms).toEqual(["linux/arm64"]);
     expect(docker.calls.find((call) => call[0] === "pull")).toEqual(["pull", "--quiet", "--platform", "linux/arm64", PINNED]);
     expect(image.digest).toBe(PLATFORM_DIGEST["linux/arm64"]);
-    expect(docker.calls.map((call) => call[0])).toEqual(["image", "image", "pull", "image", "image"]);
+    expect(docker.calls.map((call) => call[0])).toEqual(["image", "image", "image", "pull", "image", "image"]);
     expect(docker.calls.at(-1)).toContain("--platform");
   });
 
