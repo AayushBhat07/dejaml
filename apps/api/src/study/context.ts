@@ -57,6 +57,8 @@ export type StudyConfig = {
    * plan and the refusal stay on the board and in the run record. Off by default: the published protocol.
    */
   planRevision?: boolean;
+  /** Multiplies every agent's wall-clock limit (1 to 10), for a slow local model; iteration and tool-call limits are unchanged. */
+  agentWallClockScale?: number;
   /**
    * The project-owned compatibility constraints file (never the repository or a model).
    * A plan may apply only constraints listed here; each one used is reported.

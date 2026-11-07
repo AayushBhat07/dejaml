@@ -120,6 +120,9 @@ After batch b, three more fixes:
 - In plan revision mode, the Reviewer is told to work from the receipts and
   logs first, and every agent is reminded to finish when 4 turns remain
   (`finishReminderTurns`).
+- For a slow local model, `DEJAML_PROVIDER_TIMEOUT_SECONDS` sets the per-call
+  provider timeout and `DEJAML_AGENT_WALL_CLOCK_SCALE` multiplies every agent's
+  wall-clock limit; turn and tool-call limits stay the same.
 - `blinding-lib.mjs` counts official runs from the events when a failed study
   wrote no edit records.
 

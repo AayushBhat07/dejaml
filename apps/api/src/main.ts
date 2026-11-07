@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 
 import { platformFromEnv } from "@dejaml/contracts";
 import { ImageReadiness, LabManager, loadBaseImageLock } from "@dejaml/lab-manager";
-import { loadProviderConfig, ProviderConfigError, providerRoute, publicProviders } from "@dejaml/agent-runtime";
+import { createChatProvider, loadProviderConfig, ProviderConfigError, providerRoute, publicProviders } from "@dejaml/agent-runtime";
 import { DEFAULT_DATASET_POLICY, parseAllowedHosts } from "@dejaml/net-guard";
 import { DependencyPreparer, loadCompatibilityConstraints, loadPrepPolicy } from "@dejaml/prep";
 import { RunStore } from "@dejaml/run-store";
@@ -73,8 +73,19 @@ const number = (name: string, fallback: number): number => {
 };
 
 const recovery = await recoverAfterRestart({ store, labs, workRoot: dataDir, resumeStudies: process.env.DEJAML_AUTONOMOUS !== "0" });
+// A slow local model (for example an open-weight model on a laptop) needs longer per-call timeouts and agent wall clocks.
+const providerTimeoutSeconds = process.env.DEJAML_PROVIDER_TIMEOUT_SECONDS;
+const loadedProviders = providers;
 const api = createApiServer({
   store,
+  ...(providerTimeoutSeconds
+    ? {
+        providerFactory: (providerId: string, model: string) =>
+          createChatProvider(loadedProviders, providerId, model, {
+            timeoutMs: Math.min(3_600, Math.max(30, Number(providerTimeoutSeconds) || 180)) * 1_000,
+          }),
+      }
+    : {}),
   adminToken: process.env.DEJAML_ADMIN_TOKEN?.trim() || null,
   // The blinding study's sighted and decoy conditions; never on a public server.
   researchConditions: process.env.DEJAML_RESEARCH_CONDITIONS === "1",
@@ -106,6 +117,7 @@ const api = createApiServer({
       commandTimeoutSeconds: number("DEJAML_COMMAND_TIMEOUT_SECONDS", 900),
       maxReplans: Math.min(4, Math.floor(number("DEJAML_MAX_REPLANS", 2))),
       planRevision: process.env.DEJAML_PLAN_REVISION === "1",
+      agentWallClockScale: Math.min(10, Math.max(1, number("DEJAML_AGENT_WALL_CLOCK_SCALE", 1))),
       trustedConstraints,
     },
   },
