@@ -211,6 +211,22 @@ describe("BoundedAgentRuntime", () => {
     expect(droppedToolCall(null, 8)).toBe(false);
   });
 
+  it("offers and accepts only finish and give_up in the last finish-only turns", async () => {
+    const { runtime, runId, providers } = setup({
+      a: [
+        { calls: [{ name: "board_read", input: {} }] },
+        { calls: [{ name: "board_read", input: {} }] },
+        { calls: [{ name: "finish", input: { answer: "done" } }] },
+      ],
+    });
+    const outcome = await (await runtime.startAgent(task(runId, "a", { limits: { maxIterations: 3, finishOnlyTurns: 2 } }))).done;
+    expect(outcome.status).toBe("completed");
+    const requests = providers.get("a")!.requests;
+    expect(requests.map((request) => request.tools.map((tool) => tool.name).includes("board_read"))).toEqual([true, false, false]);
+    const refused = requests[2]!.messages.filter((message) => message.role === "tool").at(-1)!;
+    expect(refused.role === "tool" ? refused.content : "").toMatch(/Not run: only finish and give_up/u);
+  });
+
   it("enforces iteration and tool-call limits", async () => {
     const loop = Array.from({ length: 10 }, () => ({ calls: [{ name: "board_read", input: {} }] }));
     const { runtime, runId } = setup({ a: loop, b: loop });

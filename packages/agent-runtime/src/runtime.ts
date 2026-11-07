@@ -45,6 +45,11 @@ export type AgentLimits = {
    * agent to finish. 0 (the default) never reminds.
    */
   finishReminderTurns?: number;
+  /**
+   * In the last N model turns only finish and give_up are offered and accepted, so an agent that keeps
+   * reading cannot spend its whole budget without an answer. Off (0) by default.
+   */
+  finishOnlyTurns?: number;
 };
 
 export const DEFAULT_AGENT_LIMITS: AgentLimits = {
@@ -356,6 +361,7 @@ export class BoundedAgentRuntime implements AgentRuntime {
       run: async () => ({ content: "acknowledged", summary: "gave up" }),
     };
     const specs = [...tools, finishTool, giveUpTool].map(toolSpec);
+    const finishOnlySpecs = [finishTool, giveUpTool].map(toolSpec);
     const system = systemPrompt(role, task.instructions);
     // Wall time counts from this launch; a resumed agent gets a fresh window.
     const started = Date.now();
@@ -417,6 +423,7 @@ export class BoundedAgentRuntime implements AgentRuntime {
           if (refusal) return end("failed", null, `request refused before it was sent: ${refusal}`);
         }
 
+        const finishOnly = (limits.finishOnlyTurns ?? 0) > 0 && limits.maxIterations - usage.iterations <= (limits.finishOnlyTurns ?? 0);
         const remainingOutput = limits.maxOutputTokens - usage.outputTokens;
         let response: Awaited<ReturnType<typeof provider.chat>>;
         try {
@@ -424,7 +431,7 @@ export class BoundedAgentRuntime implements AgentRuntime {
             model: record.model,
             system,
             messages,
-            tools: specs,
+            tools: finishOnly ? finishOnlySpecs : specs,
             maxOutputTokens: Math.max(256, Math.min(limits.maxTurnOutputTokens, remainingOutput)),
             signal,
             ...(this.#options.stream ? { stream: true } : {}),
@@ -555,6 +562,14 @@ export class BoundedAgentRuntime implements AgentRuntime {
             turn(call, `${call.name === FINISH ? "Result accepted." : "Acknowledged."}${note}`, false);
             finished =
               call.name === FINISH ? end("completed", parsed.data, null) : end("failed", null, (parsed.data as { reason: string }).reason);
+            continue;
+          }
+          if (finishOnly) {
+            turn(
+              call,
+              `Not run: only ${FINISH} and ${GIVE_UP} are accepted in the last ${limits.finishOnlyTurns} turns. Call ${FINISH} now with what you have.`,
+              true,
+            );
             continue;
           }
           const tool = byName.get(call.name);

@@ -828,7 +828,7 @@ export async function runMultiAgentStudy(
       // Plan revision mode also reminds every agent to finish when its last few turns remain.
       limits: {
         ...ROLE_LIMITS[role],
-        ...(revision ? { finishReminderTurns: 4 } : {}),
+        ...(revision ? { finishReminderTurns: 4, finishOnlyTurns: 3 } : {}),
         ...(config.agentWallClockScale && config.agentWallClockScale !== 1 && ROLE_LIMITS[role].maxWallMs
           ? { maxWallMs: ROLE_LIMITS[role].maxWallMs * config.agentWallClockScale }
           : {}),
