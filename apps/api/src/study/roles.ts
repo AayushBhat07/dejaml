@@ -236,7 +236,7 @@ export const ROLE_GRANTS: Record<AgentRole, readonly string[]> = {
 /** Every role after the Paper Analyst works blind to the paper's number. */
 const BLIND_PLANNING =
   "The study is blinded: you are not told the value the paper reports, and must not try to find it. Plan to measure the metric faithfully, never to match a number: state no expected, target, or reported value, no tolerance, and no comparison with the paper anywhere in the plan. A plan that does is refused.";
-const BLIND_EXECUTION =
+export const BLIND_EXECUTION =
   "The study is blinded: you are not told the value the paper reports or any tolerance, and must not look for them (saved notebook outputs were removed). Never compare your measurement with a paper value; the lab parses the metric and code compares it only after the result and its review are locked.";
 
 /**

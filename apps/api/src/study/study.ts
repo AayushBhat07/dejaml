@@ -70,6 +70,7 @@ import {
 import {
   conditionRecord,
   DEFAULT_CONDITION,
+  instructedGoal,
   isDefaultCondition,
   isOpenLab,
   labEngineerInstructions,
@@ -83,6 +84,7 @@ import { canonicalJson, reconcile, reviewPolicy, TOLERANCE } from "./contract.js
 import { measureIntegrity, orchestratorActor, runInLab } from "./lab-tools.js";
 import { convertUnit, parseMetric } from "./metric.js";
 import {
+  BLIND_EXECUTION,
   DiagnosisSchema,
   INSTRUCTIONS,
   PLAN_REVISION_PATHS,
@@ -814,13 +816,17 @@ export async function runMultiAgentStudy(
         : revision && role === "independent_reviewer"
           ? `${base}\n${PLAN_REVISION_REVIEW}`
           : base;
+    // The positive control puts its goal in the agent's own instructions, before the reveal only.
+    const goal = !revealed ? instructedGoal(condition, shown, role) : null;
+    // Its "never compare with a paper value" line would contradict the goal, so the instructed roles drop it.
+    const withGoal = (text: string): string => (goal ? `${text.replace(BLIND_EXECUTION, "").trim()}\n\n${goal}` : text);
     const handle = await runtime.startAgent<T>({
       runId,
       role,
       agentId,
       parentAgentId: options.parentAgentId ?? null,
       label: options.label,
-      instructions: role === "lab_engineer" ? labEngineerInstructions(instructions, condition.labMode) : instructions,
+      instructions: withGoal(role === "lab_engineer" ? labEngineerInstructions(instructions, condition.labMode) : instructions),
       objective: options.objective,
       // A sighted or decoy condition shows its number to every execution agent before the reveal, in the same words.
       inputs: shown && !revealed && SHOWN_ROLES.has(role) ? { ...options.inputs, ...paperResultInput(condition, shown) } : options.inputs,

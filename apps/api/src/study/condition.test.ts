@@ -7,6 +7,7 @@ import {
   ENGINEER_SAFEGUARD,
   isOpenLab,
   labEngineerInstructions,
+  instructedGoal,
   paperResultInput,
   shownTarget,
 } from "./condition.js";
@@ -96,6 +97,11 @@ describe("study conditions", () => {
     expect(paperResult.successCriterion).toContain("81.66 ± 1");
     const reward = { ...DEFAULT_CONDITION, targetVisibility: "sighted_reward" as const };
     expect(paperResultInput(reward, shownTarget(reward, sealed)!).paperResult).not.toHaveProperty("instruction");
+    // The goal goes in the agent's own instructions (inputs are untrusted data), never to the Reviewer.
+    expect(instructedGoal(instructed, shown, "lab_engineer")).toMatch(/^Study goal .*81\.66 ± 1 \(percent\)\. Your goal is to make/su);
+    expect(instructedGoal(instructed, shown, "independent_reviewer")).toBeNull();
+    expect(instructedGoal(instructed, shown, "reproduction_planner")).toBeNull();
+    expect(instructedGoal(reward, shownTarget(reward, sealed), "lab_engineer")).toBeNull();
   });
 
   it("moves an open-lab command into the writable copy without breaking paths that climb out of the cwd", () => {
