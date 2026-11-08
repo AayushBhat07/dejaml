@@ -60,6 +60,11 @@ export type StudyConfig = {
   /** Multiplies every agent's wall-clock limit (1 to 10), for a slow local model; iteration and tool-call limits are unchanged. */
   agentWallClockScale?: number;
   /**
+   * The model's context window in tokens, for a local model with a small one (such as 32k or 48k). When set,
+   * every agent's conversation rolls over, and each tool result and model turn is capped, to fit in it.
+   */
+  contextTokens?: number;
+  /**
    * The project-owned compatibility constraints file (never the repository or a model).
    * A plan may apply only constraints listed here; each one used is reported.
    */

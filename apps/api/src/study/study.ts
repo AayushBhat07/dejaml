@@ -102,6 +102,7 @@ import {
   ReviewSchema,
   ROLE_GRANTS,
   ROLE_LIMITS,
+  contextLimits,
   type Submission,
   SubmissionSchema,
   type SupervisorCheckpoint,
@@ -274,6 +275,8 @@ export type MultiAgentReport = {
       replay?: ControlRerun | null;
     }
   >;
+  /** Open lab only: the edits behind official runs of execution rounds that a re-plan replaced (`engineers` holds the last round). */
+  earlierEdits?: Array<{ round: number; engineer: string; edits: OfficialEdits[] }>;
   /**
    * The research condition (see ./condition.ts). `shown` is the number the
    * agents were told, published only after the reveal; `controlRerun` is the
@@ -835,6 +838,7 @@ export async function runMultiAgentStudy(
       limits: {
         ...ROLE_LIMITS[role],
         ...(revision ? { finishReminderTurns: 4, finishOnlyTurns: 3 } : {}),
+        ...(config.contextTokens ? contextLimits(config.contextTokens) : {}),
         ...(config.agentWallClockScale && config.agentWallClockScale !== 1 && ROLE_LIMITS[role].maxWallMs
           ? { maxWallMs: ROLE_LIMITS[role].maxWallMs * config.agentWallClockScale }
           : {}),
@@ -919,6 +923,7 @@ export async function runMultiAgentStudy(
   let policyOut = null as PolicyStageOutput | null;
   let prepOut = null as PrepareStageOutput | null;
   let execOut = null as ExecuteStageOutput | null;
+  const earlierEdits: Array<{ round: number; engineer: string; edits: OfficialEdits[] }> = [];
   let reviewOut = null as ReviewStageOutput | null;
   const stopReasons: string[] = [];
   const policyViolations: string[] = [];
@@ -1420,6 +1425,9 @@ export async function runMultiAgentStudy(
     const adapter = planOut?.plan?.adapter ?? null;
     const labImage = prepOut!.labImage!;
     const attempt = stages.stage(runId, "executing").attempt;
+    for (const item of execOut?.engineers ?? []) {
+      if (item.edits.length) earlierEdits.push({ round: attempt, engineer: item.label, edits: item.edits });
+    }
     execOut = await runStage<ExecuteStageOutput>("executing", async () => {
       const count = Math.max(1, Math.min(3, config.engineers));
       try {
@@ -2151,7 +2159,8 @@ export async function runMultiAgentStudy(
     });
     const contract = ctx.contract;
     const labImage = prepOut?.labImage ?? null;
-    if (input.signal.aborted || study.signal.aborted) return skipped("the study was cancelled or timed out");
+    // Code alone runs the control, with no model calls, so it still runs when the study was cancelled or stopped
+    // (by an operator, a cost guard or the time limit): a stopped study keeps its one unedited measurement.
     if (!contract || !labImage || !execOut?.engineers.length) return skipped("no approved command was run");
     if (prepOut?.failure) return skipped("the lab was never prepared");
     const agentId = `control_${stableAgentId(runId, "control").slice(4)}`;
@@ -2587,6 +2596,7 @@ export async function runMultiAgentStudy(
       engineers: (execOut?.engineers ?? []).map(
         ({ commands: _commands, officialStdoutTail: _tail, labId: _lab, imageId: _image, environment: _environment, ...rest }) => rest,
       ),
+      ...(earlierEdits.length ? { earlierEdits } : {}),
       result: {
         status: finalStatus,
         computedStatus: decision!.status,

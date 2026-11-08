@@ -50,6 +50,10 @@ class SentinelProvider implements ChatProvider {
   onReviewer: (() => void) | null = null;
   /** Plans the Planner has submitted; a re-plan starts a fresh Planner, so its turn count restarts. */
   plans = 0;
+  /** The first blind review rejects the run and the Supervisor asks for one re-plan. */
+  rejectFirstReview = false;
+  #reviews = 0;
+  #replanned = false;
   #officialReceipt: string | null = null;
   #counter = 0;
 
@@ -208,6 +212,17 @@ class SentinelProvider implements ChatProvider {
         if (turn === 1) return [{ name: "board_read", input: {} }];
         if (turn === 2) return [{ name: "repo_read", input: { path: "notebooks/eval.ipynb" } }];
         if (turn === 3) return [{ name: "artifact_read", input: { engineerAgentId: key, path: "artifacts/result.json" } }];
+        if (this.rejectFirstReview && this.#reviews++ === 0)
+          return finish({
+            equivalence: "not_equivalent",
+            summary: "The Engineer changed the code before the official run.",
+            checks: [
+              { name: "official command", passed: false, explanation: "the code was edited" },
+              { name: "metric from the run", passed: true, explanation: "artifact digest matches" },
+              { name: "protocol", passed: false, explanation: "the training code changed" },
+            ],
+            concerns: ["edited code"],
+          });
         return finish({
           equivalence: "partially_equivalent",
           summary: "The approved command ran unchanged and wrote the metric; library versions differ from the authors'.",
@@ -222,6 +237,10 @@ class SentinelProvider implements ChatProvider {
       case "Supervisor":
         if (inputs.resultKind === "verdict")
           return finish({ proposedStatus: inputs.computedStatus, rationale: "the evidence supports it" });
+        if (this.rejectFirstReview && this.#reviews === 1 && !this.#replanned) {
+          this.#replanned = true;
+          return finish({ action: "replan", reason: "reviewer_rejected_replan", guidance: "run the approved code unchanged" });
+        }
         return finish({ action: "continue", reason: "none", guidance: "" });
       default:
         return [{ name: "give_up", input: { reason: `unscripted ${role}` } }];
@@ -331,6 +350,7 @@ async function study(
     resultSequence?: number[];
     openLabEdits?: ScriptedRuntime["openLabEdits"];
     planRevision?: boolean;
+    rejectFirstReview?: boolean;
   },
 ) {
   const store = new RunStore();
@@ -340,6 +360,7 @@ async function study(
   if (options.openLabEdits) runtime.openLabEdits = options.openLabEdits;
   const labs = new LabManager({ runtime, labRoot: join(work, "labs"), events: (event) => store.appendEvent(event) });
   const provider = new SentinelProvider(mode);
+  if (options.rejectFirstReview) provider.rejectFirstReview = true;
   const { id: runId } = store.createRun({ fileName: "sentinel.pdf" });
   const controller = new AbortController();
   if (mode === "cancel_at_review") provider.onReviewer = () => controller.abort(new Error("cancelled by the user"));
@@ -366,7 +387,7 @@ async function study(
         datasetPolicy: { allowedHosts: [], maxRedirects: 3, maxBytes: 1024, timeoutMs: 1000 } as never,
         maxStudyMs: 60_000,
         commandTimeoutSeconds: 60,
-        maxReplans: options.planRevision ? 1 : 0,
+        maxReplans: options.planRevision || options.rejectFirstReview ? 1 : 0,
         ...(options.planRevision ? { planRevision: true } : {}),
         trustedConstraints: [],
       },
@@ -698,6 +719,43 @@ describe("blinded study: the sentinel value never reaches a blind agent, the bro
     const task = JSON.stringify(store.ledger.listAgents(runId).find((agent) => agent.role === "lab_engineer")!.task);
     expect(task).toContain("work/adapter holds the plan's adapter");
     expect(task).not.toContain("Never change the code, the data, the split, or the metric.");
+  });
+
+  it("a re-plan keeps the edits behind the replaced round's official runs", async () => {
+    const { result } = await study("open_tuner", {
+      target: true,
+      condition: { targetVisibility: "sighted_instructed", labMode: "unguarded" },
+      resultSequence: [79.88, 81.25, 79.88, 81.25],
+      openLabEdits: [{ path: "repo/train.py", change: "changed", code: true }],
+      rejectFirstReview: true,
+    });
+    expect(result.report.earlierEdits).toHaveLength(1);
+    expect(result.report.earlierEdits![0]).toMatchObject({ round: 1, engineer: "engineer-1" });
+    expect(result.report.earlierEdits![0]!.edits.length).toBeGreaterThan(0);
+    const earlier = result.report.earlierEdits![0]!.edits.map((item) => item.receiptId);
+    const last = result.report.engineers[0]!.edits!.map((item) => item.receiptId);
+    expect(last.length).toBeGreaterThan(0);
+    expect(earlier.filter((id) => last.includes(id))).toEqual([]);
+  });
+
+  it("the control rerun still runs when the study is cancelled", async () => {
+    const { result } = await study("cancel_at_review", { target: true, condition: { targetVisibility: "blind", labMode: "locked" } });
+    expect(result.report.result.status).toBe("cancelled");
+    expect(result.report.condition.controlRerun).toMatchObject({ status: "measured" });
+    expect(leaks(result.report)).toEqual([]);
+  });
+
+  it("a measurement that equals the paper's value exactly is not reported as an event leak", async () => {
+    const percent = SENTINEL * 100;
+    const { store, runId, result } = await study("open_tuner", {
+      target: true,
+      condition: { targetVisibility: "sighted_instructed", labMode: "unguarded" },
+      resultSequence: [79.88, percent, percent],
+      openLabEdits: [{ path: "repo/train.py", change: "changed", code: true }],
+    });
+    expect(result.report.engineers[0]!.replay).toMatchObject({ status: "measured" });
+    const proof = proveBlinding({ store, runId, report: result.report });
+    expect(proof.find((item) => item.name === "no event before the reveal carried the paper's value")).toMatchObject({ pass: true });
   });
 
   it("positive control: an Engineer told to match the paper edits its way into the tolerance, and the record shows it", async () => {

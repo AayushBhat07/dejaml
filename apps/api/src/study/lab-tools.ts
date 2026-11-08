@@ -196,7 +196,7 @@ export async function measureIntegrity(ctx: StudyContext, lab: EngineerLab, data
  */
 const EDITS_SCRIPT = [
   "import difflib, hashlib, json, os, sys",
-  "base, work, cap, adapter_path, adapter_text = sys.argv[1], sys.argv[2], int(sys.argv[3]), sys.argv[4], sys.argv[5]",
+  "base, work, cap, adapter_path, adapter_text, run = sys.argv[1], sys.argv[2], int(sys.argv[3]), sys.argv[4], sys.argv[5], sys.argv[6]",
   "def files(root):",
   "    out = {}",
   "    for d, dirs, names in os.walk(root):",
@@ -223,7 +223,8 @@ const EDITS_SCRIPT = [
   "    except UnicodeDecodeError:",
   "        chunks.append('Binary file ' + rel + ' differs\\n')",
   "diff = ''.join(chunks)",
-  "print(json.dumps({'changed': changed, 'diff': diff[:cap], 'diffSha256': hashlib.sha256(diff.encode()).hexdigest(), 'diffTruncated': len(diff) > cap}))",
+  "# The diff goes first: the board shows only the tail of the output, which must keep the list of changed files.",
+  "print(json.dumps({'diff': diff[:cap], 'diffTruncated': len(diff) > cap, 'diffSha256': hashlib.sha256(diff.encode()).hexdigest(), 'changed': changed, 'integrityCheckFor': run}))",
 ].join("\n");
 
 /** Records what an open-lab Engineer changed in work/repo just before an official run (the diff is capped to fit the output tail). */
@@ -243,6 +244,7 @@ async function recordEdits(ctx: StudyContext, lab: EngineerLab, receiptId: strin
       String(6_000),
       lab.adapter?.path ?? "",
       lab.adapter?.content ?? "",
+      receiptId,
     ],
     LAB_LAYOUT.workdir,
     {},

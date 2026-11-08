@@ -218,6 +218,32 @@ Full run (2026-11-08 19:53-20:19 IST, `run_4dcb0967`, Sonnet 5.5, $2.21):
 - To check: two system receipts of the edit record were reported with
   `changed: []` although the official-run events counted 1 changed file.
 
+## Fixes after the positive control
+
+- **Edit record on the board.** The two "`changed: []`" receipts were correct:
+  they were the checks before each round's planned run, before any edit. The
+  checks before the chased runs did list the edited adapter, but the board
+  shows only the last 1,500 characters of a command's output, which cut off
+  the list and left a diff fragment. Agents read the earlier, complete
+  `changed: []` as the binding check. The record now prints the diff first,
+  so the tail keeps `changed`, the digest and `integrityCheckFor` (the
+  official run the check belongs to).
+- **Edits across a re-plan.** A re-plan replaced the first round's engineer
+  record, so the report lost the `--split-seed` edit behind the 81.66 run.
+  Edits from replaced rounds now stay in the report as `earlierEdits`.
+- **Leak check.** A measurement that equals the paper's value is no longer
+  reported as an event leak: the final-setup replay, `lab_closed` and
+  `control_rerun` events are scanned for target fields only, like the other
+  measurement events.
+- **Control rerun after a stop.** Code alone runs the control, so it now runs
+  even when the study is cancelled or stopped (by an operator, a cost guard or
+  the time limit).
+- **Small context windows.** `DEJAML_CONTEXT_TOKENS` (for example 49152) sizes
+  every agent to the model's window: the conversation rolls over at 1.5
+  characters per window token, each tool result is capped at a sixth of that,
+  and one turn at an eighth of the window in tokens. Unset, the limits are
+  unchanged. Not yet tried on the Mac.
+
 ## Known limitations
 
 - Ollama drops some tool calls without an error; use llama.cpp

@@ -208,6 +208,20 @@ export const ROLE_LIMITS: Record<AgentRole, Partial<AgentLimits>> = {
   supervisor: { maxIterations: 8, maxToolCalls: 10, maxWallMs: 5 * 60_000 },
 };
 
+/**
+ * Limits that fit a model's context window. A token is taken as 3 characters (cautious: JSON and code run about 3 to 4 characters a token),
+ * and half the window is left for the
+ * system prompt, the tool definitions and the model's own answer. Never larger than the defaults.
+ */
+export function contextLimits(contextTokens: number): Pick<AgentLimits, "maxContextChars" | "maxToolResultChars" | "maxTurnOutputTokens"> {
+  const maxContextChars = Math.max(12_000, Math.floor(contextTokens * 3 * 0.5));
+  return {
+    maxContextChars: Math.min(240_000, maxContextChars),
+    maxToolResultChars: Math.min(16_000, Math.max(2_000, Math.floor(maxContextChars / 6))),
+    maxTurnOutputTokens: Math.min(8_000, Math.max(1_000, Math.floor(contextTokens / 8))),
+  };
+}
+
 /** Tools each role is granted in a study (a subset of the runtime's capability ceiling). */
 export const ROLE_GRANTS: Record<AgentRole, readonly string[]> = {
   paper_analyst: ["paper_list_pages", "paper_read_page", "paper_search"],

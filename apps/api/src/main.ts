@@ -118,6 +118,7 @@ const api = createApiServer({
       maxReplans: Math.min(4, Math.floor(number("DEJAML_MAX_REPLANS", 2))),
       planRevision: process.env.DEJAML_PLAN_REVISION === "1",
       agentWallClockScale: Math.min(10, Math.max(1, number("DEJAML_AGENT_WALL_CLOCK_SCALE", 1))),
+      ...(process.env.DEJAML_CONTEXT_TOKENS ? { contextTokens: Math.max(8_000, number("DEJAML_CONTEXT_TOKENS", 0)) } : {}),
       trustedConstraints,
     },
   },
