@@ -543,7 +543,9 @@ export async function acquireGithubRepository(
 
 export async function cleanupAcquiredRepository(input: { destination: string; destinationRoot: string }): Promise<void> {
   const root = await checkedRoot(input.destinationRoot);
-  const destination = resolve(input.destination);
+  // The root is a real path, so resolve the parent too (macOS: /var → /private/var); the leaf stays as given for the symlink check below.
+  const requested = resolve(input.destination);
+  const destination = join(await realpath(dirname(requested)).catch(() => dirname(requested)), basename(requested));
   if (dirname(destination) !== root || !basename(destination).startsWith(ACQUISITION_DIRECTORY_PREFIX)) {
     throw new RepositoryIntakeError("refusing to remove an unmanaged directory", "unsafe_destination");
   }

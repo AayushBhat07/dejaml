@@ -466,16 +466,18 @@ function parsePax(data: Buffer): { path?: string; size?: number } {
     if (end > data.length || end <= space + 1 || data[end - 1] !== 0x0a) {
       fail("archive_corrupt", "Tar pax record is truncated");
     }
-    const body = decodeName(data.subarray(space + 1, end - 1));
-    const equals = body.indexOf("=");
+    // Only the key and the records we use are text: macOS tar writes binary
+    // values (SCHILY.xattr.*, LIBARCHIVE.xattr.*) that are not UTF-8.
+    const record = data.subarray(space + 1, end - 1);
+    const equals = record.indexOf(0x3d);
     if (equals <= 0) {
       fail("archive_corrupt", "Tar pax record has no key");
     }
-    const key = body.slice(0, equals);
-    const value = body.slice(equals + 1);
+    const key = record.toString("latin1", 0, equals);
     if (key === "path") {
-      result.path = value;
+      result.path = decodeName(record.subarray(equals + 1));
     } else if (key === "size") {
+      const value = record.toString("latin1", equals + 1);
       if (!/^\d{1,16}$/.test(value)) {
         fail("archive_corrupt", "Tar pax size is malformed");
       }
