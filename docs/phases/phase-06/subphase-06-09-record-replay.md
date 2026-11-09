@@ -28,8 +28,10 @@ and do not run on Apple Silicon. Devstral Small 2 on llama.cpp was byte-identica
     board), but the model reads the recorded result, so the environment is frozen. A live result that
     differs goes into `environmentDrift`, apart from model behaviour.
   - **Ids.** Run, agent, receipt and board ids, salted commitments and provider tool-call ids differ
-    between runs. The replay learns each pair where the only difference is an id of the same shape, and
-    sends the model the recorded one. This keeps the model's input byte-identical.
+    between runs, and so do wall-clock times that reach a model's input directly (a dataset receipt's
+    `fetchedAt` in the Independent Reviewer's task input). The replay learns each pair where the only
+    difference is an id or an ISO 8601 time of the same shape, and sends the model the recorded one. This
+    keeps the model's input byte-identical.
 - **Runtime hook.** `BoundedRuntimeOptions.tape` wraps every model call and tool run. Failed and refused
   tools are recorded like any other result.
 - **Study wiring.** `MultiAgentDependencies.tape`, set from the environment (`apps/api/src/study/tape-files.ts`):
@@ -79,13 +81,28 @@ and do not run on Apple Silicon. Devstral Small 2 on llama.cpp was byte-identica
 ## Known limitations
 
 - The id learning accepts only tokens of the same shape: an optional prefix and underscore, then 12 or more
-  hex digits, or a UUID. Any other run-specific text the model reads is reported as request drift.
+  hex digits, a UUID, or an ISO 8601 time. Any other run-specific text the model reads is reported as request
+  drift.
 - A substitution is plain text replacement over the recorded request, tool results included. A shown number
-  that also appears in a measured output is replaced there too, and that shows as request drift.
+  that also appears elsewhere (the paper's own text, a measured output) is replaced there too, and that shows
+  as request drift. Make the `from` side specific to where the number is shown, for example the
+  `paperResult` value as it appears in the tape, rather than the bare number.
 - Determinism is claimed only for the pinned setup (llama.cpp version, GGUF hash, one slot, one Mac model).
   A rented CUDA box with BlockLock is the cross-check if a nothing-changed replay drifts on the Mac, or if a
   reviewer asks about other hardware.
 - Replay of a replay works, but the new tape is written in the recorded run's id space.
+
+## First Mac run (9 Nov 2026, IST)
+
+llama.cpp 0.9.0 (build 12110), Devstral Small 2 GGUF sha256 `fd9c29ae…bcde8c`, one slot, temperature 0,
+seed 0, $0.
+
+- **Record** (8:48 to 9:07 pm): Urban Land Cover, sighted arm, locked lab. 79.88, not reproduced, no edits.
+  6 agents, 60 model calls, 55 tool calls.
+- **Nothing-changed gate** (9:07 to 9:27 pm): not identical. The first four agents (48 model turns) matched
+  byte for byte. The Independent Reviewer's task input carried the dataset receipt's live `fetchedAt`, which
+  the replay did not map back, so its requests drifted from turn 1 and its response changed at turn 6. Same
+  outcome (79.88). Fixed afterwards: times are now learned like ids. The gate must be run again.
 
 ## Next
 

@@ -136,6 +136,17 @@ export function firstDifference(expected: string, actual: string): string {
 /** Run-specific ids and salted hashes: a prefix of letters and an underscore, then 12 or more hex digits (or a UUID). */
 const ID_TOKEN = /^(?:[a-z]{1,12}_)?[0-9a-f]{12,}$|^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu;
 
+/** Wall-clock times (ISO 8601) that reach a model's input directly, such as a dataset receipt's fetchedAt. */
+const TIMESTAMP = /\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})/gu;
+
+function timestampAt(text: string, index: number): string {
+  for (const match of text.matchAll(TIMESTAMP)) {
+    if (match.index > index) break;
+    if (index < match.index + match[0].length) return match[0];
+  }
+  return "";
+}
+
 function tokenAt(text: string, index: number): string {
   let start = index;
   let end = index;
@@ -146,18 +157,25 @@ function tokenAt(text: string, index: number): string {
 
 /**
  * Where a replay's text differs from the recorded text only by run-specific ids (agent and receipt ids,
- * board ids, salted commitments), learns each pair so the model can be shown the recorded one. Stops at the
- * first difference that is not an id of the same shape.
+ * board ids, salted commitments) or wall-clock timestamps, learns each pair so the model can be shown the
+ * recorded one. Stops at the first difference that is not an id or a timestamp of the same shape.
  */
 function learnIds(expected: string, actual: string, ids: Map<string, string>, limit = 200): void {
   let current = actual;
   for (let round = 0; round < limit && current !== expected; round += 1) {
     let index = 0;
     while (index < expected.length && index < current.length && expected[index] === current[index]) index += 1;
-    const want = tokenAt(expected, index);
-    const got = tokenAt(current, index);
     const shape = (token: string): string => token.replace(/[0-9a-f]/giu, "x");
-    if (!want || !got || want === got || !ID_TOKEN.test(want) || !ID_TOKEN.test(got) || shape(want) !== shape(got)) return;
+    const wantTime = timestampAt(expected, index);
+    const gotTime = timestampAt(current, index);
+    let want = wantTime;
+    let got = gotTime;
+    if (!wantTime || !gotTime || shape(wantTime) !== shape(gotTime)) {
+      want = tokenAt(expected, index);
+      got = tokenAt(current, index);
+      if (!ID_TOKEN.test(want) || !ID_TOKEN.test(got) || shape(want) !== shape(got)) return;
+    }
+    if (!want || !got || want === got) return;
     ids.set(got, want);
     current = current.split(got).join(want);
   }

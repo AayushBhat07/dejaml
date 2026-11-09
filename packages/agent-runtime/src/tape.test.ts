@@ -52,6 +52,7 @@ class DeterministicModel implements ChatProvider {
 }
 
 const stores: RunStore[] = [];
+let clock = 0;
 afterEach(() => {
   while (stores.length) stores.pop()!.close();
 });
@@ -84,7 +85,12 @@ async function run(shown: number, tape: RunTape, options: { drift?: boolean } = 
     label: "engineer-1",
     instructions: "Measure.",
     objective: "Report the number.",
-    inputs: { note: `shown ${shown.toFixed(2)}`, runId },
+    // A wall-clock time in the task input, as a dataset receipt's fetchedAt is; it differs between runs.
+    inputs: {
+      note: `shown ${shown.toFixed(2)}`,
+      runId,
+      fetchedAt: new Date(Date.UTC(2026, 10, 9, 15, 27, 53) + ++clock * 1201).toISOString(),
+    },
     grants: ["lab_run_official"],
     result: { schema: Result, description: "The number." },
     provider: { id: "scripted", model: "deterministic" },
@@ -111,7 +117,7 @@ describe("record and replay", () => {
     const report = replay.report()!;
     expect(report.divergences).toEqual([]);
     expect(report.identical).toBe(true);
-    // The model read the recorded run's ids, byte for byte.
+    // The model read the recorded run's ids and times, byte for byte.
     expect(second.model.seen).toEqual(first.model.seen);
   });
 
