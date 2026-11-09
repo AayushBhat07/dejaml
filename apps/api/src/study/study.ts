@@ -88,7 +88,7 @@ import {
   shownTarget,
   type StudyCondition,
 } from "./condition.js";
-import { canonicalJson, reconcile, reviewPolicy, TOLERANCE } from "./contract.js";
+import { canonicalJson, checkExcerpt, reconcile, reviewPolicy, TOLERANCE } from "./contract.js";
 import { measureIntegrity, orchestratorActor, runInLab } from "./lab-tools.js";
 import { convertUnit, parseMetric } from "./metric.js";
 import {
@@ -1029,7 +1029,18 @@ export async function runMultiAgentStudy(
             repositoryCandidates: urls,
             ...(target ? { reviewedTarget: paperAnalystTarget(target) } : {}),
           },
-          schema: PaperClaimResultSchema,
+          // A ready claim's excerpt is checked against the page when the analyst finishes, so a paraphrased or
+          // shortened excerpt comes back to the analyst to fix instead of failing plan review later.
+          schema: PaperClaimResultSchema.superRefine((result, issues) => {
+            if (result.status !== "ready" || !result.claim) return;
+            const problem = checkExcerpt(result.claim, ctx.paper.pages);
+            if (problem)
+              issues.addIssue({
+                code: "custom",
+                path: ["claim", "excerpt"],
+                message: `${problem}. Copy the excerpt character for character from that page (no "...", no reformatting).`,
+              });
+          }),
         });
         const outcome = await handle.done;
         const result = outcome.status === "completed" ? (outcome.result ?? null) : null;

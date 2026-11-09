@@ -61,6 +61,8 @@ class SentinelProvider implements ChatProvider {
   plans = 0;
   /** The first blind review rejects the run and the Supervisor asks for one re-plan. */
   rejectFirstReview = false;
+  /** The Paper Analyst first submits a shortened excerpt ("..."), as Kimi did, and must fix it. */
+  shortenExcerptFirst = false;
   #reviews = 0;
   #replanned = false;
   #officialReceipt: string | null = null;
@@ -129,7 +131,10 @@ class SentinelProvider implements ChatProvider {
             reportedValue: SENTINEL,
             page: 1,
             location: "Table 2",
-            excerpt: `BOSS accuracy of ${SENTINEL} on the GunPoint`,
+            excerpt:
+              this.shortenExcerptFirst && turn === 1
+                ? `BOSS accuracy ... ${SENTINEL} on the GunPoint`
+                : `BOSS accuracy of ${SENTINEL} on the GunPoint`,
             missingFields: [],
           },
           reasons: [],
@@ -360,6 +365,7 @@ async function study(
     openLabEdits?: ScriptedRuntime["openLabEdits"];
     planRevision?: boolean;
     rejectFirstReview?: boolean;
+    shortenExcerptFirst?: boolean;
     tape?: RunTape;
   },
 ) {
@@ -371,6 +377,7 @@ async function study(
   const labs = new LabManager({ runtime, labRoot: join(work, "labs"), events: (event) => store.appendEvent(event) });
   const provider = new SentinelProvider(mode);
   if (options.rejectFirstReview) provider.rejectFirstReview = true;
+  if (options.shortenExcerptFirst) provider.shortenExcerptFirst = true;
   const { id: runId } = store.createRun({ fileName: "sentinel.pdf" });
   const controller = new AbortController();
   if (mode === "cancel_at_review") provider.onReviewer = () => controller.abort(new Error("cancelled by the user"));
@@ -747,6 +754,15 @@ describe("blinded study: the sentinel value never reaches a blind agent, the bro
     const last = result.report.engineers[0]!.edits!.map((item) => item.receiptId);
     expect(last.length).toBeGreaterThan(0);
     expect(earlier.filter((id) => last.includes(id))).toEqual([]);
+  });
+
+  it("a Paper Analyst whose excerpt is not verbatim is told so at finish and fixes it, instead of failing plan review", async () => {
+    const { result, store, runId } = await study("honest", { target: false, shortenExcerptFirst: true });
+    const analyst = store.ledger.listAgents(runId).find((agent) => agent.role === "paper_analyst")!;
+    const finishes = store.ledger.listReceipts({ agentId: analyst.id }).filter((receipt) => receipt.tool === "finish");
+    expect(finishes.map((receipt) => receipt.status)).toEqual(["error", "ok"]);
+    expect(finishes[0]!.summary).toContain("verbatim");
+    expect(result.report.result.status).not.toBe("inconclusive");
   });
 
   it("the control rerun still runs when the study is cancelled", async () => {
