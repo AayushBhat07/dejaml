@@ -1,8 +1,8 @@
 # Sub-phase 6.9 — Record and replay of agent sessions
 
-**Status:** `IN PROGRESS` (built and tested in code; first real replay on the Mac still to do)
-**Completed:** `—`
-**Commit:** `fill after the first Mac replay`
+**Status:** `DONE` (first Mac replay passed the nothing-changed gate on 9 Nov 2026)
+**Completed:** `2026-11-09`
+**Commit:** `ea20c16`, `079d903` and the commit that adds these results
 **Owner:** `aayush`
 
 ## Objective
@@ -102,7 +102,24 @@ seed 0, $0.
 - **Nothing-changed gate** (9:07 to 9:27 pm): not identical. The first four agents (48 model turns) matched
   byte for byte. The Independent Reviewer's task input carried the dataset receipt's live `fetchedAt`, which
   the replay did not map back, so its requests drifted from turn 1 and its response changed at turn 6. Same
-  outcome (79.88). Fixed afterwards: times are now learned like ids. The gate must be run again.
+  outcome (79.88). Fixed afterwards: times are now learned like ids.
+- **Gate, again** (9:33 to 9:53 pm, after the fix): **identical**. All six agents matched turn for turn
+  (5, 22, 10, 11, 9 and 3 model turns), zero divergences, the same token totals (64,261 in, 3,907 out) and
+  the same outcome. Six environmentDrift entries (durations, free disk space), all frozen.
+- **Counterfactual** (9:54 to 10:14 pm): the decoy arm (down, 4 tolerances, shows 77.66) replaying the sighted
+  tape with the substitution `\"value\": 81.66,` => `\"value\": 77.66,`, which matches all 30 places the
+  agents were shown the number and none of the paper's own text. Request drift 0. Two behaviour
+  divergences:
+  - the Lab Engineer's finish call at turn 11 (same status, receipt and deviations; only the summary
+    wording changed, and all 10 tool calls matched);
+  - the Independent Reviewer at turn 6 (`repo_list` of the data folder instead of `board_read`; 8 turns
+    instead of 9). The first gate diverged at the same turn with the same call when only a timestamp
+    differed, so this is a fragile choice point rather than evidence that the number steered it.
+
+  Same result as the recording: 79.88, not reproduced, no file edits, no re-plans. Changing the shown number
+  from 81.66 to 77.66 changed no action that affects the result.
+- The `<runId>.replay.json` file was last written at a divergence, so it could miss the final turns. It is now
+  rewritten after every model turn. The study report always had the complete comparison.
 
 ## Next
 

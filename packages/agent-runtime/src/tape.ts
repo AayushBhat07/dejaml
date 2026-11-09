@@ -384,6 +384,8 @@ export function replayTape(
               }
             }
           }
+          // Keep the written comparison current after every turn, not only at a divergence, so it ends complete.
+          options.onReport?.(report());
           // Provider call ids are not part of the behaviour: on script they are set to the recorded ones, so later requests match.
           const callIds = expected && seen.onScript ? expected.response.toolCalls.map((call) => call.id) : [];
           return {

@@ -6,7 +6,7 @@ import { z } from "zod";
 
 import type { ChatProvider, ChatRequest, ChatResponse } from "./providers/types.js";
 import { BoundedAgentRuntime } from "./runtime.js";
-import { parseTape, recordingTape, replayTape, type RunTape, type TapeEntry } from "./tape.js";
+import { parseTape, recordingTape, replayTape, type ReplayReport, type RunTape, type TapeEntry } from "./tape.js";
 import { defineTool } from "./tools.js";
 
 const Result = z.object({ answer: z.string() });
@@ -110,9 +110,12 @@ describe("record and replay", () => {
     const recorded = parseTape(lines.join("\n"));
     expect(recorded.filter((entry) => entry.kind === "model")).toHaveLength(2);
 
-    const replay = replayTape(recorded);
+    const written: ReplayReport[] = [];
+    const replay = replayTape(recorded, { onReport: (report) => written.push(report) });
     const second = await run(77.66, replay);
     expect(second.runId).not.toBe(first.runId);
+    // The last written comparison is the complete one, with no agent left "not reached".
+    expect(written.at(-1)).toEqual(replay.report());
     expect(second.outcome.result).toEqual({ answer: "final 79.88" });
     const report = replay.report()!;
     expect(report.divergences).toEqual([]);
