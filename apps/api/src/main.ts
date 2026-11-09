@@ -15,6 +15,7 @@ import { DEFAULT_STUDY_RESOURCES } from "./pipeline.js";
 import { environmentSecrets, withSecrets } from "./boundaries.js";
 import { createApiServer, recoverAfterRestart } from "./server.js";
 import { loadReviewedTargets, localDatasetPort, preparerPort, readinessLabImagePort } from "./study/index.js";
+import { tapeFromEnv } from "./study/tape-files.js";
 
 const projectRoot = resolve(fileURLToPath(new URL("../../../", import.meta.url)));
 const dataDir = resolve(process.env.DEJAML_DATA_DIR ?? join(projectRoot, "artifacts", "api"));
@@ -67,6 +68,7 @@ const trustedConstraints = (
 // Reviewed claim targets are server-owned files; each adapter is checked against its reviewed hash here.
 const reviewedTargets = await loadReviewedTargets(join(projectRoot, "config/reviewed-targets"), projectRoot);
 const datasetHosts = parseAllowedHosts(process.env.DEJAML_DATASET_ALLOWED_HOSTS ?? "");
+const tape = tapeFromEnv(process.env);
 const number = (name: string, fallback: number): number => {
   const value = Number(process.env[name] ?? "");
   return Number.isFinite(value) && value > 0 ? value : fallback;
@@ -105,6 +107,7 @@ const api = createApiServer({
     dependencies: prep ? preparerPort(prep) : null,
     images: readinessLabImagePort({ readiness, lock: baseImages, contextDir: join(projectRoot, "lab-images/python-base") }),
     datasets: datasetHosts.length ? localDatasetPort({ ...DEFAULT_DATASET_POLICY, allowedHosts: datasetHosts }) : null,
+    ...(tape ? { tape } : {}),
     config: {
       platform,
       resources: {

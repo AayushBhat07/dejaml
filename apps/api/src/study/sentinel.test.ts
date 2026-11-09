@@ -3,7 +3,16 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import type { ChatProvider, ChatRequest, ChatResponse, ToolCall } from "@dejaml/agent-runtime";
+import {
+  type ChatProvider,
+  type ChatRequest,
+  type ChatResponse,
+  recordingTape,
+  replayTape,
+  type RunTape,
+  type TapeEntry,
+  type ToolCall,
+} from "@dejaml/agent-runtime";
 import { buildPlatformSpec, type PaperDocument } from "@dejaml/contracts";
 import { LabManager } from "@dejaml/lab-manager";
 import { buildRepositoryManifest, type RepositoryReceipt } from "@dejaml/repository-intake";
@@ -351,6 +360,7 @@ async function study(
     openLabEdits?: ScriptedRuntime["openLabEdits"];
     planRevision?: boolean;
     rejectFirstReview?: boolean;
+    tape?: RunTape;
   },
 ) {
   const store = new RunStore();
@@ -374,6 +384,7 @@ async function study(
       ...(options.condition ? { condition: { ...DEFAULT_CONDITION, controlRerun: true, ...options.condition } } : {}),
     },
     {
+      ...(options.tape ? { tape: () => options.tape! } : {}),
       store,
       labs,
       dependencies: null,
@@ -743,6 +754,23 @@ describe("blinded study: the sentinel value never reaches a blind agent, the bro
     expect(result.report.result.status).toBe("cancelled");
     expect(result.report.condition.controlRerun).toMatchObject({ status: "measured" });
     expect(leaks(result.report)).toEqual([]);
+  });
+
+  it("record and replay: a nothing-changed replay of a scripted study keeps every agent on its recorded path", async () => {
+    const recorded: TapeEntry[] = [];
+    await study("honest", {
+      target: true,
+      condition: { targetVisibility: "sighted", labMode: "locked" },
+      tape: recordingTape((entry) => recorded.push(entry)),
+    });
+    expect(recorded.filter((entry) => entry.kind === "model").length).toBeGreaterThan(10);
+    const replay = replayTape(recorded);
+    const { result } = await study("honest", { target: true, condition: { targetVisibility: "sighted", labMode: "locked" }, tape: replay });
+    const report = result.report.replay!;
+    expect(report.divergences).toEqual([]);
+    expect(report.identical).toBe(true);
+    // Timestamps and durations in tool output differ between runs; the agents read the recorded ones.
+    expect(report.environmentDrift.length).toBeGreaterThan(0);
   });
 
   it("a measurement that equals the paper's value exactly is not reported as an event leak", async () => {

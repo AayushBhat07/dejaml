@@ -260,4 +260,4 @@ Full run (2026-11-08 19:53-20:19 IST, `run_4dcb0967`, Sonnet 5.5, $2.21):
 
 ## Next sub-phase
 
-`6.9 — Record and replay of agent sessions`
+`6.9 — Record and replay of agent sessions` (see `subphase-06-09-record-replay.md`)

@@ -6,6 +6,7 @@ import { z } from "zod";
 import { parseToolInput } from "./argument-repair.js";
 import { EvidenceBoard } from "./board.js";
 import type { ChatMessage, ChatProvider, ToolCall } from "./providers/types.js";
+import type { RunTape } from "./tape.js";
 import { ProviderError } from "./providers/types.js";
 import {
   type AgentRole,
@@ -157,6 +158,8 @@ export type BoundedRuntimeOptions = {
    * equal the paper's value.
    */
   requestGuard?: (agent: { runId: string; agentId: string; role: AgentRole }, text: string) => string | null;
+  /** Records the run's model exchanges and tool results, or replays a recorded run against this one (see ./tape.ts). */
+  tape?: RunTape;
 };
 
 type Live = {
@@ -363,6 +366,9 @@ export class BoundedAgentRuntime implements AgentRuntime {
     const specs = [...tools, finishTool, giveUpTool].map(toolSpec);
     const finishOnlySpecs = [finishTool, giveUpTool].map(toolSpec);
     const system = systemPrompt(role, task.instructions);
+    const tape = this.#options.tape?.forAgent({ runId: record.runId, agentId, role, label: task.label }) ?? null;
+    const chat = (request: Parameters<typeof provider.chat>[0]) =>
+      tape ? tape.chat(request, (sent) => provider.chat(sent)) : provider.chat(request);
     // Wall time counts from this launch; a resumed agent gets a fresh window.
     const started = Date.now();
     let usage = record.usage;
@@ -427,7 +433,7 @@ export class BoundedAgentRuntime implements AgentRuntime {
         const remainingOutput = limits.maxOutputTokens - usage.outputTokens;
         let response: Awaited<ReturnType<typeof provider.chat>>;
         try {
-          response = await provider.chat({
+          response = await chat({
             model: record.model,
             system,
             messages,
@@ -591,31 +597,38 @@ export class BoundedAgentRuntime implements AgentRuntime {
             continue;
           }
           this.#emit({ agentId, type: "tool_call", receiptId: receipt.id, tool: call.name, input: call.input });
+          const context: ToolContext = {
+            runId: record.runId,
+            agentId,
+            role,
+            signal,
+            board: this.board(record.runId),
+            receiptId: receipt.id,
+          };
+          // A failed or refused tool is still a result the model reads, so a tape records it like any other.
+          const execute = async (): Promise<ToolResult> => {
+            try {
+              return await tool.run(parsed.data, context);
+            } catch (error) {
+              if (signal.aborted) throw error;
+              const denied = error instanceof ToolDenied;
+              const message = (error instanceof Error ? error.message : String(error)).slice(0, 2_000);
+              return {
+                content: `${denied ? "DENIED" : "ERROR"}: ${message}`,
+                summary: message.slice(0, 200),
+                isError: true,
+                status: denied ? "denied" : "error",
+              };
+            }
+          };
           let result: ToolResult;
           try {
-            const context: ToolContext = {
-              runId: record.runId,
-              agentId,
-              role,
-              signal,
-              board: this.board(record.runId),
-              receiptId: receipt.id,
-            };
-            result = await tool.run(parsed.data, context);
+            result = tape ? await tape.tool(call, receipt.id, execute) : await execute();
           } catch (error) {
-            if (signal.aborted) {
-              this.#finishReceipt(receipt, "error", "cancelled", { error: "cancelled" });
-              turn(call, "Cancelled.", true);
-              continue;
-            }
-            const denied = error instanceof ToolDenied;
-            const message = (error instanceof Error ? error.message : String(error)).slice(0, 2_000);
-            result = {
-              content: `${denied ? "DENIED" : "ERROR"}: ${message}`,
-              summary: message.slice(0, 200),
-              isError: true,
-              status: denied ? "denied" : "error",
-            };
+            if (!signal.aborted) throw error;
+            this.#finishReceipt(receipt, "error", "cancelled", { error: "cancelled" });
+            turn(call, "Cancelled.", true);
+            continue;
           }
           const status = result.status ?? (result.isError ? "error" : "ok");
           const note = decodedNote(parsed.decoded);

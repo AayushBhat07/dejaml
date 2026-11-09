@@ -4,7 +4,15 @@ import { chmod, mkdir, mkdtemp, readdir, rm, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { promisify } from "node:util";
 
-import { type AgentOutcome, type AgentRole, BoundedAgentRuntime, type ChatProvider, ROLE_LABELS } from "@dejaml/agent-runtime";
+import {
+  type AgentOutcome,
+  type AgentRole,
+  BoundedAgentRuntime,
+  type ChatProvider,
+  type ReplayReport,
+  ROLE_LABELS,
+  type RunTape,
+} from "@dejaml/agent-runtime";
 import type {
   Assessment,
   Attempt,
@@ -207,6 +215,8 @@ export type MultiAgentDependencies = {
   leakCheck?: LeakCheck;
   /** This process as a stage owner; defaults to a fresh id. */
   owner?: string;
+  /** Records the run's agent sessions, or replays a recorded run against it (sub-phase 6.9). */
+  tape?: (runId: string) => RunTape;
 };
 
 export type AgentSummary = {
@@ -311,6 +321,8 @@ export type MultiAgentReport = {
     liveAgents: string[];
     verified: boolean;
   };
+  /** Replay only: how this run compared with the recorded one (sub-phase 6.9). */
+  replay?: ReplayReport;
 };
 
 export type BlindingReport = {
@@ -550,8 +562,10 @@ export async function runMultiAgentStudy(
   // The number this study's condition shows the execution agents (null when blind), and the salt of its public hash.
   let shown = null as ShownTarget | null;
   let shownSalt = "";
+  const tape = deps.tape?.(runId);
   const runtime = new BoundedAgentRuntime({
     store,
+    ...(tape ? { tape } : {}),
     provider: () => deps.chatProvider,
     tools: (agent) => buildStudyTools(ctx, agent),
     resultSchema: resultSchemaFor,
@@ -2611,6 +2625,7 @@ export async function runMultiAgentStudy(
       },
       usage,
       cleanup,
+      ...(tape?.report() ? { replay: tape.report()! } : {}),
     };
   }
 }
