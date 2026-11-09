@@ -253,6 +253,15 @@ describe("Cheaper Inference over the guarded fetch", () => {
     expect(res.attempts).toBe(1);
   });
 
+  it("records the cost the gateway reports (it includes the prompt-cache discount) instead of estimating one", async () => {
+    const billed = { ...COMPLETION, usage: { ...COMPLETION.usage, cost: 0.00096 } };
+    const gw = await gateway((res) => json(res, 200, billed));
+    const provider = createChatProvider(loadProviderConfig(ENV), "cheaper_inference", MODEL, { netGuard: gw.netGuard });
+    const res = await provider.chat(request(MODEL));
+    expect(res.usage).toMatchObject({ inputTokens: 200, cacheReadTokens: 1000, reportedCostUsd: 0.00096 });
+    expect(res.costUsd).toBe(0.00096);
+  });
+
   it("ignores every other endpoint setting: OpenAI and custom base URLs never redirect it", async () => {
     const gw = await gateway((res) => json(res, 200, COMPLETION));
     const config = loadProviderConfig({

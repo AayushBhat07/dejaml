@@ -58,6 +58,8 @@ export type TokenUsage = {
   outputTokens: number;
   cacheReadTokens?: number;
   cacheWriteTokens?: number;
+  /** What the provider says it billed for this call, when it reports one (Cheaper Inference: `usage.cost`). */
+  reportedCostUsd?: number;
 };
 
 export type ChatResponse = {

@@ -467,6 +467,7 @@ export class BoundedAgentRuntime implements AgentRuntime {
           iterations: usage.iterations + 1,
           inputTokens: usage.inputTokens + response.usage.inputTokens,
           outputTokens: usage.outputTokens + response.usage.outputTokens,
+          cacheReadTokens: (usage.cacheReadTokens ?? 0) + (response.usage.cacheReadTokens ?? 0),
           costUsd: usage.costUsd === null || response.costUsd === null ? null : usage.costUsd + response.costUsd,
           providerAttempts: usage.providerAttempts + response.attempts,
         };

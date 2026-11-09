@@ -179,6 +179,8 @@ function parseUsage(raw: unknown): TokenUsage {
   const cached = isRecord(details) ? num(details["cached_tokens"]) : 0;
   const usage: TokenUsage = { inputTokens: Math.max(0, prompt - cached), outputTokens: num(raw["completion_tokens"]) };
   if (cached > 0) usage.cacheReadTokens = cached;
+  const cost = raw["cost"];
+  if (typeof cost === "number" && Number.isFinite(cost) && cost >= 0) usage.reportedCostUsd = cost;
   return usage;
 }
 
@@ -298,7 +300,10 @@ class OpenAIWireProvider implements ChatProvider {
     return {
       ...value,
       attempts,
-      costUsd: estimateCostUsd(value.usage, priceFor(value.model, this.#prices) ?? priceFor(request.model, this.#prices)),
+      // The provider's own billed cost when it reports one (it includes cache discounts); otherwise the price table.
+      costUsd:
+        value.usage.reportedCostUsd ??
+        estimateCostUsd(value.usage, priceFor(value.model, this.#prices) ?? priceFor(request.model, this.#prices)),
     };
   }
 

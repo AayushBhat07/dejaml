@@ -310,7 +310,15 @@ export type MultiAgentReport = {
     absoluteDifference: number | null;
     tolerance: number | null;
   };
-  usage: { inputTokens: number; outputTokens: number; costUsd: number | null; providerAttempts: number; toolCalls: number };
+  usage: {
+    inputTokens: number;
+    outputTokens: number;
+    /** Input tokens served from the provider's prompt cache, apart from `inputTokens`. */
+    cacheReadTokens: number;
+    costUsd: number | null;
+    providerAttempts: number;
+    toolCalls: number;
+  };
   cleanup: {
     labs: CleanupReceipt[];
     dependenciesRemoved: boolean;
@@ -2528,11 +2536,12 @@ export async function runMultiAgentStudy(
       (total, agent) => ({
         inputTokens: total.inputTokens + agent.usage.inputTokens,
         outputTokens: total.outputTokens + agent.usage.outputTokens,
+        cacheReadTokens: total.cacheReadTokens + (agent.usage.cacheReadTokens ?? 0),
         costUsd: total.costUsd === null || agent.usage.costUsd === null ? null : total.costUsd + agent.usage.costUsd,
         providerAttempts: total.providerAttempts + agent.usage.providerAttempts,
         toolCalls: total.toolCalls + agent.usage.toolCalls,
       }),
-      { inputTokens: 0, outputTokens: 0, costUsd: 0 as number | null, providerAttempts: 0, toolCalls: 0 },
+      { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, costUsd: 0 as number | null, providerAttempts: 0, toolCalls: 0 },
     );
     const adapter = planOut?.plan?.adapter ?? null;
     const representative = decision!.representative;
