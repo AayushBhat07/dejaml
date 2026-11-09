@@ -4,3 +4,4 @@ export * from "./runtime.js";
 export * from "./tools.js";
 export * from "./testing.js";
 export * from "./providers/index.js";
+export * from "./tape.js";

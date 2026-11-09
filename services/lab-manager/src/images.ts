@@ -128,7 +128,7 @@ type Flight = {
 };
 
 type Inspection =
-  | { kind: "missing" }
+  | { kind: "missing"; detail?: string }
   /** The reference exists locally, but not for the requested platform. */
   | { kind: "other_platform"; imageId: string; platform: string | null }
   | { kind: "found"; imageId: string; digest: string | null; repoDigests: string[]; os: string; architecture: string };
@@ -295,6 +295,7 @@ export class ImageReadiness {
       "image_missing",
       `image ${request.reference} is not present locally for ${request.platform}, and neither a pull nor a build is allowed`,
       request,
+      present.kind === "missing" ? present.detail : undefined,
     );
   }
 
@@ -326,10 +327,26 @@ export class ImageReadiness {
    * content is present.
    */
   async #inspect(request: ImageRequest, signal: AbortSignal): Promise<Inspection> {
-    const plain = await this.#inspectOnce(request, null, signal);
-    if (!plain) return { kind: "missing" };
+    const answer = { stderr: "" };
+    let plain = await this.#inspectOnce(request, null, signal, answer);
+    if (!plain) {
+      // Docker Desktop has answered "No such image" now and then for an image that is present.
+      // Ask once more before calling it missing, and keep Docker's answer for the error.
+      await this.#sleep(this.#backoffMs, request, signal);
+      plain = await this.#inspectOnce(request, null, signal, answer);
+    }
+    let lookup = request;
+    if (!plain) {
+      // Still "No such image": find the image by its repository digest in the image list and inspect it by ID.
+      const id = await this.#imageIdByDigest(request, signal);
+      if (id) {
+        lookup = { ...request, reference: id };
+        plain = await this.#inspectOnce(lookup, null, signal, answer);
+      }
+    }
+    if (!plain) return { kind: "missing", detail: `docker image inspect ${inspectReference(request.reference)}: ${answer.stderr.trim()}` };
     const plainPlatform = plain.Os && plain.Architecture ? `${plain.Os}/${plain.Architecture}` : null;
-    const specific = await this.#inspectOnce(request, request.platform, signal).catch((error: unknown) => {
+    const specific = await this.#inspectOnce(lookup, request.platform, signal).catch((error: unknown) => {
       if (error instanceof ImageNotReadyError && (error.code === "cancelled" || error.code === "timeout")) throw error;
       return null;
     });
@@ -339,10 +356,36 @@ export class ImageReadiness {
     return { kind: "other_platform", imageId: String(plain.Id), platform: plainPlatform };
   }
 
-  async #inspectOnce(request: ImageRequest, platform: ContainerPlatform | null, signal: AbortSignal): Promise<DockerImageInfo | null> {
+  /** The local image ID whose repository digest is the pinned one, from `docker image ls --digests`; null when none. */
+  async #imageIdByDigest(request: ImageRequest, signal: AbortSignal): Promise<string | null> {
+    const pinned = /^(.+)@(sha256:[a-f0-9]{64})$/u.exec(inspectReference(request.reference));
+    if (!pinned?.[1] || !pinned[2]) return null;
+    const [name, digest] = [pinned[1], pinned[2]];
     const { result } = await this.#step(
       request,
-      ["image", "inspect", ...(platform ? ["--platform", platform] : []), "--format", "{{json .}}", request.reference],
+      ["image", "ls", "--digests", "--no-trunc", "--format", "{{.Repository}}|{{.Digest}}|{{.ID}}"],
+      this.#inspectTimeoutMs,
+      signal,
+      1024 * 1024,
+    );
+    if (result.exitCode !== 0) return null;
+    const short = (repository: string): string => repository.replace(/^(?:docker\.io\/)?(?:library\/)?/u, "");
+    for (const line of result.stdout.text.split("\n")) {
+      const [repository = "", found = "", id = ""] = line.trim().split("|");
+      if (found === digest && short(repository) === short(name) && IMAGE_ID_PATTERN.test(id)) return id;
+    }
+    return null;
+  }
+
+  async #inspectOnce(
+    request: ImageRequest,
+    platform: ContainerPlatform | null,
+    signal: AbortSignal,
+    answer?: { stderr: string },
+  ): Promise<DockerImageInfo | null> {
+    const { result } = await this.#step(
+      request,
+      ["image", "inspect", ...(platform ? ["--platform", platform] : []), "--format", "{{json .}}", inspectReference(request.reference)],
       this.#inspectTimeoutMs,
       signal,
       1024 * 1024,
@@ -350,7 +393,10 @@ export class ImageReadiness {
     if (result.exitCode !== 0) {
       // Only "no such image" means absent. Anything else (an unreachable daemon, a
       // permission error) is reported as it is, never as a missing image.
-      if (/no such image|not found|does not match the specified platform/iu.test(result.stderr.text)) return null;
+      if (/no such image|not found|does not match the specified platform/iu.test(result.stderr.text)) {
+        if (answer) answer.stderr = result.stderr.text;
+        return null;
+      }
       throw this.#error("runtime_error", `image inspect failed for ${request.reference}`, request, result.stderr.text);
     }
     try {
@@ -553,6 +599,21 @@ function canonical(request: ImageRequest): unknown {
         }
       : null,
   };
+}
+
+/**
+ * The reference Docker can find a pinned image by. A pull of `name:tag@sha256:…`
+ * stores the image as `name@sha256:…` only, so inspecting the tagged form says
+ * "No such image" for an image that is present; the digest names it exactly.
+ * Local build tags and untagged references are returned unchanged.
+ */
+export function inspectReference(reference: string): string {
+  const at = reference.indexOf("@sha256:");
+  if (at < 0) return reference;
+  const name = reference.slice(0, at);
+  const lastSlash = name.lastIndexOf("/");
+  const colon = name.indexOf(":", lastSlash + 1);
+  return colon < 0 ? reference : `${name.slice(0, colon)}${reference.slice(at)}`;
 }
 
 function parseRequest(input: ImageRequest): ImageRequest {

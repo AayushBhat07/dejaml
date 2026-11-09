@@ -4,6 +4,7 @@ import { AnthropicChatProvider } from "./anthropic.js";
 import { OPENAI_DEFAULT_BASE_URL, OpenAIChatProvider, OpenAICompatibleChatProvider } from "./openai.js";
 import { DEFAULT_PRICES, PRICE_TABLE_ENV, PriceTableError, parsePriceTable } from "./pricing.js";
 import type { FetchLike, NetGuardSeams, RetryOptions } from "./retry.js";
+import type { Sampling } from "./openai.js";
 import type { ChatProvider, ModelPrice } from "./types.js";
 
 /**
@@ -24,6 +25,10 @@ export const PROVIDER_ENV = {
   customModels: "DEJAML_CUSTOM_MODELS",
   customKey: "DEJAML_CUSTOM_API_KEY",
   customLabel: "DEJAML_CUSTOM_LABEL",
+  /** Sampling temperature sent to the custom endpoint (0 to 2), for example 0 for a deterministic local model. */
+  customTemperature: "DEJAML_CUSTOM_TEMPERATURE",
+  /** Sampling seed sent to the custom endpoint (a non-negative integer). */
+  customSeed: "DEJAML_CUSTOM_SEED",
   /** Development only: plain http to a loopback custom endpoint. Refused when NODE_ENV=production. */
   customAllowLocalHttp: "DEJAML_CUSTOM_ALLOW_LOCAL_HTTP",
   /** Development only: a custom endpoint on a private network or internal name. Refused when NODE_ENV=production. */
@@ -59,13 +64,15 @@ export const CHEAPER_INFERENCE_LABEL = "Cheaper Inference";
 /**
  * The only models an administrator may enable for Cheaper Inference. The
  * others are the blinding study's cheaper comparison models (Claude Haiku 4.5
- * and 5.5, and Qwen3-Coder as a second model family); none is on by default.
+ * and 5.5, Qwen3-Coder, and Kimi K2.7 Code as a further model family); none is
+ * on by default.
  */
 export const CHEAPER_INFERENCE_ALLOWED_MODELS: readonly string[] = Object.freeze([
   "claude-sonnet-5.5",
   "claude-haiku-4.5",
   "claude-haiku-5.5",
   "qwen3-coder-30b-a3b",
+  "kimi-k2.7-code",
 ]);
 export const DEFAULT_CHEAPER_INFERENCE_MODELS: readonly string[] = Object.freeze(["claude-sonnet-5.5"]);
 export const CHEAPER_INFERENCE_ENDPOINT_ENV: readonly string[] = Object.freeze([
@@ -101,6 +108,8 @@ export type ProviderConfig = {
   readonly endpointAccess?: EndpointAccess;
   /** Plain http to a loopback custom endpoint (development only). */
   readonly allowHttp?: boolean;
+  /** Fixed sampling settings (`custom` only). */
+  readonly sampling?: Readonly<Sampling>;
   readonly hasServerKey: boolean;
   readonly available: boolean;
 };
@@ -188,6 +197,23 @@ function parseKey(env: Env, name: string, problems: string[]): string | undefine
     return undefined;
   }
   return v;
+}
+
+function parseSampling(env: Env, problems: string[]): Sampling {
+  const sampling: Sampling = {};
+  const temperature = read(env, PROVIDER_ENV.customTemperature);
+  if (temperature !== undefined) {
+    const value = Number(temperature);
+    if (/^\d+(\.\d+)?$/u.test(temperature) && value <= 2) sampling.temperature = value;
+    else problems.push(`${PROVIDER_ENV.customTemperature} must be a number from 0 to 2`);
+  }
+  const seed = read(env, PROVIDER_ENV.customSeed);
+  if (seed !== undefined) {
+    const value = Number(seed);
+    if (/^\d{1,15}$/u.test(seed) && Number.isSafeInteger(value)) sampling.seed = value;
+    else problems.push(`${PROVIDER_ENV.customSeed} must be a non-negative integer`);
+  }
+  return sampling;
 }
 
 const LOCAL_HOSTS = new Set(["127.0.0.1", "localhost", "[::1]"]);
@@ -378,6 +404,7 @@ export function loadProviderConfig(env: Env): LoadedProviderConfig {
     const access: EndpointAccess = allowPrivate ? "private" : allowLocalHttp ? "loopback" : "public";
     const key = parseKey(env, PROVIDER_ENV.customKey, problems);
     const label = read(env, PROVIDER_ENV.customLabel);
+    const sampling = parseSampling(env, problems);
     if (rawBase !== undefined || rawModels !== undefined) {
       if (rawBase === undefined) problems.push(`${PROVIDER_ENV.customBaseUrl} is required when ${PROVIDER_ENV.customModels} is set`);
       if (rawModels === undefined) problems.push(`${PROVIDER_ENV.customModels} is required when ${PROVIDER_ENV.customBaseUrl} is set`);
@@ -399,6 +426,7 @@ export function loadProviderConfig(env: Env): LoadedProviderConfig {
             baseUrl,
             endpointAccess: access,
             allowHttp: allowLocalHttp,
+            ...(Object.keys(sampling).length ? { sampling } : {}),
             hasServerKey: key !== undefined,
             available: true,
           },
@@ -406,7 +434,7 @@ export function loadProviderConfig(env: Env): LoadedProviderConfig {
         );
       }
     } else {
-      for (const name of [PROVIDER_ENV.customKey, PROVIDER_ENV.customLabel]) {
+      for (const name of [PROVIDER_ENV.customKey, PROVIDER_ENV.customLabel, PROVIDER_ENV.customTemperature, PROVIDER_ENV.customSeed]) {
         if (read(env, name) !== undefined) problems.push(`${name} is set but ${PROVIDER_ENV.customBaseUrl} is not`);
       }
     }
@@ -551,6 +579,7 @@ export function createChatProvider(
         label: provider.label,
         access: provider.endpointAccess ?? "public",
         allowHttp: provider.allowHttp === true,
+        ...(provider.sampling !== undefined ? { sampling: provider.sampling } : {}),
         ...(options.netGuard !== undefined ? { netGuard: options.netGuard } : {}),
       });
   }

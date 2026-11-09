@@ -345,6 +345,9 @@ export function extractProviderError(bodyText: string): { type?: string; message
   return trimmed ? { message: trimmed } : {};
 }
 
+/** Server messages that mean the model's output could not be parsed as a tool call. */
+const INVALID_TOOL_CALL = /error parsing tool call|failed to parse tool call|invalid tool call/iu;
+
 export function httpError(
   providerLabel: string,
   status: number,
@@ -355,10 +358,20 @@ export function httpError(
   const { type, message } = extractProviderError(bodyText);
   let code = statusToCode(status);
   if (type === "overloaded_error") code = "overloaded";
+  // A local server (Ollama) that cannot parse the model's tool call answers 500. Resending the same
+  // request repeats the same output under fixed sampling, so it is not retried here.
+  const invalidToolCall = status >= 500 && INVALID_TOOL_CALL.test(message ?? "");
+  if (invalidToolCall) code = "invalid_tool_call";
   const retryAfterMs = parseRetryAfter(headers) ?? (status === 429 ? parseRateLimitReset(headers) : undefined);
   // Both providers may say explicitly whether a request is worth retrying.
   const shouldRetry = headers.get("x-should-retry")?.trim().toLowerCase();
-  const retryable = shouldRetry === "true" ? true : shouldRetry === "false" ? false : RETRYABLE_STATUSES.has(status);
+  const retryable = invalidToolCall
+    ? false
+    : shouldRetry === "true"
+      ? true
+      : shouldRetry === "false"
+        ? false
+        : RETRYABLE_STATUSES.has(status);
   const text = redact(`${providerLabel} HTTP ${status}${type ? ` ${type}` : ""}${message ? `: ${message}` : ""}`, secrets);
   return new ProviderError(code, truncate(text), {
     status,

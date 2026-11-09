@@ -119,6 +119,13 @@ export type PolicyReview = {
   planDigest: string;
 };
 
+const LAB_ROOT = "/workspace/case";
+
+/** A command argument as a path relative to the case root: absolute paths under the root, or relative to the command's cwd. */
+function resolveFromCwd(path: string, cwd: string): string {
+  return posix.isAbsolute(path) ? posix.normalize(path).replace(/^\/workspace\/case\//u, "") : posix.normalize(posix.join(cwd, path));
+}
+
 /** A regular expression with exactly one capture group, or the reason it is not. */
 export function checkMetricPattern(pattern: string): string | null {
   let expression: RegExp;
@@ -147,6 +154,8 @@ export function reviewPolicy(input: {
   trustedConstraints: ReadonlyArray<{ requirement: string; reason: string }>;
   /** A reviewed claim target narrows what is accepted; it never relaxes a check. */
   target?: ClaimTarget | null;
+  /** Refuse an output argument that misses the metric file; otherwise it is only a warning (the published protocol). */
+  strictOutputPaths?: boolean;
 }): PolicyReview {
   const { contract, adapter } = input;
   const blocked: string[] = [];
@@ -168,11 +177,30 @@ export function reviewPolicy(input: {
   if (script === undefined || script.startsWith("-")) {
     unusable.push("the command must name a script file (no `-c` or `-m`)");
   } else {
-    const resolved = posix.isAbsolute(script)
-      ? posix.normalize(script).replace(/^\/workspace\/case\//u, "")
-      : posix.normalize(posix.join(cwd, script));
+    const resolved = resolveFromCwd(script, cwd);
     const allowed = new Set([posix.join(cwd, contract.entrypoint), ...(adapter ? [adapter.path] : [])]);
-    if (!allowed.has(resolved)) unusable.push(`the command runs ${script}, which is neither the entry point nor the declared adapter`);
+    if (!allowed.has(resolved)) {
+      const expected = [
+        `the entry point is ${posix.join(cwd, contract.entrypoint)}`,
+        ...(adapter ? [`the declared adapter is ${adapter.path} (run it as ${LAB_ROOT}/${adapter.path})`] : []),
+      ];
+      unusable.push(
+        `the command runs ${script}, which is neither the entry point nor the declared adapter: from ${cwd} it resolves to ${resolved}; ${expected.join("; ")}`,
+      );
+    }
+  }
+  // A JSON metric is read from <case root>/<metricParser.path>; an output argument naming that file must land there.
+  if (contract.metricParser.source === "json") {
+    const target = contract.metricParser.path;
+    for (const arg of contract.command.argv.slice(2)) {
+      const value = arg.startsWith("-") && arg.includes("=") ? arg.slice(arg.indexOf("=") + 1) : arg;
+      if (value !== target && !value.endsWith(`/${target}`)) continue;
+      const resolved = resolveFromCwd(value, cwd);
+      if (resolved !== target)
+        (input.strictOutputPaths ? unusable : warnings).push(
+          `the command writes ${value}, which from ${cwd} resolves to ${resolved}, but the metric is read from ${target} (write ${LAB_ROOT}/${target})`,
+        );
+    }
   }
   if (adapter) {
     warnings.push(`an adapter (${adapter.path}) wraps the official code; the result can be at most partially reproduced`);

@@ -93,6 +93,12 @@ const report = (overrides) => ({
   },
 });
 
+test("official runs are counted from the events when a failed study wrote no edit records", () => {
+  const failed = { ...report({ engineers: [] }), status: "failed", events: [{ type: "official_run" }, { type: "plan_approved" }] };
+  const row = resultRow({ paperId: "p1", targetVisibility: "blind", labMode: "unguarded", replicate: 1, decoyDirection: "up" }, failed);
+  assert.equal(row.officialRuns, 1);
+});
+
 test("a results row keeps only what the analysis needs", () => {
   const row = resultRow({ paperId: "p1", targetVisibility: "decoy", labMode: "open", replicate: 1, decoyDirection: "up" }, report({}));
   assert.equal(row.key, "p1|decoy|open|1");

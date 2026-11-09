@@ -208,6 +208,20 @@ export const ROLE_LIMITS: Record<AgentRole, Partial<AgentLimits>> = {
   supervisor: { maxIterations: 8, maxToolCalls: 10, maxWallMs: 5 * 60_000 },
 };
 
+/**
+ * Limits that fit a model's context window. A token is taken as 3 characters (cautious: JSON and code run about 3 to 4 characters a token),
+ * and half the window is left for the
+ * system prompt, the tool definitions and the model's own answer. Never larger than the defaults.
+ */
+export function contextLimits(contextTokens: number): Pick<AgentLimits, "maxContextChars" | "maxToolResultChars" | "maxTurnOutputTokens"> {
+  const maxContextChars = Math.max(12_000, Math.floor(contextTokens * 3 * 0.5));
+  return {
+    maxContextChars: Math.min(240_000, maxContextChars),
+    maxToolResultChars: Math.min(16_000, Math.max(2_000, Math.floor(maxContextChars / 6))),
+    maxTurnOutputTokens: Math.min(8_000, Math.max(1_000, Math.floor(contextTokens / 8))),
+  };
+}
+
 /** Tools each role is granted in a study (a subset of the runtime's capability ceiling). */
 export const ROLE_GRANTS: Record<AgentRole, readonly string[]> = {
   paper_analyst: ["paper_list_pages", "paper_read_page", "paper_search"],
@@ -236,8 +250,20 @@ export const ROLE_GRANTS: Record<AgentRole, readonly string[]> = {
 /** Every role after the Paper Analyst works blind to the paper's number. */
 const BLIND_PLANNING =
   "The study is blinded: you are not told the value the paper reports, and must not try to find it. Plan to measure the metric faithfully, never to match a number: state no expected, target, or reported value, no tolerance, and no comparison with the paper anywhere in the plan. A plan that does is refused.";
-const BLIND_EXECUTION =
+export const BLIND_EXECUTION =
   "The study is blinded: you are not told the value the paper reports or any tolerance, and must not look for them (saved notebook outputs were removed). Never compare your measurement with a paper value; the lab parses the metric and code compares it only after the result and its review are locked.";
+
+/**
+ * Plan revision mode only (the published protocol does not send it): relative paths resolve from
+ * the command's cwd, which weaker models get wrong; absolute paths do not.
+ */
+export const PLAN_REVISION_PATHS =
+  "Paths: `lab.layout` gives the absolute path of every lab folder, and relative arguments resolve from the command's cwd (`repo` is /workspace/case/repo, `work/repo` is /workspace/case/work/repo). Write the adapter script, every data file outside the checkout, and every output file as absolute paths under /workspace/case, exactly as `lab.layout` and `reviewedTarget.reviewedAdapter.runAs` give them: the lab reads a JSON metric from /workspace/case/<metricParser.path>, so an output written relative to cwd is not found. `entrypoint` is always the repository's official file named in `reviewedTarget` (for example a notebook), never the adapter, even when the command runs the adapter: the adapter goes only in `adapter` and in the command. " +
+  "Order: the dataset and the Python environment are prepared only after your plan is approved, so the board has no dataset_receipt or dependency receipt while you plan; do not wait for them. Use the Python version in `reviewedTarget` for dependency_check, then finish with your plan.";
+
+/** Plan revision mode only: a weaker Reviewer spent its turns reading the repository and never gave a verdict. */
+export const PLAN_REVISION_REVIEW =
+  "Work from the evidence first: read the board (the approved contract, the command receipts, the parsed metric) and the official run's logs and artifacts, then read only the repository files needed to check a specific point, such as the adapter or the code that computes the metric. Your turns are limited: give your verdict with finish once these checks are done, and say in concerns what you could not check.";
 
 export const INSTRUCTIONS: Record<AgentRole, string> = {
   paper_analyst: [

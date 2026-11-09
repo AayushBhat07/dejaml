@@ -102,6 +102,16 @@ describe("statusToCode / httpError", () => {
   it("marks only transient statuses retryable and truncates to 500 chars", () => {
     for (const s of [408, 409, 429, 500, 502, 503, 504, 529]) expect(httpError("X", s, "", new Headers(), []).details.retryable).toBe(true);
     for (const s of [400, 401, 403, 404, 422]) expect(httpError("X", s, "", new Headers(), []).details.retryable).toBe(false);
+    // Ollama cannot parse the model's tool call: resending the same request repeats it.
+    const parse = httpError(
+      "Local",
+      500,
+      '{"error":{"message":"error parsing tool call: raw=\'x\'","type":"api_error"}}',
+      new Headers(),
+      [],
+    );
+    expect(parse.code).toBe("invalid_tool_call");
+    expect(parse.details.retryable).toBe(false);
     const long = JSON.stringify({ error: { type: "invalid_request_error", message: "x".repeat(2000) } });
     expect(httpError("X", 400, long, new Headers(), []).message.length).toBe(500);
   });

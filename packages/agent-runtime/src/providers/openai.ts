@@ -59,7 +59,12 @@ export type OpenAICompatibleChatProviderOptions = Omit<ProviderHttpOptions, "fet
   allowHttp?: boolean;
   /** Test seams for the guarded fetch (resolver, transport, address policy). */
   netGuard?: NetGuardSeams;
+  /** Fixed sampling settings sent with every request (for example temperature 0 and a seed on a local server). */
+  sampling?: Sampling;
 };
+
+/** Sampling settings an administrator fixes for an endpoint; unset fields are left to the server. */
+export type Sampling = { temperature?: number; seed?: number };
 
 // ---------------------------------------------------------------------------
 // Wire types (subset of the Chat Completions API)
@@ -77,6 +82,8 @@ export type OpenAIRequestBody = {
   tools?: { type: "function"; function: { name: string; description: string; parameters: Record<string, unknown> } }[];
   tool_choice?: "auto";
   max_completion_tokens: number;
+  temperature?: number;
+  seed?: number;
   stream?: true;
   stream_options?: { include_usage: true };
 };
@@ -122,12 +129,14 @@ export function toOpenAIMessages(system: string, messages: ChatMessage[]): OAMes
   return out;
 }
 
-export function buildOpenAIRequestBody(request: ChatRequest): OpenAIRequestBody {
+export function buildOpenAIRequestBody(request: ChatRequest, sampling: Sampling = {}): OpenAIRequestBody {
   const body: OpenAIRequestBody = {
     model: request.model,
     messages: toOpenAIMessages(request.system, request.messages),
     max_completion_tokens: request.maxOutputTokens,
   };
+  if (sampling.temperature !== undefined) body.temperature = sampling.temperature;
+  if (sampling.seed !== undefined) body.seed = sampling.seed;
   if (request.tools.length > 0) {
     body.tools = request.tools.map((t) => ({
       type: "function",
@@ -170,6 +179,8 @@ function parseUsage(raw: unknown): TokenUsage {
   const cached = isRecord(details) ? num(details["cached_tokens"]) : 0;
   const usage: TokenUsage = { inputTokens: Math.max(0, prompt - cached), outputTokens: num(raw["completion_tokens"]) };
   if (cached > 0) usage.cacheReadTokens = cached;
+  const cost = raw["cost"];
+  if (typeof cost === "number" && Number.isFinite(cost) && cost >= 0) usage.reportedCostUsd = cost;
   return usage;
 }
 
@@ -204,6 +215,7 @@ class OpenAIWireProvider implements ChatProvider {
   readonly #retry: Omit<RetryOptions, "signal">;
   readonly #prices: Readonly<Record<string, ModelPrice>>;
   readonly #label: string;
+  readonly #sampling: Sampling;
 
   constructor(
     kind: WireKind,
@@ -213,8 +225,10 @@ class OpenAIWireProvider implements ChatProvider {
     apiKey: string | undefined,
     options: ProviderHttpOptions,
     endpoint: { access: EndpointAccess; allowHttp: boolean; seams?: NetGuardSeams | undefined },
+    sampling: Sampling = {},
   ) {
     this.kind = kind;
+    this.#sampling = { ...sampling };
     this.id = id;
     this.#label = label;
     this.#baseUrl = baseUrl.replace(/\/+$/, "");
@@ -251,7 +265,7 @@ class OpenAIWireProvider implements ChatProvider {
 
   async chat(request: ChatRequest): Promise<ChatResponse> {
     assertModelAllowed(this.#models, request.model, this.#label);
-    const body = JSON.stringify(buildOpenAIRequestBody(request));
+    const body = JSON.stringify(buildOpenAIRequestBody(request, this.#sampling));
     const url = `${this.#baseUrl}/chat/completions`;
     const headers: Record<string, string> = { "Content-Type": "application/json" };
     if (request.stream) headers["Accept"] = "text/event-stream";
@@ -286,7 +300,10 @@ class OpenAIWireProvider implements ChatProvider {
     return {
       ...value,
       attempts,
-      costUsd: estimateCostUsd(value.usage, priceFor(value.model, this.#prices) ?? priceFor(request.model, this.#prices)),
+      // The provider's own billed cost when it reports one (it includes cache discounts); otherwise the price table.
+      costUsd:
+        value.usage.reportedCostUsd ??
+        estimateCostUsd(value.usage, priceFor(value.model, this.#prices) ?? priceFor(request.model, this.#prices)),
     };
   }
 
@@ -442,11 +459,16 @@ export class OpenAICompatibleChatProvider extends OpenAIWireProvider {
       }
       throw err;
     }
-    const { fetchImpl: _ignored, ...http } = options as OpenAICompatibleChatProviderOptions & { fetchImpl?: unknown };
-    super("openai_compatible", options.id ?? "custom", label, options.baseUrl, options.apiKey, http, {
-      access,
-      allowHttp,
-      seams: options.netGuard,
-    });
+    const { fetchImpl: _ignored, sampling, ...http } = options as OpenAICompatibleChatProviderOptions & { fetchImpl?: unknown };
+    super(
+      "openai_compatible",
+      options.id ?? "custom",
+      label,
+      options.baseUrl,
+      options.apiKey,
+      http,
+      { access, allowHttp, seams: options.netGuard },
+      sampling,
+    );
   }
 }
