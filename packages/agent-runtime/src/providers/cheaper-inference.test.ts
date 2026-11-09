@@ -129,7 +129,7 @@ describe("Cheaper Inference configuration", () => {
       loadProviderConfig({ ...ENV, DEJAML_CHEAPER_INFERENCE_MODELS: "claude-opus-5-5" });
     } catch (err) {
       expect((err as ProviderConfigError).problems).toEqual([
-        'DEJAML_CHEAPER_INFERENCE_MODELS lists "claude-opus-5-5", which is not permitted for Cheaper Inference (allowed: claude-sonnet-5.5, claude-haiku-4.5, claude-haiku-5.5, qwen3-coder-30b-a3b)',
+        'DEJAML_CHEAPER_INFERENCE_MODELS lists "claude-opus-5-5", which is not permitted for Cheaper Inference (allowed: claude-sonnet-5.5, claude-haiku-4.5, claude-haiku-5.5, qwen3-coder-30b-a3b, kimi-k2.7-code)',
       ]);
     }
   });

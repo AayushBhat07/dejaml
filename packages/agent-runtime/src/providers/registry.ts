@@ -64,13 +64,15 @@ export const CHEAPER_INFERENCE_LABEL = "Cheaper Inference";
 /**
  * The only models an administrator may enable for Cheaper Inference. The
  * others are the blinding study's cheaper comparison models (Claude Haiku 4.5
- * and 5.5, and Qwen3-Coder as a second model family); none is on by default.
+ * and 5.5, Qwen3-Coder, and Kimi K2.7 Code as a further model family); none is
+ * on by default.
  */
 export const CHEAPER_INFERENCE_ALLOWED_MODELS: readonly string[] = Object.freeze([
   "claude-sonnet-5.5",
   "claude-haiku-4.5",
   "claude-haiku-5.5",
   "qwen3-coder-30b-a3b",
+  "kimi-k2.7-code",
 ]);
 export const DEFAULT_CHEAPER_INFERENCE_MODELS: readonly string[] = Object.freeze(["claude-sonnet-5.5"]);
 export const CHEAPER_INFERENCE_ENDPOINT_ENV: readonly string[] = Object.freeze([
