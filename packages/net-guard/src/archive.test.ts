@@ -11,6 +11,14 @@ import { type ArchiveLimits, detectArchiveFormat, extractArchive, listingDigest,
 import { DatasetError, type DatasetErrorCode } from "./dataset-errors.js";
 import { buildTar, buildZip, paxRecord } from "./test-archives.js";
 
+/** A pax record whose value is raw bytes, as macOS tar writes extended attributes. */
+function binaryPaxRecord(key: string, value: Buffer): Buffer {
+  const body = Buffer.concat([Buffer.from(` ${key}=`), value, Buffer.from("\n")]);
+  let length = body.length + 1;
+  while (String(length).length + body.length !== length) length += 1;
+  return Buffer.concat([Buffer.from(String(length)), body]);
+}
+
 const sha = (data: Buffer | string): string => createHash("sha256").update(data).digest("hex");
 
 // ---------------------------------------------------------------------------
@@ -175,6 +183,32 @@ describe("extractArchive", () => {
     expect((await stat(join(dest, "bin", "tool"))).mode & 0o7777).toBe(0o644);
     expect((await stat(join(dest, "bin"))).mode & 0o7777).toBe(0o755);
     expect(await readFile(join(dest, ...long.split("/")), "utf8")).toBe("long");
+  });
+
+  it("ignores the binary extended attributes macOS tar writes in pax headers", async () => {
+    const pax = Buffer.concat([
+      binaryPaxRecord("SCHILY.xattr.com.apple.provenance", Buffer.from([0x01, 0x02, 0x00, 0xff, 0xfe, 0x80])),
+      binaryPaxRecord("path", Buffer.from("données.csv")),
+    ]);
+    const archive = buildTar([
+      { name: "PaxHeader", type: "x", data: pax },
+      { name: "short", data: Buffer.from("1,2\n") },
+    ]);
+    const result = await extractArchive(archive, dest);
+    expect(result.files.map((file) => file.path)).toEqual(["données.csv"]);
+    expect(await readFile(join(dest, "données.csv"), "utf8")).toBe("1,2\n");
+  });
+
+  it("still refuses a pax path that is not UTF-8", async () => {
+    const pax = binaryPaxRecord("path", Buffer.from([0xff, 0xfe]));
+    expect(
+      await failure(
+        buildTar([
+          { name: "PaxHeader", type: "x", data: pax },
+          { name: "a", data: Buffer.from("x") },
+        ]),
+      ),
+    ).toBe("archive_corrupt");
   });
 
   it.each([

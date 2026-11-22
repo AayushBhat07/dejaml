@@ -197,6 +197,24 @@ describe("GitHub repository acquisition", () => {
     ).rejects.toMatchObject({ code: "commit_unavailable" });
   });
 
+  it("removes a checkout named through a symlinked root, as macOS temp folders are", async () => {
+    const parent = await tempRoot("dejaml-acquisition-test-");
+    await mkdir(join(parent, "real"));
+    await symlink(join(parent, "real"), join(parent, "linked"));
+    const destinationRoot = join(parent, "linked");
+    const { runGit } = fakeGit();
+    const result = await acquireGithubRepository(
+      { repositoryUrl: "https://github.com/mtesha/tdl-vs-ml-urbanlandcover", destinationRoot, commitSha: PINNED },
+      { fetch: (async () => githubResponse()) as typeof fetch, runGit, resolveHost: publicDns },
+    );
+    const named = join(destinationRoot, result.destination.split("/").pop()!);
+    await cleanupAcquiredRepository({ destination: named, destinationRoot });
+    expect(await readdir(join(parent, "real"))).toEqual([]);
+    await expect(cleanupAcquiredRepository({ destination: join(parent, "elsewhere"), destinationRoot })).rejects.toMatchObject({
+      code: "unsafe_destination",
+    });
+  });
+
   it("rejects symlinks that point outside the checkout and removes it", async () => {
     for (const target of ["/etc/passwd", "../../outside", "sub/../../escape"]) {
       const destinationRoot = await tempRoot("dejaml-acquisition-test-");
