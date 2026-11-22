@@ -15,7 +15,7 @@ import type {
   RunEvent,
   RunStatus,
 } from "@dejaml/contracts";
-import type { ChatProvider } from "@dejaml/agent-runtime";
+import type { ChatProvider, RunTape } from "@dejaml/agent-runtime";
 import { type ContainerPlatform, containerPlatformFor, hostArchitecture, type ResourceBudgetSchema } from "@dejaml/contracts";
 import { type ArtifactContent, type AttemptOutcome, type CleanupReceipt, type LabManager, labSpecFromPlan } from "@dejaml/lab-manager";
 import { ingestPdf, PaperIntakeError } from "@dejaml/paper-intake";
@@ -75,6 +75,8 @@ export type MultiAgentOptions = {
   datasets: DatasetPort | null;
   config: Omit<StudyConfig, "provider">;
   leakCheck?: LeakCheck;
+  /** Records or replays each study's agent sessions (sub-phase 6.9). */
+  tape?: (runId: string) => RunTape;
 };
 
 export const DEFAULT_STUDY_RESOURCES: ResourceBudget = {
@@ -561,6 +563,7 @@ export async function runStudy(
         workRoot: deps.workRoot,
         ...(deps.acquire ? { acquire: deps.acquire } : {}),
         ...(options.leakCheck ? { leakCheck: options.leakCheck } : {}),
+        ...(options.tape ? { tape: options.tape } : {}),
       },
     );
     report.study = result.report;

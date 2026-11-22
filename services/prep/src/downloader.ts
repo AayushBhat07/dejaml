@@ -883,7 +883,10 @@ export class DependencyPreparer {
       if (error instanceof PrepError) throw error;
       // ImageReadiness (lab manager) errors carry a code; map them to the preparation vocabulary.
       const code = errorCode(error);
-      const message = error instanceof Error ? error.message : String(error);
+      const detail = (error as { detail?: unknown }).detail;
+      const message =
+        (error instanceof Error ? error.message : String(error)) +
+        (typeof detail === "string" && detail.trim() ? ` [${detail.trim().slice(-300)}]` : "");
       if (code === "platform_mismatch") throw new PrepError("platform_mismatch", message);
       throw new PrepError(
         "image_unavailable",

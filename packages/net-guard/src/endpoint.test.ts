@@ -327,6 +327,23 @@ describe("createGuardedFetch against a local HTTP server", () => {
     expect(hits.map((hit) => hit.url)).toEqual(["/first"]);
   });
 
+  it("checks the address the socket connected to, even when the response's socket no longer reports one", async () => {
+    handler = (_request, response) => response.writeHead(200).end("ok");
+    // A short-lived socket can be detached by the time the response callback runs (seen on a real gateway).
+    const detached: EndpointTransport = (options, callback) =>
+      http.request(options, (response) => {
+        Object.defineProperty(response.socket, "remoteAddress", { get: () => undefined, configurable: true });
+        callback?.(response);
+      });
+    const guarded = createGuardedFetch({
+      policy: policy(),
+      resolver: resolverFrom({ "llm.example.test": [v4("127.0.0.1")] }),
+      transport: detached,
+    });
+    const response = await guarded(url("/x"));
+    expect(await response.text()).toBe("ok");
+  });
+
   it("refuses a connection that lands on an address other than the pinned one", async () => {
     handler = (_request, response) => response.writeHead(200).end("ok");
     const hijack: EndpointTransport = (options, callback) =>

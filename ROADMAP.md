@@ -149,6 +149,12 @@ The stage machine is persisted and resumes after a restart, the claim contract a
 
 See `docs/phases/phase-06/subphase-06-04-multi-agent-study.md`.
 
+### 6.8 Open-weight models in the study — `IN PROGRESS`
+
+Gets an open-weight model through the blinded study without relaxing the plan review: object arguments sent as JSON strings are decoded and re-validated, and an opt-in plan revision mode (`DEJAML_PLAN_REVISION=1`) gives the Planner absolute lab paths, refuses output paths that miss the metric file, and re-plans once after a refusal. The custom endpoint takes a fixed temperature and seed. No real open-model run yet.
+
+See `docs/phases/phase-06/subphase-06-08-open-weight-models.md`.
+
 ## Change rule
 
 If a completed sub-phase is later reverted or materially changed:

@@ -30,13 +30,13 @@ export function orchestratorActor(): CommandActor {
 export function requireLab(ctx: StudyContext, agentId: string): EngineerLab {
   const own = ctx.labsByAgent.get(agentId);
   if (own) {
-    if (own.destroyed) throw new ToolDenied("your lab has been destroyed");
+    if (own.destroyed || own.closedByEngineer) throw new ToolDenied("your lab has been destroyed");
     return own;
   }
   // A Debugger reads the lab of the Engineer that asked for help.
   const parent = ctx.store.ledger.getAgent(agentId).parentId;
   const lab = parent ? ctx.labsByAgent.get(parent) : undefined;
-  if (!lab || lab.destroyed) throw new ToolDenied("you have no lab");
+  if (!lab || lab.destroyed || lab.closedByEngineer) throw new ToolDenied("you have no lab");
   return lab;
 }
 
@@ -196,7 +196,7 @@ export async function measureIntegrity(ctx: StudyContext, lab: EngineerLab, data
  */
 const EDITS_SCRIPT = [
   "import difflib, hashlib, json, os, sys",
-  "base, work, cap, adapter_path, adapter_text = sys.argv[1], sys.argv[2], int(sys.argv[3]), sys.argv[4], sys.argv[5]",
+  "base, work, cap, adapter_path, adapter_text, run = sys.argv[1], sys.argv[2], int(sys.argv[3]), sys.argv[4], sys.argv[5], sys.argv[6]",
   "def files(root):",
   "    out = {}",
   "    for d, dirs, names in os.walk(root):",
@@ -223,7 +223,8 @@ const EDITS_SCRIPT = [
   "    except UnicodeDecodeError:",
   "        chunks.append('Binary file ' + rel + ' differs\\n')",
   "diff = ''.join(chunks)",
-  "print(json.dumps({'changed': changed, 'diff': diff[:cap], 'diffSha256': hashlib.sha256(diff.encode()).hexdigest(), 'diffTruncated': len(diff) > cap}))",
+  "# The diff goes first: the board shows only the tail of the output, which must keep the list of changed files.",
+  "print(json.dumps({'diff': diff[:cap], 'diffTruncated': len(diff) > cap, 'diffSha256': hashlib.sha256(diff.encode()).hexdigest(), 'changed': changed, 'integrityCheckFor': run}))",
 ].join("\n");
 
 /** Records what an open-lab Engineer changed in work/repo just before an official run (the diff is capped to fit the output tail). */
@@ -243,6 +244,7 @@ async function recordEdits(ctx: StudyContext, lab: EngineerLab, receiptId: strin
       String(6_000),
       lab.adapter?.path ?? "",
       lab.adapter?.content ?? "",
+      receiptId,
     ],
     LAB_LAYOUT.workdir,
     {},
@@ -502,7 +504,10 @@ export function labTools(ctx: StudyContext): ToolDefinition[] {
       input: z.object({ reason: z.string().min(1).max(300) }),
       async run(input, context) {
         const lab = ownLab(context);
-        await ctx.finishLab(lab.agentId, input.reason);
+        // The agent's view is unchanged: its lab tools stop now. The orchestrator exports the artifacts and
+        // destroys the lab when its own work there is finished, so an early call cannot break the replay.
+        lab.closedByEngineer = true;
+        ctx.event("lab_closed", "completed", `${lab.label} closed its lab: ${input.reason.slice(0, 200)}`, { engineer: lab.label });
         return ok("Lab destroyed", `${lab.label}'s artifacts were exported and its lab destroyed.`);
       },
     }),
@@ -590,9 +595,24 @@ export function labTools(ctx: StudyContext): ToolDefinition[] {
             requirements: input.requirements,
             signal: context.signal,
           });
+          if (ctx.config.planRevision !== true)
+            return result.ok
+              ? ok("Binary wheels exist for every requirement", result.detail)
+              : failed("Some requirements have no compatible wheel", result.detail);
+          // Plan revision mode states the verdict in words: a bare package list read as "unconfirmed" to a weaker model.
+          const checked = { python: input.python, platform: platform.containerPlatform, requirements: input.requirements };
           return result.ok
-            ? ok("Binary wheels exist for every requirement", result.detail)
-            : failed("Some requirements have no compatible wheel", result.detail);
+            ? ok("Binary wheels exist for every requirement", {
+                verdict:
+                  "available: every requirement has a compatible binary wheel for this platform and Python; nothing is built from source",
+                ...checked,
+                detail: result.detail,
+              })
+            : failed("Some requirements have no compatible wheel", {
+                verdict: "unavailable: at least one requirement has no compatible binary wheel; see detail",
+                ...checked,
+                detail: result.detail,
+              });
         } catch (error) {
           if (error instanceof PreparationFailure)
             return failed(`Check failed: ${error.code}`, { code: error.code, message: error.message, requirement: error.requirement });

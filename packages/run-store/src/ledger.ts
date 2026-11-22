@@ -33,6 +33,8 @@ export type AgentUsage = {
   toolCalls: number;
   inputTokens: number;
   outputTokens: number;
+  /** Input tokens the provider served from its prompt cache (billed lower); counted apart from `inputTokens`. */
+  cacheReadTokens?: number;
   costUsd: number | null;
   providerAttempts: number;
   /** Conversation segments; a new one starts when the bounded context is full. */

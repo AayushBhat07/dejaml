@@ -6,7 +6,8 @@ import { RunStore } from "@dejaml/run-store";
 import { afterEach, describe, expect, it } from "vitest";
 import { z } from "zod";
 
-import { BoundedAgentRuntime, type AgentTask } from "./runtime.js";
+import { BoundedAgentRuntime, droppedToolCall, type AgentTask } from "./runtime.js";
+import { ProviderError } from "./providers/types.js";
 import { ScriptedChatProvider, type ScriptedTurn } from "./testing.js";
 import { defineTool, type ToolDefinition } from "./tools.js";
 import type { ChatProvider } from "./providers/types.js";
@@ -134,6 +135,96 @@ describe("BoundedAgentRuntime", () => {
     expect(outcome.result).toEqual({ answer: "fixed" });
     const last = providers.get("a")!.requests.at(-1)!.messages.at(-1)!;
     expect(last.role === "tool" && last.isError && last.content).toMatch(/Invalid finish input/u);
+  });
+
+  it("decodes an object argument sent as a JSON string and records the repair on the receipt", async () => {
+    const { runtime, runId, store, providers } = setup({
+      a: [
+        { calls: [{ name: "board_read", input: { kinds: JSON.stringify(["plan"]) } }] },
+        { calls: [{ name: "finish", input: JSON.stringify({ answer: "decoded" }) }] },
+      ],
+    });
+    const handle = await runtime.startAgent(task(runId, "a"));
+    const outcome = await handle.done;
+    expect(outcome.result).toEqual({ answer: "decoded" });
+    const receipts = store.ledger.listReceipts({ agentId: handle.agentId });
+    expect(receipts.map((item) => item.status)).toEqual(["ok", "ok"]);
+    expect(receipts[0]!.summary).toMatch(/decoded JSON-string arguments: kinds/u);
+    expect(receipts[1]!.summary).toMatch(/decoded JSON-string arguments: \(root\)/u);
+    const toolTurn = providers.get("a")!.requests.at(-1)!.messages.at(-1)!;
+    expect(toolTurn.role === "tool" && toolTurn.content).toMatch(/send objects and arrays as JSON values/u);
+  });
+
+  it("reminds an agent to finish when only a few turns remain, when asked to", async () => {
+    const { runtime, runId, providers } = setup({
+      a: [
+        { calls: [{ name: "board_read", input: {} }] },
+        { calls: [{ name: "board_read", input: {} }] },
+        { calls: [{ name: "board_read", input: {} }] },
+        { calls: [{ name: "finish", input: { answer: "done" } }] },
+      ],
+    });
+    const outcome = await (await runtime.startAgent(task(runId, "a", { limits: { maxIterations: 5, finishReminderTurns: 2 } }))).done;
+    expect(outcome.result).toEqual({ answer: "done" });
+    const toolTurns = providers
+      .get("a")!
+      .requests.at(-1)!
+      .messages.filter((message) => message.role === "tool")
+      .map((message) => (message.role === "tool" ? message.content : ""));
+    expect(toolTurns.map((content) => /model turns? left/u.test(content))).toEqual([false, false, true]);
+    expect(toolTurns[2]).toMatch(/2 model turns left\. Call finish now/u);
+  });
+
+  it("asks again when the server cannot parse the model's tool call, a few times at most", async () => {
+    const unparseable = () => {
+      throw new ProviderError("invalid_tool_call", "Local HTTP 500 api_error: error parsing tool call: raw='thinking...'", {
+        status: 500,
+        retryable: false,
+      });
+    };
+    const { runtime, runId, providers } = setup({
+      a: [unparseable, { calls: [{ name: "finish", input: { answer: "done" } }] }],
+      b: [unparseable, unparseable, unparseable, unparseable],
+    });
+    const recovered = await (await runtime.startAgent(task(runId, "a"))).done;
+    expect(recovered.status).toBe("completed");
+    expect(recovered.usage.iterations).toBe(2);
+    const retry = providers.get("a")!.requests.at(-1)!.messages.at(-1)!;
+    expect(retry.role).toBe("user");
+    expect(retry.role === "user" ? retry.content : "").toMatch(/could not be read as a tool call.*single valid JSON object/su);
+    const failed = await (await runtime.startAgent(task(runId, "b"))).done;
+    expect(failed.status).toBe("failed");
+    expect(failed.reason).toMatch(/invalid_tool_call/u);
+    expect(providers.get("b")!.requests).toHaveLength(4);
+  });
+
+  it("tells the model when a turn used output tokens but brought back no tool call", async () => {
+    const { runtime, runId, providers } = setup({
+      a: [{ text: "" }, { calls: [{ name: "finish", input: { answer: "done" } }] }],
+    });
+    const outcome = await (await runtime.startAgent(task(runId, "a"))).done;
+    expect(outcome.status).toBe("completed");
+    const nudge = providers.get("a")!.requests.at(-1)!.messages.at(-1)!;
+    expect(nudge.role === "user" ? nudge.content : "").toMatch(/no readable tool call.*20 output tokens/su);
+    expect(droppedToolCall("Here is my plan in prose, long enough to be text.", 10)).toBe(false);
+    expect(droppedToolCall("Let me now finish.", 320)).toBe(true);
+    expect(droppedToolCall(null, 8)).toBe(false);
+  });
+
+  it("offers and accepts only finish and give_up in the last finish-only turns", async () => {
+    const { runtime, runId, providers } = setup({
+      a: [
+        { calls: [{ name: "board_read", input: {} }] },
+        { calls: [{ name: "board_read", input: {} }] },
+        { calls: [{ name: "finish", input: { answer: "done" } }] },
+      ],
+    });
+    const outcome = await (await runtime.startAgent(task(runId, "a", { limits: { maxIterations: 3, finishOnlyTurns: 2 } }))).done;
+    expect(outcome.status).toBe("completed");
+    const requests = providers.get("a")!.requests;
+    expect(requests.map((request) => request.tools.map((tool) => tool.name).includes("board_read"))).toEqual([true, false, false]);
+    const refused = requests[2]!.messages.filter((message) => message.role === "tool").at(-1)!;
+    expect(refused.role === "tool" ? refused.content : "").toMatch(/Not run: only finish and give_up/u);
   });
 
   it("enforces iteration and tool-call limits", async () => {

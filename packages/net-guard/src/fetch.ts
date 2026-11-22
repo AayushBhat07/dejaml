@@ -130,6 +130,7 @@ interface RequestContext {
 
 function sendRequest(url: URL, resolved: ResolvedHost, context: RequestContext): Promise<IncomingMessage> {
   const { policy, transport, signal, abort } = context;
+  let connectedTo: string | undefined;
   return new Promise<IncomingMessage>((resolve, reject) => {
     if (signal.aborted) {
       reject(signal.reason);
@@ -157,11 +158,9 @@ function sendRequest(url: URL, resolved: ResolvedHost, context: RequestContext):
         signal,
       },
       (response) => {
-        if (!sameAddress(response.socket.remoteAddress, resolved.pinned.address)) {
-          const error = new NetGuardError(
-            "pinning_violation",
-            `Connected to ${response.socket.remoteAddress ?? "unknown"}, expected ${resolved.pinned.address}`,
-          );
+        const remote = connectedTo ?? response.socket?.remoteAddress;
+        if (!sameAddress(remote, resolved.pinned.address)) {
+          const error = new NetGuardError("pinning_violation", `Connected to ${remote ?? "unknown"}, expected ${resolved.pinned.address}`);
           response.destroy(error);
           request.destroy(error);
           reject(error);
@@ -170,6 +169,12 @@ function sendRequest(url: URL, resolved: ResolvedHost, context: RequestContext):
         resolve(response);
       },
     );
+    // Read the connected address when the socket connects; it can be gone from a detached socket later.
+    request.once("socket", (socket) => {
+      socket.once("connect", () => {
+        connectedTo = socket.remoteAddress ?? connectedTo;
+      });
+    });
     request.on("timeout", () => abort(new NetGuardError("timeout", "Socket was idle for too long")));
     request.on("error", reject);
     request.end();

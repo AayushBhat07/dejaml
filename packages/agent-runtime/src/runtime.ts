@@ -3,8 +3,10 @@ import { createHash } from "node:crypto";
 import type { AgentRecord, AgentUsage, RunStore } from "@dejaml/run-store";
 import { z } from "zod";
 
+import { parseToolInput } from "./argument-repair.js";
 import { EvidenceBoard } from "./board.js";
 import type { ChatMessage, ChatProvider, ToolCall } from "./providers/types.js";
+import type { RunTape } from "./tape.js";
 import { ProviderError } from "./providers/types.js";
 import {
   type AgentRole,
@@ -39,6 +41,16 @@ export type AgentLimits = {
   maxTurnOutputTokens: number;
   /** Characters of one tool result returned to the model. */
   maxToolResultChars: number;
+  /**
+   * When this many model turns or fewer remain, the last tool result of each turn says so and asks the
+   * agent to finish. 0 (the default) never reminds.
+   */
+  finishReminderTurns?: number;
+  /**
+   * In the last N model turns only finish and give_up are offered and accepted, so an agent that keeps
+   * reading cannot spend its whole budget without an answer. Off (0) by default.
+   */
+  finishOnlyTurns?: number;
 };
 
 export const DEFAULT_AGENT_LIMITS: AgentLimits = {
@@ -146,6 +158,8 @@ export type BoundedRuntimeOptions = {
    * equal the paper's value.
    */
   requestGuard?: (agent: { runId: string; agentId: string; role: AgentRole }, text: string) => string | null;
+  /** Records the run's model exchanges and tool results, or replays a recorded run against this one (see ./tape.ts). */
+  tape?: RunTape;
 };
 
 type Live = {
@@ -156,6 +170,23 @@ type Live = {
 const FINISH = "finish";
 const GIVE_UP = "give_up";
 const MAX_IDLE_TURNS = 3;
+
+/** Consecutive unparseable tool calls the model may make before the agent fails. */
+const MAX_INVALID_TOOL_CALLS = 3;
+
+/** A turn that produced output tokens but no tool call and next to no text: a call the server dropped. */
+export function droppedToolCall(text: string | null, outputTokens: number): boolean {
+  const visible = (text ?? "").trim().length;
+  return outputTokens >= 16 && visible < outputTokens;
+}
+
+function invalidToolCallMessage(serverMessage: string): string {
+  return (
+    "[Your last reply could not be read as a tool call: the model server rejected it " +
+    `(${serverMessage.slice(0, 300)}). Reply again with one tool call whose arguments are a single valid JSON object. ` +
+    "Put any reasoning outside the arguments.]"
+  );
+}
 
 export class BoundedAgentRuntime implements AgentRuntime {
   readonly #store: RunStore;
@@ -333,11 +364,16 @@ export class BoundedAgentRuntime implements AgentRuntime {
       run: async () => ({ content: "acknowledged", summary: "gave up" }),
     };
     const specs = [...tools, finishTool, giveUpTool].map(toolSpec);
+    const finishOnlySpecs = [finishTool, giveUpTool].map(toolSpec);
     const system = systemPrompt(role, task.instructions);
+    const tape = this.#options.tape?.forAgent({ runId: record.runId, agentId, role, label: task.label }) ?? null;
+    const chat = (request: Parameters<typeof provider.chat>[0]) =>
+      tape ? tape.chat(request, (sent) => provider.chat(sent)) : provider.chat(request);
     // Wall time counts from this launch; a resumed agent gets a fresh window.
     const started = Date.now();
     let usage = record.usage;
     let idleTurns = 0;
+    let invalidToolCalls = 0;
 
     const end = (status: AgentOutcomeStatus, result: unknown, reason: string | null): AgentOutcome => {
       record = ledger.updateAgent(agentId, {
@@ -393,21 +429,45 @@ export class BoundedAgentRuntime implements AgentRuntime {
           if (refusal) return end("failed", null, `request refused before it was sent: ${refusal}`);
         }
 
+        const finishOnly = (limits.finishOnlyTurns ?? 0) > 0 && limits.maxIterations - usage.iterations <= (limits.finishOnlyTurns ?? 0);
         const remainingOutput = limits.maxOutputTokens - usage.outputTokens;
-        const response = await provider.chat({
-          model: record.model,
-          system,
-          messages,
-          tools: specs,
-          maxOutputTokens: Math.max(256, Math.min(limits.maxTurnOutputTokens, remainingOutput)),
-          signal,
-          ...(this.#options.stream ? { stream: true } : {}),
-        });
+        let response: Awaited<ReturnType<typeof provider.chat>>;
+        try {
+          response = await chat({
+            model: record.model,
+            system,
+            messages,
+            tools: finishOnly ? finishOnlySpecs : specs,
+            maxOutputTokens: Math.max(256, Math.min(limits.maxTurnOutputTokens, remainingOutput)),
+            signal,
+            ...(this.#options.stream ? { stream: true } : {}),
+          });
+        } catch (error) {
+          // The server could not parse the model's tool call. The same request would repeat the same
+          // output under fixed sampling, so the model is told what went wrong and asked again, a few
+          // times at most. Each attempt counts as a model turn.
+          if (!(error instanceof ProviderError) || error.code !== "invalid_tool_call") throw error;
+          if (invalidToolCalls >= MAX_INVALID_TOOL_CALLS) throw error;
+          invalidToolCalls += 1;
+          usage = { ...usage, iterations: usage.iterations + 1, providerAttempts: usage.providerAttempts + 1 };
+          ledger.appendTurn(agentId, usage.segments, { role: "user", content: invalidToolCallMessage(error.message) });
+          ledger.updateAgent(agentId, { usage });
+          this.#runEvent(
+            record,
+            "agent_turn",
+            "warning",
+            `${ROLE_LABELS[role]}: the model's tool call could not be parsed (${invalidToolCalls} of ${MAX_INVALID_TOOL_CALLS}); asked again`,
+            { invalidToolCall: invalidToolCalls, error: error.message.slice(0, 500) },
+          );
+          continue;
+        }
+        invalidToolCalls = 0;
         usage = {
           ...usage,
           iterations: usage.iterations + 1,
           inputTokens: usage.inputTokens + response.usage.inputTokens,
           outputTokens: usage.outputTokens + response.usage.outputTokens,
+          cacheReadTokens: (usage.cacheReadTokens ?? 0) + (response.usage.cacheReadTokens ?? 0),
           costUsd: usage.costUsd === null || response.costUsd === null ? null : usage.costUsd + response.costUsd,
           providerAttempts: usage.providerAttempts + response.attempts,
         };
@@ -446,44 +506,77 @@ export class BoundedAgentRuntime implements AgentRuntime {
         if (response.toolCalls.length === 0) {
           idleTurns += 1;
           if (idleTurns >= MAX_IDLE_TURNS) return end("failed", null, "the agent stopped calling tools without finishing");
+          // Output tokens but (almost) no text: the server most likely dropped a tool call it could not
+          // parse (Ollama does this with HTTP 200). Say so, so the model does not just repeat it.
+          const dropped = droppedToolCall(response.text, response.usage.outputTokens);
+          if (dropped) {
+            this.#runEvent(
+              record,
+              "agent_turn",
+              "warning",
+              `${ROLE_LABELS[role]}: ${response.usage.outputTokens} output tokens but no readable tool call; asked again`,
+              { droppedToolCall: true, outputTokens: response.usage.outputTokens },
+            );
+          }
           ledger.appendTurn(agentId, usage.segments, {
             role: "user",
-            content: `Continue by calling a tool. When you are done, call ${FINISH}; if the task cannot be done, call ${GIVE_UP} with the reason.`,
+            content: dropped
+              ? `[Your last reply had no readable tool call: the model server could not parse it and dropped it (${response.usage.outputTokens} output tokens, no text). ` +
+                `Call exactly one tool, with its arguments as a single valid JSON object that matches its schema. To finish, call ${FINISH}; if the task cannot be done, call ${GIVE_UP} with the reason.]`
+              : `Continue by calling a tool. When you are done, call ${FINISH}; if the task cannot be done, call ${GIVE_UP} with the reason.`,
           });
           continue;
         }
         idleTurns = 0;
 
         let finished: AgentOutcome | null = null;
+        const turnsLeft = limits.maxIterations - usage.iterations;
+        const reminder =
+          (limits.finishReminderTurns ?? 0) > 0 && turnsLeft <= (limits.finishReminderTurns ?? 0)
+            ? `\n[${turnsLeft} model turn${turnsLeft === 1 ? "" : "s"} left. Call ${FINISH} now with what you have; if the task cannot be done, call ${GIVE_UP}.]`
+            : "";
+        const lastCall = response.toolCalls.at(-1);
+        const turn = (call: ToolCall, content: string, isError: boolean) =>
+          this.#toolTurn(agentId, usage.segments, call, call === lastCall && !finished ? `${content}${reminder}` : content, isError);
         for (const call of response.toolCalls) {
           if (finished) {
-            this.#toolTurn(agentId, usage.segments, call, "Not run: the task already finished.", true);
+            turn(call, "Not run: the task already finished.", true);
             continue;
           }
           if (signal.aborted) {
-            this.#toolTurn(agentId, usage.segments, call, "Not run: the agent was cancelled.", true);
+            turn(call, "Not run: the agent was cancelled.", true);
             continue;
           }
           usage = { ...usage, toolCalls: usage.toolCalls + 1 };
           if (usage.toolCalls > limits.maxToolCalls) {
-            this.#toolTurn(agentId, usage.segments, call, "Not run: the tool-call limit is reached.", true);
+            turn(call, "Not run: the tool-call limit is reached.", true);
             continue;
           }
           if (call.name === FINISH || call.name === GIVE_UP) {
-            const parsed = call.name === FINISH ? schema.safeParse(call.input) : giveUpTool.input.safeParse(call.input);
+            const parsed = parseToolInput<unknown>(call.name === FINISH ? schema : giveUpTool.input, call.input);
             const receipt = this.#startReceipt(record, call);
             if (!parsed.success) {
               const detail = `Invalid ${call.name} input: ${formatIssues(parsed.error)}`;
               this.#finishReceipt(receipt, "error", detail, { error: detail });
-              this.#toolTurn(agentId, usage.segments, call, detail, true);
+              turn(call, detail, true);
               continue;
             }
-            this.#finishReceipt(receipt, "ok", call.name === FINISH ? "result submitted" : "gave up", {
+            const note = decodedNote(parsed.decoded);
+            this.#finishReceipt(receipt, "ok", `${call.name === FINISH ? "result submitted" : "gave up"}${note}`, {
               input: parsed.data as Record<string, unknown>,
+              ...(parsed.decoded.length ? { decodedJsonStrings: parsed.decoded } : {}),
             });
-            this.#toolTurn(agentId, usage.segments, call, call.name === FINISH ? "Result accepted." : "Acknowledged.", false);
+            turn(call, `${call.name === FINISH ? "Result accepted." : "Acknowledged."}${note}`, false);
             finished =
               call.name === FINISH ? end("completed", parsed.data, null) : end("failed", null, (parsed.data as { reason: string }).reason);
+            continue;
+          }
+          if (finishOnly) {
+            turn(
+              call,
+              `Not run: only ${FINISH} and ${GIVE_UP} are accepted in the last ${limits.finishOnlyTurns} turns. Call ${FINISH} now with what you have.`,
+              true,
+            );
             continue;
           }
           const tool = byName.get(call.name);
@@ -491,54 +584,66 @@ export class BoundedAgentRuntime implements AgentRuntime {
           if (!tool) {
             const detail = `Tool ${call.name} is not granted to the ${ROLE_LABELS[role]}.`;
             this.#finishReceipt(receipt, "denied", detail, { error: detail });
-            this.#toolTurn(agentId, usage.segments, call, detail, true);
+            turn(call, detail, true);
             continue;
           }
-          const parsed = tool.input.safeParse(call.input);
+          const parsed = parseToolInput<unknown>(tool.input, call.input);
           if (!parsed.success) {
             const detail =
               call.input === null
                 ? `The arguments for ${call.name} were not valid JSON.`
                 : `Invalid input for ${call.name}: ${formatIssues(parsed.error)}`;
             this.#finishReceipt(receipt, "error", detail, { error: detail });
-            this.#toolTurn(agentId, usage.segments, call, detail, true);
+            turn(call, detail, true);
             continue;
           }
           this.#emit({ agentId, type: "tool_call", receiptId: receipt.id, tool: call.name, input: call.input });
+          const context: ToolContext = {
+            runId: record.runId,
+            agentId,
+            role,
+            signal,
+            board: this.board(record.runId),
+            receiptId: receipt.id,
+          };
+          // A failed or refused tool is still a result the model reads, so a tape records it like any other.
+          const execute = async (): Promise<ToolResult> => {
+            try {
+              return await tool.run(parsed.data, context);
+            } catch (error) {
+              if (signal.aborted) throw error;
+              const denied = error instanceof ToolDenied;
+              const message = (error instanceof Error ? error.message : String(error)).slice(0, 2_000);
+              return {
+                content: `${denied ? "DENIED" : "ERROR"}: ${message}`,
+                summary: message.slice(0, 200),
+                isError: true,
+                status: denied ? "denied" : "error",
+              };
+            }
+          };
           let result: ToolResult;
           try {
-            const context: ToolContext = {
-              runId: record.runId,
-              agentId,
-              role,
-              signal,
-              board: this.board(record.runId),
-              receiptId: receipt.id,
-            };
-            result = await tool.run(parsed.data, context);
+            result = tape ? await tape.tool(call, receipt.id, execute) : await execute();
           } catch (error) {
-            if (signal.aborted) {
-              this.#finishReceipt(receipt, "error", "cancelled", { error: "cancelled" });
-              this.#toolTurn(agentId, usage.segments, call, "Cancelled.", true);
-              continue;
-            }
-            const denied = error instanceof ToolDenied;
-            const message = (error instanceof Error ? error.message : String(error)).slice(0, 2_000);
-            result = {
-              content: `${denied ? "DENIED" : "ERROR"}: ${message}`,
-              summary: message.slice(0, 200),
-              isError: true,
-              status: denied ? "denied" : "error",
-            };
+            if (!signal.aborted) throw error;
+            this.#finishReceipt(receipt, "error", "cancelled", { error: "cancelled" });
+            turn(call, "Cancelled.", true);
+            continue;
           }
           const status = result.status ?? (result.isError ? "error" : "ok");
-          this.#finishReceipt(receipt, status, result.summary, result.output ?? {});
+          const note = decodedNote(parsed.decoded);
+          this.#finishReceipt(receipt, status, `${result.summary}${note}`.slice(0, 2_000), {
+            ...(result.output ?? {}),
+            ...(parsed.decoded.length ? { decodedJsonStrings: parsed.decoded } : {}),
+          });
           this.#emit({ agentId, type: "tool_result", receiptId: receipt.id, tool: call.name, status, summary: result.summary });
-          const content =
+          const body =
             result.content.length > limits.maxToolResultChars
               ? `${result.content.slice(0, limits.maxToolResultChars)}\n[truncated ${result.content.length - limits.maxToolResultChars} characters]`
               : result.content;
-          this.#toolTurn(agentId, usage.segments, call, content, Boolean(result.isError));
+          const content = note ? `${body}\n[note${note}]` : body;
+          turn(call, content, Boolean(result.isError));
         }
         ledger.updateAgent(agentId, { usage });
         if (finished) return finished;
@@ -694,6 +799,11 @@ function systemPrompt(role: AgentRole, instructions: string): string {
     "Never invent values, files, commands, or results. If the evidence does not support a conclusion, say so.",
     `Call ${FINISH} with the required result when done, or ${GIVE_UP} with a concrete reason.`,
   ].join("\n\n");
+}
+
+/** Told to the model and kept on the receipt, so a decoded argument is never silent. */
+function decodedNote(paths: string[]): string {
+  return paths.length ? ` (decoded JSON-string arguments: ${paths.join(", ")}; send objects and arrays as JSON values, not strings)` : "";
 }
 
 function formatIssues(error: z.ZodError): string {

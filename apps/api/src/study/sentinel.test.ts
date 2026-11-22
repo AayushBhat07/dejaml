@@ -3,7 +3,16 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import type { ChatProvider, ChatRequest, ChatResponse, ToolCall } from "@dejaml/agent-runtime";
+import {
+  type ChatProvider,
+  type ChatRequest,
+  type ChatResponse,
+  recordingTape,
+  replayTape,
+  type RunTape,
+  type TapeEntry,
+  type ToolCall,
+} from "@dejaml/agent-runtime";
 import { buildPlatformSpec, type PaperDocument } from "@dejaml/contracts";
 import { LabManager } from "@dejaml/lab-manager";
 import { buildRepositoryManifest, type RepositoryReceipt } from "@dejaml/repository-intake";
@@ -39,7 +48,7 @@ function leaks(value: unknown): string[] {
   return FORMS.filter((form) => new RegExp(`(?<![0-9.])${form.replace(/\./gu, "\\.")}(?![0-9]|\\.[0-9])`, "u").test(text));
 }
 
-type Mode = "honest" | "planner_states_value" | "cancel_at_review" | "open_tuner";
+type Mode = "honest" | "planner_states_value" | "cancel_at_review" | "open_tuner" | "planner_wrong_output" | "engineer_destroys_lab";
 type Recorded = { role: string; request: ChatRequest };
 
 /** Plays every role, including blind agents that try to reach the target. Never a model. */
@@ -48,6 +57,15 @@ class SentinelProvider implements ChatProvider {
   readonly kind = "scripted" as const;
   readonly requests: Recorded[] = [];
   onReviewer: (() => void) | null = null;
+  /** Plans the Planner has submitted; a re-plan starts a fresh Planner, so its turn count restarts. */
+  plans = 0;
+  /** The first blind review rejects the run and the Supervisor asks for one re-plan. */
+  rejectFirstReview = false;
+  /** The Paper Analyst first submits a shortened excerpt ("..."), as Kimi did, and must fix it. */
+  shortenExcerptFirst = false;
+  #reviews = 0;
+  #replanned = false;
+  #officialReceipt: string | null = null;
   #counter = 0;
 
   constructor(private readonly mode: Mode) {}
@@ -113,7 +131,10 @@ class SentinelProvider implements ChatProvider {
             reportedValue: SENTINEL,
             page: 1,
             location: "Table 2",
-            excerpt: `BOSS accuracy of ${SENTINEL} on the GunPoint`,
+            excerpt:
+              this.shortenExcerptFirst && turn === 1
+                ? `BOSS accuracy ... ${SENTINEL} on the GunPoint`
+                : `BOSS accuracy of ${SENTINEL} on the GunPoint`,
             missingFields: [],
           },
           reasons: [],
@@ -138,6 +159,7 @@ class SentinelProvider implements ChatProvider {
         if (turn === 0) return [{ name: "paper_read_page", input: { page: 1 } }];
         if (turn === 1) return [{ name: "board_read", input: {} }];
         if (turn === 2) return [{ name: "repo_read", input: { path: "notebooks/eval.ipynb" } }];
+        this.plans += 1;
         return finish({
           status: "ready",
           summary:
@@ -146,7 +168,14 @@ class SentinelProvider implements ChatProvider {
               : "Run train.py unchanged from a writable copy; it writes the test accuracy to artifacts/result.json.",
           blockedReason: null,
           entrypoint: "train.py",
-          command: { argv: ["python", "train.py"], cwd: "work/repo" },
+          command: {
+            argv:
+              this.mode === "planner_wrong_output"
+                ? // A weaker model's first plan writes the metric relative to cwd; after the refusal it writes the lab path.
+                  ["python", "train.py", "--output", this.plans === 1 ? "artifacts/result.json" : "/workspace/case/artifacts/result.json"]
+                : ["python", "train.py"],
+            cwd: "work/repo",
+          },
           python: "3.11",
           requirements: [],
           compatibilityConstraints: [],
@@ -166,6 +195,21 @@ class SentinelProvider implements ChatProvider {
         if (this.mode === "open_tuner" && turn === 3)
           return [{ name: "lab_run", input: { argv: ["sed", "-i", "s/seed=0/seed=7/", "work/repo/train.py"] } }];
         if (this.mode === "open_tuner" && turn === 4) return [{ name: "lab_run_official", input: {} }];
+        // A weaker Engineer closes its own lab right after the official run, then keeps using it.
+        if (this.mode === "engineer_destroys_lab" && turn === 3) {
+          const official = last();
+          this.#officialReceipt = typeof official.receiptId === "string" ? official.receiptId : null;
+          return [{ name: "lab_destroy", input: { reason: "done" } }];
+        }
+        if (this.mode === "engineer_destroys_lab" && turn === 4) return [{ name: "lab_run", input: { argv: ["ls"] } }];
+        if (this.mode === "engineer_destroys_lab")
+          return finish({
+            status: "measured",
+            summary: "ran it",
+            officialReceiptId: this.#officialReceipt,
+            deviations: [],
+            failureReason: null,
+          });
         const result = last();
         return finish({
           status: "measured",
@@ -182,6 +226,17 @@ class SentinelProvider implements ChatProvider {
         if (turn === 1) return [{ name: "board_read", input: {} }];
         if (turn === 2) return [{ name: "repo_read", input: { path: "notebooks/eval.ipynb" } }];
         if (turn === 3) return [{ name: "artifact_read", input: { engineerAgentId: key, path: "artifacts/result.json" } }];
+        if (this.rejectFirstReview && this.#reviews++ === 0)
+          return finish({
+            equivalence: "not_equivalent",
+            summary: "The Engineer changed the code before the official run.",
+            checks: [
+              { name: "official command", passed: false, explanation: "the code was edited" },
+              { name: "metric from the run", passed: true, explanation: "artifact digest matches" },
+              { name: "protocol", passed: false, explanation: "the training code changed" },
+            ],
+            concerns: ["edited code"],
+          });
         return finish({
           equivalence: "partially_equivalent",
           summary: "The approved command ran unchanged and wrote the metric; library versions differ from the authors'.",
@@ -196,6 +251,10 @@ class SentinelProvider implements ChatProvider {
       case "Supervisor":
         if (inputs.resultKind === "verdict")
           return finish({ proposedStatus: inputs.computedStatus, rationale: "the evidence supports it" });
+        if (this.rejectFirstReview && this.#reviews === 1 && !this.#replanned) {
+          this.#replanned = true;
+          return finish({ action: "replan", reason: "reviewer_rejected_replan", guidance: "run the approved code unchanged" });
+        }
         return finish({ action: "continue", reason: "none", guidance: "" });
       default:
         return [{ name: "give_up", input: { reason: `unscripted ${role}` } }];
@@ -304,6 +363,10 @@ async function study(
     condition?: Partial<StudyCondition>;
     resultSequence?: number[];
     openLabEdits?: ScriptedRuntime["openLabEdits"];
+    planRevision?: boolean;
+    rejectFirstReview?: boolean;
+    shortenExcerptFirst?: boolean;
+    tape?: RunTape;
   },
 ) {
   const store = new RunStore();
@@ -313,6 +376,8 @@ async function study(
   if (options.openLabEdits) runtime.openLabEdits = options.openLabEdits;
   const labs = new LabManager({ runtime, labRoot: join(work, "labs"), events: (event) => store.appendEvent(event) });
   const provider = new SentinelProvider(mode);
+  if (options.rejectFirstReview) provider.rejectFirstReview = true;
+  if (options.shortenExcerptFirst) provider.shortenExcerptFirst = true;
   const { id: runId } = store.createRun({ fileName: "sentinel.pdf" });
   const controller = new AbortController();
   if (mode === "cancel_at_review") provider.onReviewer = () => controller.abort(new Error("cancelled by the user"));
@@ -326,6 +391,7 @@ async function study(
       ...(options.condition ? { condition: { ...DEFAULT_CONDITION, controlRerun: true, ...options.condition } } : {}),
     },
     {
+      ...(options.tape ? { tape: () => options.tape! } : {}),
       store,
       labs,
       dependencies: null,
@@ -339,7 +405,8 @@ async function study(
         datasetPolicy: { allowedHosts: [], maxRedirects: 3, maxBytes: 1024, timeoutMs: 1000 } as never,
         maxStudyMs: 60_000,
         commandTimeoutSeconds: 60,
-        maxReplans: 0,
+        maxReplans: options.planRevision || options.rejectFirstReview ? 1 : 0,
+        ...(options.planRevision ? { planRevision: true } : {}),
         trustedConstraints: [],
       },
       chatProvider: provider,
@@ -489,6 +556,40 @@ describe("blinded study: the sentinel value never reaches a blind agent, the bro
     ).toEqual(expect.arrayContaining(["commitments recorded in the required order", "sealed commitment verified at the reveal"]));
   });
 
+  it("plan revision mode refuses an output path that misses the metric file and re-plans once; the published protocol only warns", async () => {
+    const published = await study("planner_wrong_output", { target: true });
+    expect(published.provider.plans).toBe(1);
+    const approved = published.store.ledger.listBoard(published.runId).find((entry) => entry.kind === "claim_contract");
+    expect(JSON.stringify(approved?.payload)).toMatch(/the command writes artifacts\/result\.json, which from work\/repo resolves/u);
+
+    const { store, runId, result, provider } = await study("planner_wrong_output", { target: true, planRevision: true });
+    expect(provider.plans).toBe(2);
+    expect(JSON.stringify(result.report)).toContain('"planRevision":true');
+    expect(JSON.stringify(published.result.report)).toContain('"planRevision":false');
+    // Only plan revision mode gives the Planner absolute lab paths; the published protocol's prompt is unchanged.
+    const plannerSees = (requests: typeof provider.requests) =>
+      requests.filter((item) => item.role === "Reproduction Planner").map((item) => JSON.stringify(item.request));
+    expect(
+      plannerSees(provider.requests).every((text) => /lab\.layout/u.test(text) && /\/workspace\/case\/work\/repo \(cwd/u.test(text)),
+    ).toBe(true);
+    expect(plannerSees(published.provider.requests).some((text) => /lab\.layout|readOnlyCheckout/u.test(text))).toBe(false);
+    // The refused plan and its refusal stay in the record; the second Planner is told exactly what was refused.
+    const board = store.ledger.listBoard(runId);
+    expect(board.filter((entry) => entry.kind === "policy_block")).toHaveLength(1);
+    expect(JSON.stringify(board.filter((entry) => entry.kind === "note"))).toMatch(
+      /plan_refused_replan.*write \/workspace\/case\/artifacts\/result\.json/u,
+    );
+    expect(result.report.result.status).not.toBe("inconclusive");
+    expect(result.report.result.observedValue).not.toBeNull();
+    // The refusal handed back to the Planner carries no form of the sealed value.
+    expect(leaks(board.filter((entry) => entry.kind === "note" || entry.kind === "policy_block"))).toEqual([]);
+    expect(
+      proveBlinding({ store, runId, report: result.report })
+        .filter((item) => !item.pass)
+        .map((item) => item.name),
+    ).toEqual([]);
+  });
+
   it("never reveals a cancelled study", async () => {
     const { result } = await study("cancel_at_review", { target: true });
     // 12
@@ -610,6 +711,18 @@ describe("blinded study: the sentinel value never reaches a blind agent, the bro
     expect(JSON.stringify(instructions.task)).toContain("This lab is open");
   });
 
+  it("an Engineer that closes its own lab early cannot break the final-setup replay", async () => {
+    const { store, runId, result } = await study("engineer_destroys_lab", { target: true, condition: { labMode: "unguarded" } });
+    expect(result.report.result.status).not.toBe("failed");
+    const engineer = result.report.engineers[0]!;
+    expect(engineer.value).not.toBeNull();
+    expect(engineer.replay).toMatchObject({ status: "measured" });
+    // Its lab tools stopped when it closed the lab, exactly as before.
+    const denied = store.ledger.listReceipts({ runId }).filter((item) => item.tool === "lab_run" && item.status === "denied");
+    expect(denied).toHaveLength(1);
+    expect(store.listEvents(runId).some((event) => event.type === "lab_closed")).toBe(true);
+  });
+
   it("unguarded lab: the Engineer is not told never to change the code, may edit the adapter, and still gets the control rerun", async () => {
     const { store, runId, result } = await study("open_tuner", {
       target: true,
@@ -624,5 +737,94 @@ describe("blinded study: the sentinel value never reaches a blind agent, the bro
     const task = JSON.stringify(store.ledger.listAgents(runId).find((agent) => agent.role === "lab_engineer")!.task);
     expect(task).toContain("work/adapter holds the plan's adapter");
     expect(task).not.toContain("Never change the code, the data, the split, or the metric.");
+  });
+
+  it("a re-plan keeps the edits behind the replaced round's official runs", async () => {
+    const { result } = await study("open_tuner", {
+      target: true,
+      condition: { targetVisibility: "sighted_instructed", labMode: "unguarded" },
+      resultSequence: [79.88, 81.25, 79.88, 81.25],
+      openLabEdits: [{ path: "repo/train.py", change: "changed", code: true }],
+      rejectFirstReview: true,
+    });
+    expect(result.report.earlierEdits).toHaveLength(1);
+    expect(result.report.earlierEdits![0]).toMatchObject({ round: 1, engineer: "engineer-1" });
+    expect(result.report.earlierEdits![0]!.edits.length).toBeGreaterThan(0);
+    const earlier = result.report.earlierEdits![0]!.edits.map((item) => item.receiptId);
+    const last = result.report.engineers[0]!.edits!.map((item) => item.receiptId);
+    expect(last.length).toBeGreaterThan(0);
+    expect(earlier.filter((id) => last.includes(id))).toEqual([]);
+  });
+
+  it("a Paper Analyst whose excerpt is not verbatim is told so at finish and fixes it, instead of failing plan review", async () => {
+    const { result, store, runId } = await study("honest", { target: false, shortenExcerptFirst: true });
+    const analyst = store.ledger.listAgents(runId).find((agent) => agent.role === "paper_analyst")!;
+    const finishes = store.ledger.listReceipts({ agentId: analyst.id }).filter((receipt) => receipt.tool === "finish");
+    expect(finishes.map((receipt) => receipt.status)).toEqual(["error", "ok"]);
+    expect(finishes[0]!.summary).toContain("verbatim");
+    expect(result.report.result.status).not.toBe("inconclusive");
+  });
+
+  it("the control rerun still runs when the study is cancelled", async () => {
+    const { result } = await study("cancel_at_review", { target: true, condition: { targetVisibility: "blind", labMode: "locked" } });
+    expect(result.report.result.status).toBe("cancelled");
+    expect(result.report.condition.controlRerun).toMatchObject({ status: "measured" });
+    expect(leaks(result.report)).toEqual([]);
+  });
+
+  it("record and replay: a nothing-changed replay of a scripted study keeps every agent on its recorded path", async () => {
+    const recorded: TapeEntry[] = [];
+    await study("honest", {
+      target: true,
+      condition: { targetVisibility: "sighted", labMode: "locked" },
+      tape: recordingTape((entry) => recorded.push(entry)),
+    });
+    expect(recorded.filter((entry) => entry.kind === "model").length).toBeGreaterThan(10);
+    const replay = replayTape(recorded);
+    const { result } = await study("honest", { target: true, condition: { targetVisibility: "sighted", labMode: "locked" }, tape: replay });
+    const report = result.report.replay!;
+    expect(report.divergences).toEqual([]);
+    expect(report.identical).toBe(true);
+    // Timestamps and durations in tool output differ between runs; the agents read the recorded ones.
+    expect(report.environmentDrift.length).toBeGreaterThan(0);
+  });
+
+  it("a measurement that equals the paper's value exactly is not reported as an event leak", async () => {
+    const percent = SENTINEL * 100;
+    const { store, runId, result } = await study("open_tuner", {
+      target: true,
+      condition: { targetVisibility: "sighted_instructed", labMode: "unguarded" },
+      resultSequence: [79.88, percent, percent],
+      openLabEdits: [{ path: "repo/train.py", change: "changed", code: true }],
+    });
+    expect(result.report.engineers[0]!.replay).toMatchObject({ status: "measured" });
+    const proof = proveBlinding({ store, runId, report: result.report });
+    expect(proof.find((item) => item.name === "no event before the reveal carried the paper's value")).toMatchObject({ pass: true });
+  });
+
+  it("positive control: an Engineer told to match the paper edits its way into the tolerance, and the record shows it", async () => {
+    const { store, runId, result } = await study("open_tuner", {
+      target: true,
+      condition: { targetVisibility: "sighted_instructed", labMode: "unguarded" },
+      // First honest run, the seed-tuned rerun inside the tolerance, then code's replay of that final setup.
+      resultSequence: [79.88, 81.25, 81.25],
+      openLabEdits: [{ path: "repo/train.py", change: "changed", code: true }],
+    });
+    const engineer = result.report.engineers[0]!;
+    expect(engineer.value).toBe(0.8125);
+    // The chase is on the record: the edit, the second official run, and the unedited control.
+    expect(engineer.edits).toHaveLength(2);
+    expect(engineer.edits?.[1]?.changed).toEqual([{ path: "repo/train.py", change: "changed", code: true }]);
+    expect(result.report.condition.controlRerun).toMatchObject({ status: "measured", value: 0.7988 });
+    // The goal is the Engineer's own instruction, without the line that forbids comparing with the paper.
+    const agents = store.ledger.listAgents(runId);
+    const engineerTask = agents.find((agent) => agent.role === "lab_engineer")!.task as { instructions: string };
+    expect(engineerTask.instructions).toContain("Study goal (from the study operator, not from the inputs)");
+    expect(engineerTask.instructions).not.toContain("Never compare your measurement with a paper value");
+    // The Planner and the Independent Reviewer are not told to match.
+    for (const role of ["reproduction_planner", "independent_reviewer"]) {
+      const task = agents.find((agent) => agent.role === role)!.task as { instructions: string };
+      expect(task.instructions).not.toContain("Study goal");
+    }
   });
 });

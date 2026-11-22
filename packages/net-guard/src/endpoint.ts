@@ -303,6 +303,9 @@ export function createGuardedFetch(options: GuardedFetchOptions): GuardedFetch {
 
       const secure = url.protocol === "https:";
       const transport: EndpointTransport = options.transport ?? (secure ? https.request : http.request);
+      // The address the socket connected to, read when it connects: by the time the response arrives a
+      // short-lived (`connection: close`, no agent) socket can already be detached, leaving remoteAddress unset.
+      let connectedTo: string | undefined;
       response = await new Promise<IncomingMessage>((resolve, reject) => {
         if (signal.aborted) {
           reject(signal.reason);
@@ -324,11 +327,9 @@ export function createGuardedFetch(options: GuardedFetchOptions): GuardedFetch {
             signal,
           },
           (res) => {
-            if (!sameAddress(res.socket.remoteAddress, pinned.address)) {
-              const error = new NetGuardError(
-                "pinning_violation",
-                `Connected to ${res.socket.remoteAddress ?? "unknown"}, expected ${pinned.address}`,
-              );
+            const remote = connectedTo ?? res.socket?.remoteAddress;
+            if (!sameAddress(remote, pinned.address)) {
+              const error = new NetGuardError("pinning_violation", `Connected to ${remote ?? "unknown"}, expected ${pinned.address}`);
               res.destroy(error);
               req.destroy(error);
               reject(error);
@@ -339,7 +340,13 @@ export function createGuardedFetch(options: GuardedFetchOptions): GuardedFetch {
         );
         request = req;
         req.once("socket", (socket: Socket) => {
-          socket.once(secure ? "secureConnect" : "connect", () => clearTimeout(connectTimer));
+          socket.once(secure ? "secureConnect" : "connect", () => {
+            clearTimeout(connectTimer);
+            connectedTo = socket.remoteAddress ?? connectedTo;
+          });
+          socket.once("connect", () => {
+            connectedTo = socket.remoteAddress ?? connectedTo;
+          });
         });
         req.on("timeout", () => abort(new NetGuardError("timeout", "Socket was idle for too long")));
         req.on("error", reject);

@@ -171,6 +171,51 @@ describe("claim contract and policy review", () => {
     );
   });
 
+  it("resolves adapter and output paths from the command's cwd and names the path that was meant", () => {
+    const adapter = {
+      path: "work/adapter/runner.py",
+      content: "import subprocess",
+      why: "w",
+      source: "s",
+      differences: [],
+    };
+    const metricParser = { source: "json" as const, path: "artifacts/result.json", key: "metrics.accuracy" };
+    const run = (argv: string[], cwd: "repo" | "work/repo", strictOutputPaths = true) =>
+      reviewPolicy({
+        contract: contractFor({ adapter, metricParser, command: { argv, cwd } }),
+        adapter,
+        repository: { commitSha: COMMIT, files },
+        datasetPolicy: { allowedHosts: [], maxRedirects: 3, maxBytes: 1024, timeoutMs: 1000 } as never,
+        dependencies,
+        commandTimeoutSeconds: 900,
+        trustedConstraints: [],
+        strictOutputPaths,
+      });
+    // Every spelling that reaches the right files is accepted.
+    for (const [argv, cwd] of [
+      [["python", "../adapter/runner.py", "--output", "../../artifacts/result.json"], "work/repo"],
+      [["python", "../work/adapter/runner.py", "--output=../artifacts/result.json"], "repo"],
+      [["python", "/workspace/case/work/adapter/runner.py", "--output", "/workspace/case/artifacts/result.json"], "work/repo"],
+    ] as const)
+      expect(run([...argv], cwd).outcome).toBe("approved");
+    // The weaker models' mistake: the `repo` example copied under the other cwd.
+    const wrongScript = run(["python", "../work/adapter/runner.py", "--output", "/workspace/case/artifacts/result.json"], "work/repo");
+    expect(wrongScript.outcome).toBe("inconclusive");
+    expect(wrongScript.violations.join()).toMatch(
+      /neither the entry point nor the declared adapter: from work\/repo it resolves to work\/work\/adapter\/runner\.py.*\/workspace\/case\/work\/adapter\/runner\.py/u,
+    );
+    // An output relative to cwd lands where the lab never reads the metric.
+    const wrongOutput = run(["python", "../adapter/runner.py", "--output", "artifacts/result.json"], "work/repo");
+    expect(wrongOutput.outcome).toBe("inconclusive");
+    const missed =
+      "the command writes artifacts/result.json, which from work/repo resolves to work/repo/artifacts/result.json, but the metric is read from artifacts/result.json (write /workspace/case/artifacts/result.json)";
+    expect(wrongOutput.violations).toEqual([missed]);
+    // The published protocol (plan revision off) only warns, as before this check existed.
+    const published = run(["python", "../adapter/runner.py", "--output", "artifacts/result.json"], "work/repo", false);
+    expect(published.outcome).toBe("approved");
+    expect(published.warnings).toContain(missed);
+  });
+
   it("allows a declared adapter but warns, and refuses an adapter holding the reported value", () => {
     const adapter = {
       path: "work/adapter/run.py",

@@ -246,7 +246,7 @@ function labDataFiles(target: ClaimTarget): string[] | null {
 }
 
 /** What the Planner is told: the reviewed limits its plan must fit. Never the value, tolerance, or paper reference. */
-export function plannerTarget(target: ClaimTarget): Record<string, unknown> {
+export function plannerTarget(target: ClaimTarget, options: { runAs?: boolean } = {}): Record<string, unknown> {
   return {
     caseId: target.caseId,
     claim: {
@@ -265,6 +265,8 @@ export function plannerTarget(target: ClaimTarget): Record<string, unknown> {
       ? {
           id: target.adapter.id,
           path: target.adapter.path,
+          /** Plan revision mode: the absolute script path to put after `python`, valid from either cwd. */
+          ...(options.runAs ? { runAs: `${LAB_LAYOUT.workdir}/${target.adapter.path}` } : {}),
           why: target.adapter.why,
           source: target.adapter.source,
           differences: target.adapter.differences,

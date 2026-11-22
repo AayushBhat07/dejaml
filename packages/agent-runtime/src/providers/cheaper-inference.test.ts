@@ -129,7 +129,7 @@ describe("Cheaper Inference configuration", () => {
       loadProviderConfig({ ...ENV, DEJAML_CHEAPER_INFERENCE_MODELS: "claude-opus-5-5" });
     } catch (err) {
       expect((err as ProviderConfigError).problems).toEqual([
-        'DEJAML_CHEAPER_INFERENCE_MODELS lists "claude-opus-5-5", which is not permitted for Cheaper Inference (allowed: claude-sonnet-5.5, claude-haiku-4.5, claude-haiku-5.5, qwen3-coder-30b-a3b)',
+        'DEJAML_CHEAPER_INFERENCE_MODELS lists "claude-opus-5-5", which is not permitted for Cheaper Inference (allowed: claude-sonnet-5.5, claude-haiku-4.5, claude-haiku-5.5, qwen3-coder-30b-a3b, kimi-k2.7-code)',
       ]);
     }
   });
@@ -251,6 +251,15 @@ describe("Cheaper Inference over the guarded fetch", () => {
     // prompt_tokens includes cached tokens; TokenUsage keeps the buckets disjoint.
     expect(res.usage).toEqual({ inputTokens: 200, outputTokens: 80, cacheReadTokens: 1000 });
     expect(res.attempts).toBe(1);
+  });
+
+  it("records the cost the gateway reports (it includes the prompt-cache discount) instead of estimating one", async () => {
+    const billed = { ...COMPLETION, usage: { ...COMPLETION.usage, cost: 0.00096 } };
+    const gw = await gateway((res) => json(res, 200, billed));
+    const provider = createChatProvider(loadProviderConfig(ENV), "cheaper_inference", MODEL, { netGuard: gw.netGuard });
+    const res = await provider.chat(request(MODEL));
+    expect(res.usage).toMatchObject({ inputTokens: 200, cacheReadTokens: 1000, reportedCostUsd: 0.00096 });
+    expect(res.costUsd).toBe(0.00096);
   });
 
   it("ignores every other endpoint setting: OpenAI and custom base URLs never redirect it", async () => {

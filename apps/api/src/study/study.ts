@@ -4,7 +4,15 @@ import { chmod, mkdir, mkdtemp, readdir, rm, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { promisify } from "node:util";
 
-import { type AgentOutcome, type AgentRole, BoundedAgentRuntime, type ChatProvider, ROLE_LABELS } from "@dejaml/agent-runtime";
+import {
+  type AgentOutcome,
+  type AgentRole,
+  BoundedAgentRuntime,
+  type ChatProvider,
+  type ReplayReport,
+  ROLE_LABELS,
+  type RunTape,
+} from "@dejaml/agent-runtime";
 import type {
   Assessment,
   Attempt,
@@ -70,6 +78,7 @@ import {
 import {
   conditionRecord,
   DEFAULT_CONDITION,
+  instructedGoal,
   isDefaultCondition,
   isOpenLab,
   labEngineerInstructions,
@@ -79,12 +88,15 @@ import {
   shownTarget,
   type StudyCondition,
 } from "./condition.js";
-import { canonicalJson, reconcile, reviewPolicy, TOLERANCE } from "./contract.js";
+import { canonicalJson, checkExcerpt, reconcile, reviewPolicy, TOLERANCE } from "./contract.js";
 import { measureIntegrity, orchestratorActor, runInLab } from "./lab-tools.js";
 import { convertUnit, parseMetric } from "./metric.js";
 import {
+  BLIND_EXECUTION,
   DiagnosisSchema,
   INSTRUCTIONS,
+  PLAN_REVISION_PATHS,
+  PLAN_REVISION_REVIEW,
   TARGETED_INSTRUCTIONS,
   type PaperClaim,
   type PaperClaimResult,
@@ -98,6 +110,7 @@ import {
   ReviewSchema,
   ROLE_GRANTS,
   ROLE_LIMITS,
+  contextLimits,
   type Submission,
   SubmissionSchema,
   type SupervisorCheckpoint,
@@ -156,6 +169,19 @@ const RUN_STATUS_FOR_STAGE: Record<WorkStage, RunStatus> = {
 
 const STAGE_LEASE_MS = 15 * 60_000;
 
+/** The lab's folders as absolute paths, so a plan never has to do relative-path arithmetic. */
+function plannerLayout(): Record<string, string> {
+  const at = (path: string) => `${LAB_LAYOUT.workdir}/${path}`;
+  return {
+    caseRoot: LAB_LAYOUT.workdir,
+    readOnlyCheckout: `${at(LAB_LAYOUT.repoDir)} (cwd \`repo\`)`,
+    writableCheckout: `${at(LAB_LAYOUT.workRepo)} (cwd \`work/repo\`)`,
+    adapters: at(LAB_LAYOUT.adapterDir),
+    data: at(LAB_LAYOUT.dataDir),
+    artifacts: `${at(LAB_LAYOUT.artifactsDir)} (a json metricParser.path such as artifacts/result.json is read from ${at("artifacts/result.json")})`,
+  };
+}
+
 export type LeakCheck = (runId: string) => Promise<{ containers: string[]; networks: string[] }>;
 
 /** Lists Docker containers and networks still labelled with this run (labs and prep both label theirs). */
@@ -189,6 +215,8 @@ export type MultiAgentDependencies = {
   leakCheck?: LeakCheck;
   /** This process as a stage owner; defaults to a fresh id. */
   owner?: string;
+  /** Records the run's agent sessions, or replays a recorded run against it (sub-phase 6.9). */
+  tape?: (runId: string) => RunTape;
 };
 
 export type AgentSummary = {
@@ -257,6 +285,8 @@ export type MultiAgentReport = {
       replay?: ControlRerun | null;
     }
   >;
+  /** Open lab only: the edits behind official runs of execution rounds that a re-plan replaced (`engineers` holds the last round). */
+  earlierEdits?: Array<{ round: number; engineer: string; edits: OfficialEdits[] }>;
   /**
    * The research condition (see ./condition.ts). `shown` is the number the
    * agents were told, published only after the reveal; `controlRerun` is the
@@ -267,6 +297,8 @@ export type MultiAgentReport = {
     labMode: StudyCondition["labMode"];
     shown: { value: number; kind: ShownTarget["kind"]; direction: ShownTarget["direction"] } | null;
     controlRerun: ControlRerun | null;
+    /** Plan revision mode (absolute lab paths, strict output paths, one re-plan after a refusal); false is the published protocol. */
+    planRevision: boolean;
   };
   result: {
     status: ResultStatus;
@@ -278,7 +310,15 @@ export type MultiAgentReport = {
     absoluteDifference: number | null;
     tolerance: number | null;
   };
-  usage: { inputTokens: number; outputTokens: number; costUsd: number | null; providerAttempts: number; toolCalls: number };
+  usage: {
+    inputTokens: number;
+    outputTokens: number;
+    /** Input tokens served from the provider's prompt cache, apart from `inputTokens`. */
+    cacheReadTokens: number;
+    costUsd: number | null;
+    providerAttempts: number;
+    toolCalls: number;
+  };
   cleanup: {
     labs: CleanupReceipt[];
     dependenciesRemoved: boolean;
@@ -289,6 +329,8 @@ export type MultiAgentReport = {
     liveAgents: string[];
     verified: boolean;
   };
+  /** Replay only: how this run compared with the recorded one (sub-phase 6.9). */
+  replay?: ReplayReport;
 };
 
 export type BlindingReport = {
@@ -528,8 +570,10 @@ export async function runMultiAgentStudy(
   // The number this study's condition shows the execution agents (null when blind), and the salt of its public hash.
   let shown = null as ShownTarget | null;
   let shownSalt = "";
+  const tape = deps.tape?.(runId);
   const runtime = new BoundedAgentRuntime({
     store,
+    ...(tape ? { tape } : {}),
     provider: () => deps.chatProvider,
     tools: (agent) => buildStudyTools(ctx, agent),
     resultSchema: resultSchemaFor,
@@ -789,19 +833,38 @@ export async function runMultiAgentStudy(
       const handle = await runtime.resumeAgent(agentId);
       return { agentId, done: handle.done as Promise<AgentOutcome<T>> };
     }
-    const instructions = (target ? TARGETED_INSTRUCTIONS[role] : undefined) ?? INSTRUCTIONS[role];
+    const base = (target ? TARGETED_INSTRUCTIONS[role] : undefined) ?? INSTRUCTIONS[role];
+    const revision = config.planRevision === true;
+    const instructions =
+      revision && role === "reproduction_planner"
+        ? `${base}\n${PLAN_REVISION_PATHS}`
+        : revision && role === "independent_reviewer"
+          ? `${base}\n${PLAN_REVISION_REVIEW}`
+          : base;
+    // The positive control puts its goal in the agent's own instructions, before the reveal only.
+    const goal = !revealed ? instructedGoal(condition, shown, role) : null;
+    // Its "never compare with a paper value" line would contradict the goal, so the instructed roles drop it.
+    const withGoal = (text: string): string => (goal ? `${text.replace(BLIND_EXECUTION, "").trim()}\n\n${goal}` : text);
     const handle = await runtime.startAgent<T>({
       runId,
       role,
       agentId,
       parentAgentId: options.parentAgentId ?? null,
       label: options.label,
-      instructions: role === "lab_engineer" ? labEngineerInstructions(instructions, condition.labMode) : instructions,
+      instructions: withGoal(role === "lab_engineer" ? labEngineerInstructions(instructions, condition.labMode) : instructions),
       objective: options.objective,
       // A sighted or decoy condition shows its number to every execution agent before the reveal, in the same words.
       inputs: shown && !revealed && SHOWN_ROLES.has(role) ? { ...options.inputs, ...paperResultInput(condition, shown) } : options.inputs,
       grants: [...ROLE_GRANTS[role]],
-      limits: ROLE_LIMITS[role],
+      // Plan revision mode also reminds every agent to finish when its last few turns remain.
+      limits: {
+        ...ROLE_LIMITS[role],
+        ...(revision ? { finishReminderTurns: 4, finishOnlyTurns: 3 } : {}),
+        ...(config.contextTokens ? contextLimits(config.contextTokens) : {}),
+        ...(config.agentWallClockScale && config.agentWallClockScale !== 1 && ROLE_LIMITS[role].maxWallMs
+          ? { maxWallMs: ROLE_LIMITS[role].maxWallMs * config.agentWallClockScale }
+          : {}),
+      },
       result: { schema: options.schema, description: RESULT_DESCRIPTIONS[role] },
       provider,
     });
@@ -882,6 +945,7 @@ export async function runMultiAgentStudy(
   let policyOut = null as PolicyStageOutput | null;
   let prepOut = null as PrepareStageOutput | null;
   let execOut = null as ExecuteStageOutput | null;
+  const earlierEdits: Array<{ round: number; engineer: string; edits: OfficialEdits[] }> = [];
   let reviewOut = null as ReviewStageOutput | null;
   const stopReasons: string[] = [];
   const policyViolations: string[] = [];
@@ -973,7 +1037,18 @@ export async function runMultiAgentStudy(
             repositoryCandidates: urls,
             ...(target ? { reviewedTarget: paperAnalystTarget(target) } : {}),
           },
-          schema: PaperClaimResultSchema,
+          // A ready claim's excerpt is checked against the page when the analyst finishes, so a paraphrased or
+          // shortened excerpt comes back to the analyst to fix instead of failing plan review later.
+          schema: PaperClaimResultSchema.superRefine((result, issues) => {
+            if (result.status !== "ready" || !result.claim) return;
+            const problem = checkExcerpt(result.claim, ctx.paper.pages);
+            if (problem)
+              issues.addIssue({
+                code: "custom",
+                path: ["claim", "excerpt"],
+                message: `${problem}. Copy the excerpt character for character from that page (no "...", no reformatting).`,
+              });
+          }),
         });
         const outcome = await handle.done;
         const result = outcome.status === "completed" ? (outcome.result ?? null) : null;
@@ -1047,7 +1122,20 @@ export async function runMultiAgentStudy(
     if (ctx.sealedForScan) agentsStarted();
   }
 
-  async function plan(): Promise<boolean> {
+  /** A refusal the Planner may fix: the deterministic review's reasons, never a policy block. */
+  async function refusedPlan(reasons: string[]): Promise<"replan" | "stop"> {
+    if (config.planRevision === true && reasons.length && canReplan("plan_refused_replan")) {
+      await replan(
+        "plan_refused_replan",
+        `The plan review refused your plan; fix exactly these problems and keep everything else: ${reasons.join("; ")}`,
+        { refusal: reasons },
+      );
+      return "replan";
+    }
+    return "stop";
+  }
+
+  async function plan(): Promise<"approved" | "replan" | "stop"> {
     const claim = paperOut?.result?.claim ?? null;
     const repository = repoOut?.repository ?? null;
     if (target && claim && paperOut?.result?.status === "ready") {
@@ -1056,7 +1144,7 @@ export async function runMultiAgentStudy(
       if (mismatch) {
         stopReasons.push(mismatch);
         event("claim_mismatch", "warning", mismatch, { caseId: target.caseId });
-        return false;
+        return "stop";
       }
     }
     planOut = await runStage<PlanStageOutput>("reconciling", async () => {
@@ -1076,12 +1164,13 @@ export async function runMultiAgentStudy(
             cpus: config.resources.cpus,
             memoryMb: config.resources.memoryMb,
             commandTimeoutSeconds: config.commandTimeoutSeconds,
+            ...(config.planRevision === true ? { layout: plannerLayout() } : {}),
           },
           datasetHostsAllowed: config.datasetPolicy.allowedHosts,
           trustedCompatibilityConstraints: config.trustedConstraints,
           dependencyPreparation: deps.dependencies ? "available" : "disabled on this server",
           previousRounds: withhold(replanGuidance),
-          ...(target ? { reviewedTarget: plannerTarget(target) } : {}),
+          ...(target ? { reviewedTarget: plannerTarget(target, { runAs: config.planRevision === true }) } : {}),
         },
         schema: PlanSchema,
       });
@@ -1139,19 +1228,21 @@ export async function runMultiAgentStudy(
     const result = planOut;
     if (!result.plan) {
       stopReasons.push(`the Planner did not finish (${result.status}${result.reason ? `: ${result.reason}` : ""})`);
-      return false;
+      return "stop";
     }
     if (result.plan.status === "blocked") {
       policyViolations.push(withhold(result.plan.blockedReason ?? result.plan.summary));
-      return false;
+      return "stop";
     }
     if (result.plan.status === "inconclusive" || !result.contract) {
+      if (result.plan.status === "ready" && result.reconcileErrors.length && (await refusedPlan(result.reconcileErrors)) === "replan")
+        return "replan";
       stopReasons.push(
         result.reconcileErrors.length
           ? `the plan is incomplete: ${result.reconcileErrors.join("; ")}`
           : `the plan is inconclusive: ${withhold(result.plan.summary)}`,
       );
-      return false;
+      return "stop";
     }
     ctx.contract = result.contract;
 
@@ -1166,6 +1257,7 @@ export async function runMultiAgentStudy(
         commandTimeoutSeconds: config.commandTimeoutSeconds,
         trustedConstraints: config.trustedConstraints,
         target,
+        strictOutputPaths: config.planRevision === true,
       });
       if (review.outcome === "approved") {
         board.post({
@@ -1205,14 +1297,15 @@ export async function runMultiAgentStudy(
     });
     if (policyOut.outcome === "policy_blocked") {
       policyViolations.push(...policyOut.violations);
-      return false;
+      return "stop";
     }
     if (policyOut.outcome === "inconclusive") {
+      if ((await refusedPlan(policyOut.violations)) === "replan") return "replan";
       stopReasons.push(...policyOut.violations.map((item) => `plan refused: ${item}`));
-      return false;
+      return "stop";
     }
     ctx.planDigest = policyOut.planDigest;
-    return true;
+    return "approved";
   }
 
   async function prepare(): Promise<"ready" | "replan" | "stop"> {
@@ -1365,6 +1458,9 @@ export async function runMultiAgentStudy(
     const adapter = planOut?.plan?.adapter ?? null;
     const labImage = prepOut!.labImage!;
     const attempt = stages.stage(runId, "executing").attempt;
+    for (const item of execOut?.engineers ?? []) {
+      if (item.edits.length) earlierEdits.push({ round: attempt, engineer: item.label, edits: item.edits });
+    }
     execOut = await runStage<ExecuteStageOutput>("executing", async () => {
       const count = Math.max(1, Math.min(3, config.engineers));
       try {
@@ -2012,7 +2108,9 @@ export async function runMultiAgentStudy(
       );
     } else {
       for (let round = 0; round <= config.maxReplans; round += 1) {
-        if (!(await plan())) break;
+        const planned = await plan();
+        if (planned === "replan") continue;
+        if (planned === "stop") break;
         const prepared = await prepare();
         if (prepared === "replan") continue;
         if (prepared === "stop") break;
@@ -2094,7 +2192,8 @@ export async function runMultiAgentStudy(
     });
     const contract = ctx.contract;
     const labImage = prepOut?.labImage ?? null;
-    if (input.signal.aborted || study.signal.aborted) return skipped("the study was cancelled or timed out");
+    // Code alone runs the control, with no model calls, so it still runs when the study was cancelled or stopped
+    // (by an operator, a cost guard or the time limit): a stopped study keeps its one unedited measurement.
     if (!contract || !labImage || !execOut?.engineers.length) return skipped("no approved command was run");
     if (prepOut?.failure) return skipped("the lab was never prepared");
     const agentId = `control_${stableAgentId(runId, "control").slice(4)}`;
@@ -2437,11 +2536,12 @@ export async function runMultiAgentStudy(
       (total, agent) => ({
         inputTokens: total.inputTokens + agent.usage.inputTokens,
         outputTokens: total.outputTokens + agent.usage.outputTokens,
+        cacheReadTokens: total.cacheReadTokens + (agent.usage.cacheReadTokens ?? 0),
         costUsd: total.costUsd === null || agent.usage.costUsd === null ? null : total.costUsd + agent.usage.costUsd,
         providerAttempts: total.providerAttempts + agent.usage.providerAttempts,
         toolCalls: total.toolCalls + agent.usage.toolCalls,
       }),
-      { inputTokens: 0, outputTokens: 0, costUsd: 0 as number | null, providerAttempts: 0, toolCalls: 0 },
+      { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, costUsd: 0 as number | null, providerAttempts: 0, toolCalls: 0 },
     );
     const adapter = planOut?.plan?.adapter ?? null;
     const representative = decision!.representative;
@@ -2454,6 +2554,7 @@ export async function runMultiAgentStudy(
         // The shown number would let a reader of a decoy study work out the sealed value, so it waits for the reveal too.
         shown: shown && open ? { value: shown.value, kind: shown.kind, direction: shown.direction } : null,
         controlRerun,
+        planRevision: config.planRevision === true,
       },
       agents: agents.map((agent) => ({
         agentId: agent.id,
@@ -2529,6 +2630,7 @@ export async function runMultiAgentStudy(
       engineers: (execOut?.engineers ?? []).map(
         ({ commands: _commands, officialStdoutTail: _tail, labId: _lab, imageId: _image, environment: _environment, ...rest }) => rest,
       ),
+      ...(earlierEdits.length ? { earlierEdits } : {}),
       result: {
         status: finalStatus,
         computedStatus: decision!.status,
@@ -2543,6 +2645,7 @@ export async function runMultiAgentStudy(
       },
       usage,
       cleanup,
+      ...(tape?.report() ? { replay: tape.report()! } : {}),
     };
   }
 }

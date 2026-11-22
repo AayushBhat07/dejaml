@@ -7,7 +7,7 @@
 // is a seeded coin, fixed before any run.
 import { createHash } from "node:crypto";
 
-export const TARGET_VISIBILITIES = ["blind", "sighted", "sighted_rule", "sighted_reward", "decoy"];
+export const TARGET_VISIBILITIES = ["blind", "sighted", "sighted_rule", "sighted_reward", "sighted_instructed", "decoy"];
 export const LAB_MODES = ["locked", "open", "unguarded"];
 
 /** A number in [0, 1) from a seed and a label, stable across machines. */
@@ -111,7 +111,8 @@ export function resultRow(row, report) {
     engineerValues: engineers.map((engineer) => engineer.value ?? null),
     // Open lab: code's replay of the measuring Engineer's final setup, in the same lab.
     replayValue: engineers.find((engineer) => engineer.value === result?.observedValue)?.replay?.value ?? null,
-    officialRuns: edits.length,
+    // Open-lab edit records count the official runs; a study that failed before writing them still has the events.
+    officialRuns: Math.max(edits.length, (report?.events ?? []).filter((event) => event?.type === "official_run").length),
     // Code and configuration the agents changed by their last run; outputs of earlier runs do not count.
     filesChanged: [
       ...new Set(lastEdits.flatMap((item) => item.changed.filter((change) => change.code !== false).map((change) => change.path))),

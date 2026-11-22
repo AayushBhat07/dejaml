@@ -8,6 +8,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   ImageNotReadyError,
   ImageReadiness,
+  inspectReference,
   loadBaseImageLock,
   pythonBaseImageRequest,
   pythonBaseImageTag,
@@ -42,6 +43,8 @@ class FakeDocker implements ContainerRuntime {
   readonly images = new Map<string, LocalImage>();
   /** Classic-store behaviour: `image inspect --platform` reports the image's only platform whatever was asked. */
   classicStore = false;
+  /** Answers an inspect by image ID (used when Docker Desktop loses the digest lookup). */
+  byIdOnly = false;
   inspectError: string | null = null;
   pullFailures = 0;
   pullHang = false;
@@ -59,10 +62,16 @@ class FakeDocker implements ContainerRuntime {
       const index = args.indexOf(name);
       return index >= 0 ? args[index + 1] : undefined;
     };
+    if (command === "image" && args[1] === "ls") {
+      const lines = [...this.images.entries()]
+        .filter(([reference]) => reference.includes("@"))
+        .map(([reference, image]) => `${reference.split("@")[0]}|${reference.split("@")[1]}|${image.id}`);
+      return result(0, lines.join("\n") + "\n");
+    }
     if (command === "image") {
       if (this.inspectError) return result(1, "", this.inspectError);
       const reference = args.at(-1) ?? "";
-      const image = this.images.get(reference);
+      const image = this.images.get(reference) ?? [...this.images.values()].find((item) => item.id === reference && this.byIdOnly);
       if (!image) return result(1, "", `Error response from daemon: No such image: ${reference}`);
       const asked = flag("--platform");
       const platform = asked
@@ -160,6 +169,59 @@ describe("ImageReadiness", () => {
     expect(readiness.status()).toEqual([expect.objectContaining({ key: "probe:busybox", platform: "linux/amd64", state: "ready", image })]);
   });
 
+  it("finds a pinned image by its digest when the reference also names a tag", async () => {
+    // Docker stores `docker pull python:3.12-slim-trixie@sha256:…` as `python@sha256:…` only.
+    const tagged = `python:3.12-slim-trixie@${DIGEST}`;
+    docker.images.set(`python@${DIGEST}`, { id: DIGEST, platforms: new Set(["linux/arm64"]), defaultPlatform: "linux/arm64" });
+    const image = await readiness.ensure(request({ key: "prep-python-3.12", reference: tagged, platform: "linux/arm64" }));
+    expect(image).toMatchObject({ source: "present", reference: tagged, architecture: "arm64" });
+    expect(docker.calls.filter((call) => call[0] === "image").map((call) => call.at(-1))).toEqual([`python@${DIGEST}`, `python@${DIGEST}`]);
+  });
+
+  it("asks Docker once more before calling an image missing, and keeps Docker's answer", async () => {
+    let misses = 1;
+    const real = docker.docker.bind(docker);
+    docker.docker = async (args, options) => {
+      if (args[0] === "image" && misses > 0) {
+        misses -= 1;
+        return result(1, "", "Error response from daemon: No such image: flaky");
+      }
+      return real(args, options);
+    };
+    docker.images.set(PINNED, { id: DIGEST, platforms: new Set(["linux/amd64"]), defaultPlatform: "linux/amd64" });
+    await expect(readiness.ensure(request())).resolves.toMatchObject({ source: "present" });
+    await expect(readiness.ensure(request({ key: "other", reference: `busybox@${OTHER}` }))).rejects.toMatchObject({
+      code: "image_missing",
+      detail: expect.stringContaining(`No such image: busybox@${OTHER}`),
+    });
+  });
+
+  it("finds the image by its ID from the image list when Docker keeps saying No such image for its digest", async () => {
+    docker.byIdOnly = true;
+    const real = docker.docker.bind(docker);
+    docker.docker = async (args, options) => {
+      if (args[0] === "image" && args[1] === "inspect" && String(args.at(-1)).includes("@")) {
+        return result(1, "", `Error response from daemon: No such image: ${String(args.at(-1))}`);
+      }
+      return real(args, options);
+    };
+    docker.images.set(PINNED, { id: DIGEST, platforms: new Set(["linux/amd64"]), defaultPlatform: "linux/amd64" });
+    await expect(readiness.ensure(request())).resolves.toMatchObject({ source: "present", imageId: DIGEST });
+    // The two refused digest inspections never reach the fake; the image list and the ID inspections do.
+    expect(docker.calls.filter((call) => call[0] === "image").map((call) => (call[1] === "ls" ? "ls" : call.at(-1)))).toEqual([
+      "ls",
+      DIGEST,
+      DIGEST,
+    ]);
+  });
+
+  it("inspects a pinned reference by name and digest, keeping registry ports and local tags", () => {
+    expect(inspectReference(`python:3.12-slim-trixie@${DIGEST}`)).toBe(`python@${DIGEST}`);
+    expect(inspectReference(`localhost:5000/lib/python:3.12@${DIGEST}`)).toBe(`localhost:5000/lib/python@${DIGEST}`);
+    expect(inspectReference(`localhost:5000/lib/python@${DIGEST}`)).toBe(`localhost:5000/lib/python@${DIGEST}`);
+    expect(inspectReference("dejaml/python-base:3.12-abc")).toBe("dejaml/python-base:3.12-abc");
+  });
+
   it("fails with image_missing when the image is absent and nothing may create it", async () => {
     await expect(readiness.ensure(request())).rejects.toMatchObject({
       name: "ImageNotReadyError",
@@ -182,7 +244,7 @@ describe("ImageReadiness", () => {
     expect(docker.pulledPlatforms).toEqual(["linux/arm64"]);
     expect(docker.calls.find((call) => call[0] === "pull")).toEqual(["pull", "--quiet", "--platform", "linux/arm64", PINNED]);
     expect(image.digest).toBe(PLATFORM_DIGEST["linux/arm64"]);
-    expect(docker.calls.map((call) => call[0])).toEqual(["image", "pull", "image", "image"]);
+    expect(docker.calls.map((call) => call[0])).toEqual(["image", "image", "image", "pull", "image", "image"]);
     expect(docker.calls.at(-1)).toContain("--platform");
   });
 

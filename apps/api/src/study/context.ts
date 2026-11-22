@@ -51,6 +51,20 @@ export type StudyConfig = {
   /** Re-plans allowed in one study; each typed reason is allowed once. */
   maxReplans: number;
   /**
+   * Plan revision mode, for models that slip on paths. The plan review also refuses an output
+   * argument that would miss the metric file (otherwise only a warning), and a plan the review finds
+   * unusable (never a policy block) goes back to the Planner once with the exact refusal. The refused
+   * plan and the refusal stay on the board and in the run record. Off by default: the published protocol.
+   */
+  planRevision?: boolean;
+  /** Multiplies every agent's wall-clock limit (1 to 10), for a slow local model; iteration and tool-call limits are unchanged. */
+  agentWallClockScale?: number;
+  /**
+   * The model's context window in tokens, for a local model with a small one (such as 32k or 48k). When set,
+   * every agent's conversation rolls over, and each tool result and model turn is capped, to fit in it.
+   */
+  contextTokens?: number;
+  /**
    * The project-owned compatibility constraints file (never the repository or a model).
    * A plan may apply only constraints listed here; each one used is reported.
    */
@@ -181,6 +195,11 @@ export type EngineerLab = {
   adapter: { path: string; content: string } | null;
   dependencyRequest: { requirements: string[]; reason: string } | null;
   destroyed: boolean;
+  /**
+   * The Engineer called lab_destroy. Its lab tools stop, but the orchestrator destroys the lab only
+   * once its own work there is done (an open lab's final-setup replay runs in this lab).
+   */
+  closedByEngineer?: boolean;
 };
 
 export type OfficialEdits = {

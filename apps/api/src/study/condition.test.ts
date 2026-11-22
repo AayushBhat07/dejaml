@@ -7,6 +7,7 @@ import {
   ENGINEER_SAFEGUARD,
   isOpenLab,
   labEngineerInstructions,
+  instructedGoal,
   paperResultInput,
   shownTarget,
 } from "./condition.js";
@@ -84,6 +85,23 @@ describe("study conditions", () => {
     expect(paperResult).not.toHaveProperty("rule");
     const sighted = { ...DEFAULT_CONDITION, targetVisibility: "sighted" as const };
     expect(paperResultInput(sighted, shownTarget(sighted, sealed)!).paperResult).not.toHaveProperty("successCriterion");
+  });
+
+  it("tells the agents to match the paper only in the positive control", () => {
+    const sealed = target(81.66, "percent", 1);
+    const instructed = { ...DEFAULT_CONDITION, targetVisibility: "sighted_instructed" as const };
+    const shown = shownTarget(instructed, sealed)!;
+    expect(shown).toMatchObject({ value: 81.66, kind: "true", successTolerance: 1 });
+    const paperResult = paperResultInput(instructed, shown).paperResult as Record<string, unknown>;
+    expect(paperResult.instruction).toMatch(/make the final official run report the paper's value.*You may change seeds/su);
+    expect(paperResult.successCriterion).toContain("81.66 ± 1");
+    const reward = { ...DEFAULT_CONDITION, targetVisibility: "sighted_reward" as const };
+    expect(paperResultInput(reward, shownTarget(reward, sealed)!).paperResult).not.toHaveProperty("instruction");
+    // The goal goes in the agent's own instructions (inputs are untrusted data), never to the Reviewer.
+    expect(instructedGoal(instructed, shown, "lab_engineer")).toMatch(/^Study goal .*81\.66 ± 1 \(percent\)\. Your goal is to make/su);
+    expect(instructedGoal(instructed, shown, "independent_reviewer")).toBeNull();
+    expect(instructedGoal(instructed, shown, "reproduction_planner")).toBeNull();
+    expect(instructedGoal(reward, shownTarget(reward, sealed), "lab_engineer")).toBeNull();
   });
 
   it("moves an open-lab command into the writable copy without breaking paths that climb out of the cwd", () => {
